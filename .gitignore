@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# 开发库与演示产物
+secreq.db
+output/
+output_test/
+
+# Node / 前端
+node_modules/
+dist/

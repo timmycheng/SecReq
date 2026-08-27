@@ -1,0 +1,232 @@
+/* API 数据形态(与 schemas/*.py 对应)。枚举 code 的中文标签一律走 /api/meta/constants。 */
+
+export type LabelMap = Record<string, string>
+
+export interface ProjectInfo {
+  id: number
+  name: string
+  code: string
+  type: string
+  industry?: string | null
+  user_scale: string
+  deploy_env: string[]
+  is_public: boolean
+  pm_name?: string | null
+  dev_lead_name?: string | null
+  sec_contact_name?: string | null
+  compliance_targets: string[]
+  status: string
+  created_at?: string | null
+}
+
+export interface ProjectDetail extends ProjectInfo {
+  has_survey: boolean
+  grading_level?: string | null
+  counts: Record<string, number>
+}
+
+export interface SurveyAnswer {
+  question_id: string
+  option_id: string
+}
+
+export interface SurveyOut {
+  project_id: number
+  answers_json: SurveyAnswer[]
+  suggested_level?: string | null
+  suggested_reason?: string | null
+  final_level?: string | null
+  manual_adjust_note?: string | null
+  effective_level: string
+}
+
+export interface GradingQuestion {
+  id: string
+  title: string
+  options: { id: string; label: string; score: number; basis: string }[]
+}
+
+export interface FeatureRow {
+  id?: number
+  name: string
+  module?: string | null
+  categories: string[]
+  sensitivity: string
+  involves_payment: boolean
+  exposed_to_internet: boolean
+}
+
+export interface DataFieldRow {
+  id?: number
+  field_name: string
+  field_type: string
+  need_encrypt: boolean
+  need_mask: boolean
+  mask_rule?: string | null
+}
+
+export interface DataTableRow {
+  id?: number
+  table_name: string
+  fields: DataFieldRow[]
+}
+
+export interface DataAssetRow {
+  id?: number
+  name: string
+  data_type: string
+  classification: string
+  is_pii: boolean
+  is_sensitive_pii: boolean
+  storage_envs: string[]
+  cross_border_transfer: boolean
+  tables: DataTableRow[]
+}
+
+export interface RoleRow {
+  id?: number
+  name: string
+  role_type: string
+  user_count_estimate: number
+}
+
+export interface ResourceRow {
+  id?: number
+  name: string
+  resource_type: string
+  criticality: string
+}
+
+export interface MatrixEntryRow {
+  role_id: number
+  resource_id: number
+  action: string
+  requires_approval: boolean
+}
+
+/** 提交矩阵时 entry 以 roles/resources 数组下标定位。 */
+export interface MatrixEntryIn {
+  role_index: number
+  resource_index: number
+  action: string
+  requires_approval: boolean
+}
+
+export interface AuthConfigRow {
+  auth_methods: string[]
+  pwd_min_length?: number | null
+  pwd_complexity?: number | null
+  pwd_valid_days?: number | null
+  lockout_threshold?: number | null
+  pwd_history_limit?: number | null
+  force_2fa: boolean
+  session_timeout_min?: number | null
+  concurrent_limit?: number | null
+}
+
+export interface ComponentVulnInline {
+  cve_id: string
+  severity: string
+  cvss_score: number | null
+  affected_range: string | null
+  fix_version: string | null
+  summary: string | null
+}
+
+export interface ComponentRow {
+  id?: number
+  layer: string
+  name: string
+  version: string
+  purl?: string | null
+  license?: string | null
+  source_type: string
+  vulnerabilities: ComponentVulnInline[]
+}
+
+export interface ApiEndpointRow {
+  id?: number
+  name: string
+  path: string
+  method: string
+  auth_required: boolean
+  public_exposed: boolean
+  sensitive_asset_ids: number[]
+  rate_limit?: string | null
+}
+
+export interface InfraAssetRow {
+  id?: number
+  asset_type: string
+  name: string
+  env: string
+  ip?: string | null
+  owner?: string | null
+  holds_sensitive: boolean
+}
+
+export interface WizardState {
+  project: ProjectDetail
+  survey: SurveyOut | null
+  features: FeatureRow[]
+  data_assets: DataAssetRow[]
+  roles: RoleRow[]
+  resources: ResourceRow[]
+  permission_entries: MatrixEntryRow[]
+  auth_config: AuthConfigRow | null
+  components: ComponentRow[]
+  api_endpoints: ApiEndpointRow[]
+  infra_assets: InfraAssetRow[]
+}
+
+export interface CategoryCount {
+  code: string
+  label: string
+  count: number
+}
+
+export interface PreviewResult {
+  total: number
+  by_category: CategoryCount[]
+  by_priority: Record<string, number>
+  top_items: string[]
+}
+
+export interface GenerateSummary {
+  requirements_total: number
+  by_category: CategoryCount[]
+  vulnerabilities_total: number
+  critical_vulnerabilities: number
+  osv_summary: string
+  degraded: boolean
+  documents: Record<string, string>
+  bom_file?: string | null
+}
+
+export interface RequirementRow {
+  id: number
+  req_id: string
+  template_id: string
+  title: string
+  description: string
+  category: string
+  priority: string
+  asvs_ref?: string | null
+  acceptance_criteria: string
+  suggested_phase: string
+  source_entity_type: string
+  source_entity_id: number
+  trigger_reason: string
+  status: string
+}
+
+export interface VulnerabilityRow {
+  component_name: string
+  component_version: string
+  cve_id: string
+  severity: string
+  cvss_score: number | null
+  affected_range: string | null
+  fix_version: string | null
+  summary: string | null
+}

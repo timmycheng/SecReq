@@ -1,0 +1,630 @@
+# ============================================================
+# 安全需求知识库 v1.0
+# 对齐标准: OWASP ASVS 4.0.3 / 网络安全等级保护2.0 / 个人信息保护法
+# 说明: {{xxx}} 为占位符, 由规则引擎用项目输入的实际值替换
+# 触发器 trigger.type 枚举:
+#   feature_category   功能分类命中
+#   permission_rule    权限矩阵分析命中
+#   auth_method        认证方式命中
+#   policy_baseline    密码/会话策略(定级推导)
+#   data_asset         数据资产/字典命中
+#   api_endpoint       API接口属性命中
+#   compliance         合规目标命中
+#   vulnerability      SBOM漏洞命中
+# ============================================================
+
+meta:
+  version: "1.0"
+  asvs_version: "4.0.3"
+
+templates:
+
+  # ────────────────────────────────────────────
+  # 一、功能触发类 (V5/V11/V12/V13)
+  # ────────────────────────────────────────────
+
+  - id: SEC-V12-001
+    trigger: {type: feature_category, condition: {category: file_upload}}
+    asvs_ref: "V12.1.1"
+    title: 上传文件类型白名单校验
+    priority: high
+    suggested_phase: development
+    description: >
+      {{feature_name}}功能涉及文件上传。服务端必须基于文件内容(魔数)而非仅凭扩展名
+      校验文件类型, 仅允许业务必需的白名单格式通过, 拒绝一切双扩展名、00截断等绕过手段。
+    acceptance_criteria: >
+      1)上传非白名单格式文件被拒绝且返回明确错误; 2)将恶意文件改名为白名单后缀上传,
+      服务端可通过内容检测拦截; 3)拒绝响应不回显服务器路径。
+    trigger_reason: "输入的功能清单中存在文件上传功能「{{feature_name}}」"
+
+  - id: SEC-V12-002
+    trigger: {type: feature_category, condition: {category: file_upload}}
+    asvs_ref: "V12.3.1"
+    title: 上传文件大小与数量限制
+    priority: medium
+    suggested_phase: development
+    description: >
+      对{{feature_name}}功能的单文件大小、单次请求数量设置服务端硬性上限,
+      并做总数配额控制, 防止以大文件耗尽磁盘与带宽的DoS攻击。
+    acceptance_criteria: >
+      超限上传被服务端拒绝(非前端校验); 限额数值与设计方案一致并写入设计文档。
+    trigger_reason: "输入的功能清单中存在文件上传功能「{{feature_name}}」"
+
+  - id: SEC-V12-003
+    trigger: {type: feature_category, condition: {category: file_upload}}
+    asvs_ref: "V12.3.2"
+    title: 上传文件存储隔离与不可执行化
+    priority: critical
+    suggested_phase: design
+    description: >
+      上传文件统一存放在应用根目录之外或对象存储桶中, 目录权限去除执行位;
+      文件下载走统一的下载接口而非静态目录直链, 杜绝解析执行(Malicious File Execution)。
+    acceptance_criteria: >
+      直接以URL访问上传目录返回403/404; 上传HTML/SVG后访问不渲染脚本; nginx等网关无配置解析上传目录脚本。
+    trigger_reason: "输入的功能清单中存在文件上传功能「{{feature_name}}」"
+
+  - id: SEC-V12-004
+    trigger: {type: feature_category, condition: {category: file_upload}}
+    asvs_ref: "V12.4.1"
+    title: 上传文件病毒查杀
+    priority: high
+    suggested_phase: development
+    description: >
+      上传文件落地前经病毒扫描引擎(ClamAV或商用杀毒引擎)异步查杀,
+      未完成查杀前禁止被其他用户访问或转发下载。
+    acceptance_criteria: >
+      EICAR测试样本上传后进入隔离区无法被他人获取; 扫描状态对上传者可见。
+    trigger_reason: "输入的功能清单中存在文件上传功能「{{feature_name}}」"
+
+  - id: SEC-V5-101
+    trigger: {type: feature_category, condition: {category: file_download}}
+    asvs_ref: "V12.5.1"
+    title: 下载接口路径穿越防护与鉴权
+    priority: critical
+    suggested_phase: development
+    description: >
+      {{feature_name}}下载接口禁止拼接用户可控路径访问服务器任意文件,
+      使用数据库保存的资源ID映射物理路径; 每次下载校验当前用户对该资源的读取授权。
+    acceptance_criteria: >
+      传入 ../../etc/passwd 类参数无法读出系统文件; A租户/他人资源ID下载被拒绝并记审计日志。
+    trigger_reason: "输入的功能清单中存在文件下载功能「{{feature_name}}」"
+
+  - id: SEC-V11-201
+    trigger: {type: feature_category, condition: {category: payment}}
+    asvs_ref: "V11.1.7"
+    title: 支付交易幂等性与防重复提交
+    priority: critical
+    suggested_phase: design
+    description: >
+      {{feature_name}}支付接口以业务流水号实现幂等控制, 同一流水号重复提交返回原结果而非二次扣款;
+      关键提交按钮前端防抖+服务端分布式锁双重防重。
+    acceptance_criteria: >
+      同一报文1秒内并发提交10次, 仅产生1笔订单/扣款; 日志中出现明确的幂等命中记录。
+    trigger_reason: "输入的功能清单中存在支付交易功能「{{feature_name}}」"
+
+  - id: SEC-V5-102
+    trigger: {type: feature_category, condition: {category: payment}}
+    asvs_ref: "V5.3.4"
+    title: 交易金额与关键要素服务端校验
+    priority: critical
+    suggested_phase: development
+    description: >
+      交易金额、费率、收款账户等关键要素一律以后端计算结果为准, 不信任任何来自客户端的
+      价格/数量字段; 改包修改金额提交时交易被拒绝并告警。
+    acceptance_criteria: >
+      渗透测试修改金额字段(如0.01元购)交易失败; 报文关键字段参与签名防篡改。
+    trigger_reason: "输入的功能清单中存在支付交易功能「{{feature_name}}」"
+
+  - id: SEC-V11-202
+    trigger: {type: feature_category, condition: {category: refund}}
+    asvs_ref: "V11.1.4"
+    title: 退款额度与审批控制
+    priority: critical
+    suggested_phase: design
+    description: >
+      {{feature_name}}退款操作受单笔/日累计额度限制, 超过阈值转入人工审批流程;
+      退款账户必须为原支付账户, 禁止退款至变更后的第三方账户。
+    acceptance_criteria: >
+      超限退款单据自动冻结待审; 更换收款人信息的请求被拒并产生告警日志。
+    trigger_reason: "输入的功能清单中存在退款功能「{{feature_name}}」"
+
+  - id: SEC-V4-301
+    trigger: {type: feature_category, condition: {category: export_data}}
+    asvs_ref: "V4.1.3"
+    title: 数据导出权限管控与审计留痕
+    priority: high
+    suggested_phase: development
+    description: >
+      {{feature_name}}导出操作仅授予显式申请了导出权限的角色; 每次导出记录
+      操作人/时间/导出范围/导出行数/IP, 日志保留期不低于180天满足《网络安全法》要求。
+    acceptance_criteria: >
+      未授权角色看不到导出入口且直连接口返回403; 任取一条导出记录可在审计平台检索到对应日志。
+    trigger_reason: "输入的功能清单中存在数据导出功能「{{feature_name}}」"
+
+  - id: SEC-V8-401
+    trigger: {type: feature_category, condition: {category: export_data}}
+    asvs_ref: "V8.3.1"
+    title: 导出文件敏感字段默认脱敏
+    priority: high
+    suggested_phase: development
+    description: >
+      导出文件(Excel/PDF/CSV)中的手机号、证件号、卡号等个人信息默认执行
+      与页面展示一致的脱敏规则; 需明文的须走单独审批并获得专用下载时效链接。
+    acceptance_criteria: >
+      导出的Excel抽查PII字段全部打码; 申请明文导出流程存在审批节点。
+    trigger_reason: "输入的功能清单中存在数据导出功能「{{feature_name}}」"
+
+  - id: SEC-V5-103
+    trigger: {type: feature_category, condition: {category: comment_ugc}}
+    asvs_ref: "V5.3.3"
+    title: UGC内容XSS过滤与富文本净化
+    priority: high
+    suggested_phase: development
+    description: >
+      {{feature_name}}的用户发布内容入库前经服务端HTML标签白名单净化(DOMPurify等),
+      输出时结合上下文编码; 评论字段不做转义豁免。
+    acceptance_criteria: >
+      提交<script>alert(1)</script>后查看页不弹窗; 图片src=javascript:的payload被清除。
+    trigger_reason: "输入的功能清单中存在评论/UGC功能「{{feature_name}}」"
+
+  - id: SEC-V13-501
+    trigger: {type: feature_category, condition: {category: api_open}}
+    asvs_ref: "V13.2.2"
+    title: 开放接口签名验证与时间戳防重放
+    priority: high
+    suggested_phase: design
+    description: >
+      {{feature_name}}对外开放接口采用HMAC-SHA256签名+timestamp+nonce机制,
+      时间窗超过5分钟或nonce重复的请求直接拒绝。
+    acceptance_criteria: >
+      重放同一抓包请求第二次被拒绝; 私钥仅存放于服务端密钥管理系统。
+    trigger_reason: "输入的功能清单中存在开放API「{{feature_name}}」"
+
+  - id: SEC-V13-502
+    trigger: {type: feature_category, condition: {category: third_auth}}
+    asvs_ref: "V13.3.1"
+    title: 第三方OAuth安全(state防CSRF与回调白名单)
+    priority: high
+    suggested_phase: development
+    description: >
+      {{feature_name}}第三方登录流程中state参数随机生成并绑定会话用于防CSRF;
+      回调地址严格匹配预先登记的白名单域名, 禁止redirect_uri通配符。
+    acceptance_criteria: >
+      篡改回调地址到恶意域名的请求被拒绝; state校验失败的登录中断并记录日志。
+    trigger_reason: "输入的功能清单中存在第三方登录功能「{{feature_name}}」"
+
+  - id: SEC-V2-001
+    trigger: {type: feature_category, condition: {category: sms_email}}
+    asvs_ref: "V2.5.4"
+    title: 短信验证码发送频控与防轰炸
+    priority: high
+    suggested_phase: development
+    description: >
+      发送短信验证码前启用图形/行为验证码人机校验; 同一手机号60秒内最多1条、
+      24小时内不超过10条; 同一IP维度同步限流, 达限后静默丢弃并监控告警。
+    acceptance_criteria: >
+      连续点击发送出现冷却倒计时; 使用脚本绕过前端仍会被服务端计数拦截。
+    trigger_reason: "输入的功能清单中存在短信邮件功能「{{feature_name}}」, 存在被利用进行短信轰炸的风险"
+
+  - id: SEC-V7-001
+    trigger: {type: feature_category, condition: {category: audit_log}}
+    asvs_ref: "V7.1.1"
+    title: 审计日志完整性保护
+    priority: high
+    suggested_phase: design
+    description: >
+      {{feature_name}}相关审计日志只允许追加不允许修改删除, 应用账号不具备日志文件的
+      删除权限; 条件允许时对日志做每日摘要哈希以便事后发现篡改。
+    acceptance_criteria: >
+      以应用运行身份删除或改写日志文件失败; 等保定级测评项"审计记录保护"满足。
+    trigger_reason: "输入的功能清单中声明了审计日志功能「{{feature_name}}」"
+
+  - id: SEC-V5-104
+    trigger: {type: feature_category, condition: {category: search}}
+    asvs_ref: "V5.3.5"
+    title: 搜索功能防SQL注入与参数化查询
+    priority: critical
+    suggested_phase: development
+    description: >
+      {{feature_name}}搜索关键词进数据库层一律参数化查询或ORM绑定, 全链路禁用字符串拼接SQL;
+      关键字同时过ELK等搜索引擎的查询语法白名单。
+    acceptance_criteria: >
+      注入测试payload ' or 1=1 -- 在搜索框全部失效; 代码评审确认无f-string/format拼SQL点。
+    trigger_reason: "输入的功能清单中存在搜索功能「{{feature_name}}」, 用户输入直达数据检索链路"
+
+  - id: SEC-V8-402
+    trigger: {type: feature_category, condition: {category: message_push}}
+    asvs_ref: "V8.2.2"
+    title: 消息推送内容脱敏
+    priority: medium
+    suggested_phase: development
+    description: >
+      {{feature_name}}推送文案中出现的卡号尾四位之外的卡号信息、姓名、金额不做超额暴露,
+      采用「尾号XXXX」「某某某」样式脱敏模板。
+    acceptance_criteria: >
+      随机抽样推送消息无完整卡号/完整证件号明文出现。
+    trigger_reason: "输入的功能清单中存在消息推送功能「{{feature_name}}」"
+
+  - id: SEC-V11-203
+    trigger: {type: feature_category, condition: {category: ai_feature}}
+    asvs_ref: "V1.2.4"
+    title: AI功能提示注入与大模型数据出境审查
+    priority: high
+    suggested_phase: design
+    description: >
+      {{feature_name}}调用大模型能力需防范Prompt Injection导致越权指令执行:
+      用户输入与系统指令分隔, 工具调用授权最小化; 所投喂的数据不含机密分级资产,
+      若模型服务涉及境外接口须先行完成数据出境合规评估。
+    acceptance_criteria: >
+      构造诱导性Prompt无法绕过角色边界执行未授权动作; 出境评估结论已归档。
+    trigger_reason: "输入的功能清单中存在AI功能「{{feature_name}}」, 属于新增高风险面"
+
+  - id: SEC-V2-007
+    trigger: {type: feature_category, condition: {category: auth_login}}
+    asvs_ref: "V2.2.3"
+    title: 敏感操作二次认证(Step-up Authentication)
+    priority: high
+    suggested_phase: development
+    description: >
+      {{feature_name}}功能上线后, 低保证会话执行改绑手机、大额转账、修改安全设置等敏感操作时,
+      必须重新验证第二因子(短信/OTP/UKey)而非仅凭已登录状态放行。
+    acceptance_criteria: >
+      已登录用户发起改绑手机号被要求重新验证; 会话保证级别不足时跳转认证页而非直接执行。
+    trigger_reason: "输入的功能清单中存在登录认证功能「{{feature_name}}」"
+
+  - id: SEC-V2-008
+    trigger: {type: feature_category, condition: {category: password_mgmt}}
+    asvs_ref: "V2.1.7"
+    title: 改密与找回流程身份复核
+    priority: high
+    suggested_phase: development
+    description: >
+      {{feature_name}}功能的修改密码必须校验原口令或强身份因子后放行;
+      找回密码链路不得泄露"账号是否存在", 完成改密后作废该账号全部既有会话。
+    acceptance_criteria: >
+      原口令错误时修改请求被拒绝; 枚举找回接口无法区分已注册与未注册手机号; 改密成功后旧会话失效。
+    trigger_reason: "输入的功能清单中存在密码管理功能「{{feature_name}}」"
+
+  - id: SEC-V4-305
+    trigger: {type: feature_category, condition: {category: admin_console}}
+    asvs_ref: "V4.7.1"
+    title: 管理后台访问面收敛
+    priority: critical
+    suggested_phase: design
+    description: >
+      {{feature_name}}不得暴露于公网可直达路径: 仅允许行内专网/堡垒机访问,
+      或叠加IP白名单与管理员独立域名; 默认管理路径改名并禁用目录列表与调试端点。
+    acceptance_criteria: >
+      公网访问管理入口返回404或403; 堡垒机审计纳管全部管理员会话; Swagger等调试端点生产环境关闭。
+    trigger_reason: "输入的功能清单中存在管理后台「{{feature_name}}」"
+
+  - id: SEC-V4-306
+    trigger: {type: feature_category, condition: {category: order}}
+    asvs_ref: "V4.2.1"
+    title: 订单业务对象归属校验(防水平越权)
+    priority: critical
+    suggested_phase: development
+    description: >
+      {{feature_name}}的每个读写操作在服务端校验订单归属者与会话主体一致,
+      拒绝通过遍历递增单号查看他人订单; 列表接口强制追加租户/客户维度过滤条件。
+    acceptance_criteria: >
+      以他人订单号发起查询返回403并记审计日志; 压测遍历连续订单号无越权数据返回。
+    trigger_reason: "输入的功能清单中存在订单类功能「{{feature_name}}」"
+
+  # ────────────────────────────────────────────
+  # 二、权限矩阵分析类 (V4)
+  # ────────────────────────────────────────────
+
+  - id: SEC-V4-002
+    trigger: {type: permission_rule, rule_key: critical_action_without_approval}
+    asvs_ref: "V4.1.2"
+    title: 关键资源高危操作补充审批流
+    priority: critical
+    suggested_phase: design
+    description: >
+      权限矩阵显示以下高危操作缺少审批环节: {{detail_list}}。
+      针对关键级(critical)资源的删除/导出/审批/配置变更操作, 必须配置双人复核或上级审批,
+      实现"经办-复核"职责分离。
+    acceptance_criteria: >
+      每一条列出的操作在设计说明书中有对应的审批节点定义; 直连API执行该操作时先创建审批单而非立即生效。
+    trigger_reason: "权限矩阵分析检出上述操作定义为高危却允许单人即时生效"
+
+  - id: SEC-V4-003
+    trigger: {type: permission_rule, rule_key: sod_conflict}
+    asvs_ref: "V4.1.1"
+    title: 权限矩阵职责分离冲突整改
+    priority: critical
+    suggested_phase: design
+    description: >
+      角色「{{role_name}}」同时持有互斥权限组合({{conflict_pairs}}),
+      存在同一人既当运动员又当裁判员的舞弊风险, 需拆分角色或引入第二人审批。
+    acceptance_criteria: >
+      该角色不再同时具备冲突对两侧的操作权; 若确因小团队无法拆分, 必须在风险披露书中书面说明并补强制双人复核。
+    trigger_reason: "SoD规则扫描权限矩阵命中互斥组合"
+
+  - id: SEC-V4-004
+    trigger: {type: permission_rule, rule_key: super_admin_exists}
+    asvs_ref: "V4.2.1"
+    title: 特权账号最小化管理
+    priority: high
+    suggested_phase: design
+    description: >
+      项目计划设立super_admin角色(预计{{user_count}}人)。特权账号应遵循最小权限原则:
+      数量收敛、实名唯一(禁止共享)、开启操作全程录屏/命令审计、支持临时提权而非常驻全量权限。
+    acceptance_criteria: >
+      特权账号清单入册并在堡垒机纳管; 紧急通道提权操作留存审批与操作录像。
+    trigger_reason: "权限矩阵包含super_admin角色"
+
+  - id: SEC-V1-001
+    trigger: {type: permission_rule, rule_key: always}
+    asvs_ref: "V4.1.5"
+    title: 服务端集中式访问控制
+    priority: critical
+    suggested_phase: design
+    description: >
+      所有接口的授权判断必须在服务端强制执行, 拒绝信任前端隐藏菜单/隐藏按钮;
+      水平越权防护要求对单据、订单等业务对象校验资源归属者(session主体)。
+    acceptance_criteria: >
+      以普通用户token携带他人resource_id发起读写请求均返回403; BAPP端遗漏hidden入口不能获得任何未授权能力。
+    trigger_reason: "凡有权限矩阵的项目均适用"
+
+  # ────────────────────────────────────────────
+  # 三、认证与会话类 (V2/V3)
+  # ────────────────────────────────────────────
+
+  - id: SEC-V2-002
+    trigger: {type: auth_method, method: sms_otp}
+    asvs_ref: "V2.5.2"
+    title: 短信OTP验证码生命周期安全
+    priority: high
+    suggested_phase: development
+    description: >
+      短信验证码采用随机6位数字以上, 有效期不超过5分钟, 校验一次即作废;
+      验证码在服务端哈希暂存不落明文日志, 错误尝试超过3次即作废该码。
+    acceptance_criteria: >
+      过期验证码与已用过的验证码再次提交均无效; 后端日志中grep不到验证码明文。
+    trigger_reason: "身份认证方式勾选了「短信验证码」"
+
+  - id: SEC-V2-003
+    trigger: {type: auth_method, method: biometric}
+    asvs_ref: "V2.1.1"
+    title: 生物识别认证活体与降级控制
+    priority: high
+    suggested_phase: design
+    description: >
+      若启用人脸/指纹认证, 必须带活体检测防止照片视频伪造;
+      生物特征原始数据不出设备本地比对, 仅存储特征摘要; 须保留密码兜底因子以防传感器失效锁死用户。
+    acceptance_criteria: >
+      打印照片攻击被活体检测拒绝; 服务端与网络日志检索不到生物特征原图。
+    trigger_reason: "身份认证方式勾选了「生物识别」"
+
+  - id: SEC-V2-004
+    trigger: {type: policy_baseline, rule_key: force_2fa}
+    asvs_ref: "V2.2.1"
+    title: 重要用户多因素认证
+    priority: high
+    suggested_phase: design
+    description: >
+      项目用户规模{{user_scale}}、当前为{{grading_text}}系统, 管理员及资金操作用户
+      强制启用双因素认证(口令+动态令牌/短信/UKey), 不可选择关闭。
+    acceptance_criteria: >
+      管理后台登录除口令外必须二次验证; 单一因素泄漏时攻击者无法登入管理侧。
+    trigger_reason: "定级结果与用户规模达到MFA强制线"
+
+  - id: SEC-V3-001
+    trigger: {type: policy_baseline, rule_key: session_timeout}
+    asvs_ref: "V3.3.2"
+    title: 会话超时与登出失效
+    priority: medium
+    suggested_phase: development
+    description: >
+      会话空闲超时时间不超过{{session_timeout_min}}分钟; 用户主动登出或修改密码后,
+      服务端立刻注销该用户全部有效Token(JWT黑名单或版本号失效), 不依赖客户端自觉销毁。
+    acceptance_criteria: >
+      挂起空闲期后刷新页面被踢回登录页; 改密前的旧token继续请求返回401。
+    trigger_reason: "依据当前密码策略与定级默认基线"
+
+  # ────────────────────────────────────────────
+  # 四、密码策略类 (V2/V6) —— 参数来自 Step6 密码策略设计器
+  # ────────────────────────────────────────────
+
+  - id: SEC-V2-005
+    trigger: {type: policy_baseline, rule_key: password_strength}
+    asvs_ref: "V2.1.12"
+    title: 口令强度与轮换策略
+    priority: critical
+    suggested_phase: design
+    description: >
+      本项目({{grading_text}})口令策略: 最小长度{{pwd_min_length}}位,
+      至少包含{{pwd_complexity}}类字符, 有效期{{pwd_valid_days}}天, 近{{pwd_history_limit}}次不得重复;
+      新口令与最近使用口令相似度比对防增量篡改, 入库加盐慢哈希(bcrypt/SM3)不明文。
+    acceptance_criteria: >
+      设置弱口令被实时拒绝; 数据库表查询无明文口令; 改密历史检查生效。
+    trigger_reason: "Step6密码策略设计器输出值"
+
+  - id: SEC-V2-006
+    trigger: {type: policy_baseline, rule_key: lockout_threshold}
+    asvs_ref: "V2.2.1"
+    title: 登录失败锁定与人性化提示
+    priority: high
+    suggested_phase: development
+    description: >
+      同一账号连续失败达{{lockout_threshold}}次锁定并通知本人解锁渠道;
+      登录失败统一返回"用户名或口令错误", 杜绝枚举探测; 解锁验证手段强于正常登录(如人脸/短信双证)。
+    acceptance_criteria: >
+      使用不存在用户和错口令的响应报文一致; 锁定后爆破请求停止接受。
+    trigger_reason: "Step6密码策略设计器输出值"
+
+  # ────────────────────────────────────────────
+  # 五、数据资产与数据字典类 (V6/V8)
+  # ────────────────────────────────────────────
+
+  - id: SEC-V6-001
+    trigger: {type: data_asset, condition: {classification: 机密}}
+    asvs_ref: "V6.2.1"
+    title: 机密级数据三重防护
+    priority: critical
+    suggested_phase: design
+    description: >
+      数据资产「{{asset_name}}」(机密级)落实加密存储(TDE或字段级国密算法)、
+      强制TLS1.2+/国密SSL传输加密、访问全量审计三层防护; 密钥托管行内KMS, 禁止写入代码仓。
+    acceptance_criteria: >
+      数据库dump文件中该资产字段不可读; 抓包不可见明文; 每次读取可在审计平台查到主体。
+    trigger_reason: "数据字典中定义了机密级资产「{{asset_name}}」"
+
+  - id: SEC-V8-403
+    trigger: {type: data_asset, condition: {is_sensitive_pii: true}}
+    asvs_ref: "V8.1.1"
+    title: 敏感个人信息单独同意与收集最小化
+    priority: critical
+    suggested_phase: design
+    description: >
+      「{{asset_name}}」属个保法项下敏感个人信息, 处理前须取得单独同意而非捆绑概括授权;
+      按"最少够用"原则重新核对采集字段, 禁止超出业务目的处理; 提供撤回同意与删除渠道。
+    acceptance_criteria: >
+      UI存在独立弹窗告知目的/方式/范围并可单独拒绝; 表单未填写不阻断无关主流程。
+    trigger_reason: "数据资产「{{asset_name}}」标记为敏感PII"
+
+  - id: SEC-V5-105
+    trigger: {type: data_asset, condition: {mask_fields_any_of: [phone_number, id_card, bank_card]}}
+    asvs_ref: "V5.4.2"
+    title: PII字段页面展示默认脱敏
+    priority: high
+    suggested_phase: development
+    description: >
+      数据字典中标定的手机号/证件号/银行卡号字段, 页面与打印输出一律执行脱敏
+      (如138****8000), 明文查看属于一次额外授权动作并逐笔留痕。
+    acceptance_criteria: >
+      列表页捕获DOM取到的均为掩码值; 点击查看明细产生"查看明文"审计事件。
+    trigger_reason: "数据字典命中需脱敏字段类型"
+
+  - id: SEC-V7-002
+    trigger: {type: data_asset, condition: {has_log_leakage_risk: true}}
+    asvs_ref: "V7.3.1"
+    title: 防止敏感数据落日志
+    priority: high
+    suggested_phase: development
+    description: >
+      「{{asset_name}}」标记了可能随框架日志外泄的链路(logger.debug整对象序列化等)。
+      日志组件统一接入脱敏converter, 禁止将DTO整体print/log, ELK等日志平台需按敏感等级配置访问权限。
+    acceptance_criteria: >
+      构造含真实PII的正常交易后, 到日志平台检索不到该号码明文。
+    trigger_reason: "数据资产的存储位置多选中包含log"
+
+  - id: SEC-V8-404
+    trigger: {type: data_asset, condition: {cross_border: true}}
+    asvs_ref: "V8.1.4"
+    title: 数据出境合规评估前置
+    priority: critical
+    suggested_phase: design
+    description: >
+      「{{asset_name}}」涉及跨境传输, 在开发启动前必须完成数据出境安全评估申报或签署
+      标准合同条款备案, 并取得法务出具的可入境结论; 评估未过则该链路熔断。
+    acceptance_criteria: >
+      归档申报材料编号与结论; 网络出口对该数据方向实施DLP策略监控。
+    trigger_reason: "数据资产「{{asset_name}}」勾选了出境属性"
+
+  # ────────────────────────────────────────────
+  # 六、API接口类 (V13)
+  # ────────────────────────────────────────────
+
+  - id: SEC-V13-503
+    trigger: {type: api_endpoint, condition: {public_exposed: true}}
+    asvs_ref: "V13.1.3"
+    title: 公网暴露接口纵深防护
+    priority: critical
+    suggested_phase: design
+    description: >
+      接口{{api_path}}暴露于公网, 除应用层认证外还须: 接入WAF+CC攻击限流
+      (建议阈值{{rate_limit}}QPS/IP)、统一入口走HTTPS+HSTS、Response头关闭Server/X-Powered-By指纹。
+    acceptance_criteria: >
+      以http://方式访问302跳https; burst压测触发网关限流返回429; 禁用单接口做Chaos压测不影响相邻路由可用性。
+    trigger_reason: "API清单中「{{api_name}}」勾选公网暴露"
+
+  - id: SEC-V13-504
+    trigger: {type: api_endpoint, condition: {auth_required: false}}
+    asvs_ref: "V13.2.1"
+    title: 匿名接口专项安全评估
+    priority: critical
+    suggested_phase: test
+    description: >
+      接口{{api_path}}设置为无需认证。每一个匿名接口都须书面回答: 信息是否均可公开?
+      是否可能被恶意批量调用? 并列入渗透测试重点用例, 建议叠加图形验证码或设备指纹风控。
+    acceptance_criteria: >
+      设计文档存在匿名接口风险评估段落; 脚本1000rps批量调用被拦截图灵识别。
+    trigger_reason: "API清单中「{{api_name}}」免认证"
+
+  - id: SEC-V8-405
+    trigger: {type: api_endpoint, condition: {touches_sensitive_asset: true}}
+    asvs_ref: "V8.3.2"
+    title: 敏感接口的报文日志脱敏
+    priority: high
+    suggested_phase: development
+    description: >
+      「{{api_name}}」的请求与响应关联资产「{{asset_name}}」, 其网关/APM访问日志、
+      链路追踪span、错误堆栈中的报文体都必须经过字段级脱敏后再持久化。
+    acceptance_criteria: >
+      网关样本日志、Jaeger tracing页面抽查无PII明文; 日志脱敏规则在中间件层统一配置不可绕过。
+    trigger_reason: "API清单将该接口关联至敏感资产"
+
+  # ────────────────────────────────────────────
+  # 七、合规映射类
+  # ────────────────────────────────────────────
+
+  - id: SEC-CMP-701
+    trigger: {type: compliance, target: djcp_l3}
+    asvs_ref: "V1.1.1"
+    title: 等保三级技术条款落实清单
+    priority: high
+    suggested_phase: design
+    description: >
+      项目按等保三级建设, 需在总体设计中逐条映射以下技术要求并提供证据物:
+      三员分离管理、双因子管理员认证、全流量与关键区段入侵检测/防御、防病毒病毒库更新机制、
+      异地数据备份与定期恢复演练、审计记录留存≥6个月、漏洞与补丁季度巡检闭环。
+    acceptance_criteria: >
+      设计书附《等保三级条款映射表》且不留空项; 测评前预评估高风险项全部闭环。
+    trigger_reason: "定级问卷最终确认等级为三级"
+
+  - id: SEC-CMP-702
+    trigger: {type: compliance, target: pipl}
+    asvs_ref: "V8.1.1"
+    title: 个人信息保护法专项条款核查
+    priority: high
+    suggested_phase: design
+    description: >
+      对照《个人信息保护法》第17/23/44-47/55条逐项自查: 隐私政策告知充分性、向第三方提供是否单独告知授权、
+      自动化决策透明度、主体查阅复制更正删除响应渠道(15个工作日内)、对含敏感PII的处理活动开展个人信息保护影响评估PIA。
+    acceptance_criteria: >
+      官方隐私政策能定位每一处收集场景的说明; 客服工单演练主体权利请求在时限内闭环; PIA报告已完成签发。
+    trigger_reason: "合规目标勾选了《个人信息保护法》且项目中存在PII资产"
+
+  - id: SEC-CMP-703
+    trigger: {type: compliance, target: pci_dss}
+    asvs_ref: "V6.4.3"
+    title: 银行卡数据处理PCI-DSS核心条款
+    priority: critical
+    suggested_phase: design
+    description: >
+      涉卡环节满足PAN全程不落磁盘、显示截断至前6后4、索引文件亦不得全文留存;
+      支付链路强制经PCI-DSS认证的通道商而不自研缓存; 季度ASV外部漏扫达标。
+    acceptance_criteria: >
+      渗透测试无法从库表/缓存/日志还原完整卡号; ASV季度扫描分数合格。
+    trigger_reason: "合规目标勾选了PCI-DSS"
+
+  # ────────────────────────────────────────────
+  # 八、SBOM漏洞联动类 (V14)
+  # ────────────────────────────────────────────
+
+  - id: SEC-V14-801
+    trigger: {type: vulnerability, severity_range: [high, critical]}
+    asvs_ref: "V14.2.6"
+    title: 第三方组件高危漏洞整改
+    priority: critical
+    suggested_phase: development
+    description: >
+      SBOM组件扫描发现高危及以上漏洞: {{vuln_summary}}。请在{{fix_deadline_days}}个工作日内
+      升级到修复版或提供官方缓解方案(如配置临时屏蔽); 若组件厂商未出补丁, 启动替代组件选型评估
+      并上报残留风险审批。
+    acceptance_criteria: >
+      SBOM平台复扫该项清零或有合规的risk_accepted记录; 无法修复的条目出现在上线风险披露书附件中。
+    trigger_reason: "OSV/NVD联动查询命中 {{cve_list}}"

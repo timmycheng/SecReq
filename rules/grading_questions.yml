@@ -1,0 +1,100 @@
+# 等保定级问卷题库(DESIGN.md 模块1 Step2)
+# 由安全中心维护判定依据文案与分值, 修改不涉及代码变更。
+# score 语义: 分值越高风险越高; tags 用于跨题组合判定(见 levels.combined_tags)。
+version: 1
+
+questions:
+  - id: Q1
+    title: 系统是否处理公民个人信息？是否含敏感个人信息（金融账户/生物识别/身份信息）？
+    options:
+      - id: A
+        label: 不处理公民个人信息
+        score: 0
+        basis: 未处理个人信息
+      - id: B
+        label: 处理公民个人信息，不含敏感个人信息
+        score: 2
+        basis: 处理一般个人信息
+      - id: C
+        label: 含敏感个人信息（金融账户/生物识别/身份信息等）
+        score: 4
+        basis: 处理敏感个人信息
+        tags: [sensitive_pii]
+
+  - id: Q2
+    title: 系统是否涉及资金交易或直接影响客户资金安全？
+    options:
+      - id: A
+        label: 不涉及资金
+        score: 0
+        basis: 不涉及资金交易
+      - id: B
+        label: 间接涉及（仅展示/对账类，不直接动账）
+        score: 2
+        basis: 间接涉及资金信息
+      - id: C
+        label: 直接涉及资金交易或影响客户资金安全
+        score: 4
+        basis: 直接涉及资金交易
+        tags: [funds]
+
+  - id: Q3
+    title: 系统服务对象是否为社会公众/企业客户/仅内部员工？
+    options:
+      - id: A
+        label: 仅内部员工
+        score: 1
+        basis: 服务对象为内部员工
+      - id: B
+        label: 企业客户
+        score: 2
+        basis: 服务对象为企业客户
+      - id: C
+        label: 社会公众
+        score: 3
+        basis: 服务对象为社会公众
+
+  - id: Q4
+    title: 系统受攻击或破坏后影响范围？
+    options:
+      - id: A
+        label: 无影响或影响轻微
+        score: 0
+        basis: 受破坏后无实质影响
+      - id: B
+        label: 单一业务受影响
+        score: 1
+        basis: 受破坏后单业务受影响
+      - id: C
+        label: 全行业务受影响
+        score: 3
+        basis: 受破坏后全行受影响
+      - id: D
+        label: 危害社会秩序/公共利益
+        score: 4
+        basis: 受破坏后危害社会秩序
+
+  - id: Q5
+    title: 系统是否为其他重要系统的依赖底座？
+    options:
+      - id: A
+        label: 不是任何系统的依赖底座
+        score: 0
+        basis: 非依赖底座
+      - id: B
+        label: 是其他重要系统的依赖底座之一
+        score: 2
+        basis: 属于重要系统依赖底座
+
+# 定级阈值: 从高到低首个命中的档位即建议定级。
+# combined_tags: 同时命中列内全部标签时无论总分直接进该档。
+levels:
+  - level: 三级
+    min_score: 12
+    combined_tags: [sensitive_pii, funds]
+  - level: 二级
+    min_score: 7
+    combined_tags: []
+  - level: 一级
+    min_score: 0
+    combined_tags: []
