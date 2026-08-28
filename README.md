@@ -159,7 +159,8 @@ SecReq/
 - 全部版本变更见 [CHANGELOG.md](CHANGELOG.md);
 - 发布流程:推送 `vX.Y.Z` 版本 tag → CI 自动运行 pytest → 构建并推送 Docker 镜像到
   `ghcr.io/timmycheng/secreq`(同时打 `X.Y.Z` / `X.Y` / `latest` 标签)→
-  自动创建 GitHub Release 并附离线镜像包(`secreq-image-vX.Y.Z.tar.gz`)。
+  自动创建 GitHub Release:正文包含 CHANGELOG 中对应版本的变更内容,
+  并附离线镜像包(`secreq-image-vX.Y.Z.tar.gz`)。
 
 ## 路线图
 

@@ -4,7 +4,8 @@
 
 **发布流程**:推送 `vX.Y.Z` 格式的版本 tag → CI 自动运行测试 → 构建并推送 Docker 镜像
 到 `ghcr.io/timmycheng/secreq`(同时打 `X.Y.Z` / `X.Y` / `latest` 标签)→
-自动创建 GitHub Release,并附上对应的离线镜像包(`docker save` 产物)。
+自动创建 GitHub Release,正文包含本文件中对应版本的变更内容,并附上对应的
+离线镜像包(`docker save` 产物)。
 
 ## [2.1.0] - 2026-08-28
 
