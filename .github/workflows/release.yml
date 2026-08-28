@@ -1,0 +1,110 @@
+name: Release
+
+# 推送 v* 版本 tag 触发: 测试 → 构建并推送 GHCR 镜像 → 创建 Release 并附离线镜像包
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write   # 创建 Release 与上传附件
+  packages: write   # 推送镜像到 GHCR
+
+# GHCR 镜像名必须小写
+env:
+  IMAGE: ghcr.io/timmycheng/secreq
+
+jobs:
+  test:
+    name: 测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      # OSV 查询使用 MockTransport, 测试不出网
+      - name: 运行测试
+        run: python -m pytest tests -q
+
+  docker:
+    name: 构建并推送镜像
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # v2.1.0 → 镜像标签 2.1.0 / 2.1 / latest
+      - name: 生成镜像标签
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: 构建并推送
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    name: 创建 Release 并附镜像包
+    needs: docker
+    runs-on: ubuntu-latest
+    steps:
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 导出离线镜像包
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          docker pull "${IMAGE}:${VERSION}"
+          docker save "${IMAGE}:${VERSION}" | gzip > "secreq-image-${VERSION}.tar.gz"
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: secreq-image-*.tar.gz
+          generate_release_notes: true
+          body: |
+            ## Docker 部署
+
+            ```bash
+            # 在线拉取
+            docker run -d --name secreq -p 8000:8000 \
+              -v secreq-data:/app/data -v secreq-output:/app/output \
+              ${{ env.IMAGE }}:${{ github.ref_name }}
+
+            # 离线导入(下载下方附件 secreq-image-*.tar.gz 后)
+            docker load -i secreq-image-${{ github.ref_name }}.tar.gz
+            ```
+
+            启动后访问 http://localhost:8000,演示账号见 README。

@@ -1,0 +1,22 @@
+# 版本控制与本地环境
+.git
+.gitignore
+.venv
+.pytest_cache
+__pycache__
+**/__pycache__
+.zcode
+
+# 前端依赖与本地构建产物(镜像内重新构建)
+node_modules
+**/node_modules
+frontend/dist
+
+# 本地数据与产物(容器内挂载卷, 不打入镜像)
+secreq.db
+output
+
+# 不参与运行的内容
+tests
+.github
+*.md

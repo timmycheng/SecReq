@@ -1,0 +1,8 @@
+# 换行符统一: 仓库内 LF, 避免在 Windows 上开发的 YAML/Dockerfile 以 CRLF 入库影响 CI
+* text=auto
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.bat text eol=crlf
+*.ps1 text eol=crlf

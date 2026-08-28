@@ -23,7 +23,8 @@ from routers.common import auth_guard
 
 ROOT_DIR = Path(__file__).resolve().parent
 
-engine = make_engine(f"sqlite:///{ROOT_DIR / 'secreq.db'}")
+# 数据库连接: 默认 sqlite:///<项目根>/secreq.db, 容器部署经 SECREQ_DATABASE_URL 指向挂载卷
+engine = make_engine()
 SessionLocal = make_session_factory(engine)
 
 
@@ -74,10 +75,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-engine = make_engine(f"sqlite:///{ROOT_DIR / 'secreq.db'}")
-SessionLocal = make_session_factory(engine)
-
 
 @app.get("/api/health")
 def health() -> dict:
