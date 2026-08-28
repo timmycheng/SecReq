@@ -1,12 +1,14 @@
-/* Step4 数据字典与数据资产: 资产 → 数据表 → 字段 三级结构。
+/* Step4 数据字典与数据资产: 资产 → 数据表 → 字段 三级结构; 支持粘贴/上传字典自动分级。
    资产分类分级决定加密/脱敏/合规需求触发; 字段名参与脱敏规则正则匹配。
    字段编辑为表卡片内的行内编辑区, 避免多层弹窗嵌套。 */
 import { useRef, useState } from 'react'
 import {
-  Button, Checkbox, Divider, Form, Input, Modal, Popconfirm, Select, Space,
-  Table, Tag, Tooltip, Typography, message,
+  Alert, Button, Checkbox, Divider, Form, Input, Modal, Popconfirm, Select,
+  Space, Spin, Table, Tag, Tooltip, Typography, Upload, message,
 } from 'antd'
-import { DatabaseOutlined, DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
+import {
+  DatabaseOutlined, DeleteOutlined, EditOutlined, ImportOutlined, PlusOutlined,
+} from '@ant-design/icons'
 
 import { api } from '../../api'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
@@ -26,6 +28,7 @@ export default function Step4DataAssets({ ws, patch }: StepProps) {
   const [rows, setRows] = useState<DataAssetRow[]>(ws.data_assets)
   const [editing, setEditing] = useState<DataAssetRow | null>(null)
   const [editIndex, setEditIndex] = useState(-1)
+  const [importOpen, setImportOpen] = useState(false)
   const savedRef = useRef(JSON.stringify(rows))
 
   const openAdd = () => { setEditIndex(-1); setEditing({ ...EMPTY_ASSET }) }
@@ -60,11 +63,14 @@ export default function Step4DataAssets({ ws, patch }: StepProps) {
 
   return (
     <div style={{ maxWidth: 1080, margin: '0 auto' }}>
-      <Space style={{ marginBottom: 12 }}>
+      <Space style={{ marginBottom: 12 }} wrap>
         <Button icon={<PlusOutlined />} onClick={openAdd}>新增数据资产</Button>
+        <Button type="primary" ghost icon={<ImportOutlined />} onClick={() => setImportOpen(true)}>
+          粘贴/上传数据字典自动分级
+        </Button>
         <Typography.Text type="secondary">
           本步描述系统处理了哪些数据。共 {rows.length} 个资产 ·
-          先建资产(分类/分级), 再在其下维护表与字段; 分级与敏感个人信息标记决定加密/脱敏/合规需求
+          贴入表/字段清单可自动分级并建议脱敏字段, 分级与敏感个人信息标记决定加密/脱敏/合规需求
         </Typography.Text>
       </Space>
 
@@ -110,6 +116,22 @@ export default function Step4DataAssets({ ws, patch }: StepProps) {
             ),
           },
         ]}
+      />
+
+      <DictionaryImportModal
+        projectId={ws.project.id}
+        open={importOpen}
+        existingNames={rows.map((r) => r.name)}
+        onClose={() => setImportOpen(false)}
+        onConfirm={(assets) => {
+          const existing = new Set(rows.map((r) => r.name))
+          const fresh = assets.filter((a) => !existing.has(a.name))
+          setRows([...rows, ...fresh])
+          setImportOpen(false)
+          const skipped = assets.length - fresh.length
+          message.success(
+            `已导入 ${fresh.length} 个数据资产${skipped ? `(重名跳过 ${skipped} 个)` : ''}, 请核对分级后点「保存并下一步」落库`)
+        }}
       />
 
       {editing !== null && (
@@ -370,5 +392,128 @@ function FieldEditor({ initial, onSave, onCancel, onRemove, enums }: {
         </Space>
       </Space>
     </div>
+  )
+}
+
+/** 数据字典导入: 粘贴文本或上传 xlsx/csv → 后端解析+自动分级 → 预览确认(分级可改) → 加入清单。 */
+function DictionaryImportModal({ projectId, open, existingNames, onClose, onConfirm }: {
+  projectId: number
+  open: boolean
+  existingNames: string[]
+  onClose: () => void
+  onConfirm: (assets: DataAssetRow[]) => void
+}) {
+  const enums = useEnums()
+  const [text, setText] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [assets, setAssets] = useState<DataAssetRow[] | null>(null)
+  const [rowCount, setRowCount] = useState(0)
+  const [note, setNote] = useState<string | null>(null)
+  const levelLabels = labelMapOf(enums, 'data_level_labels')
+  const levelOptions = ((enums['data_levels'] as string[]) ?? []).map((code) => ({
+    value: code, label: levelLabels[code] ?? code,
+  }))
+
+  const applyResult = (result: { row_count: number; assets: DataAssetRow[] }) => {
+    setAssets(result.assets)
+    setRowCount(result.row_count)
+    setNote(`解析 ${result.row_count} 行, 生成 ${result.assets.length} 个资产(每张表一个)。分级为按字段名自动推断, 请逐个核对。`)
+  }
+
+  const doParseText = async () => {
+    if (!text.trim()) { message.warning('请先粘贴字典内容'); return }
+    setLoading(true)
+    try {
+      applyResult(await api.parseDictionary(projectId, text))
+    } catch (e) {
+      message.error((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const doUpload = async (file: File) => {
+    setLoading(true)
+    try {
+      applyResult(await api.importDictionaryFile(projectId, file))
+    } catch (e) {
+      message.error((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+    return false
+  }
+
+  const updateLevel = (index: number, level: string) => {
+    if (!assets) return
+    const copy = [...assets]
+    copy[index] = { ...copy[index], classification: level }
+    setAssets(copy)
+  }
+
+  return (
+    <Modal
+      title="粘贴/上传数据字典, 自动识别数据分级"
+      open={open} onCancel={onClose} width={920}
+      footer={[
+        <Button key="cancel" onClick={onClose}>取消</Button>,
+        assets && assets.length > 0 && (
+          <Button key="ok" type="primary"
+            onClick={() => onConfirm(assets.filter((a) => !existingNames.includes(a.name)))}>
+            确认导入 {assets.filter((a) => !existingNames.includes(a.name)).length} 个资产
+          </Button>
+        ),
+      ]}
+    >
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+        每行一条: <b>表名 + 字段名 + 类型</b>(Tab/逗号/竖线分隔, 支持 Excel 直接复制粘贴),
+        或上传 .xlsx/.csv 文件。系统按字段名自动推断分级(JR/T 0197)、PII 标记与脱敏建议。
+      </Typography.Paragraph>
+      <Input.TextArea
+        rows={6}
+        placeholder={'示例(Excel 里选中表格区域直接 Ctrl+C 粘贴即可):\ncustomer_info\t客户姓名\tVARCHAR(64)\ncustomer_info\tmobile_phone\tVARCHAR(16)\ncustomer_info\tid_card_no\tVARCHAR(32)\naccount\tbalance\tDECIMAL'}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <Space style={{ margin: '10px 0' }} wrap>
+        <Button type="primary" loading={loading} onClick={() => void doParseText()}>解析并自动分级</Button>
+        <Upload accept=".xlsx,.xlsm,.csv,.tsv,.txt" showUploadList={false} beforeUpload={(f) => void doUpload(f) as unknown as boolean}>
+          <Button icon={<ImportOutlined />}>上传文件(.xlsx/.csv)</Button>
+        </Upload>
+        {note && <Typography.Text type="secondary">{note}</Typography.Text>}
+      </Space>
+
+      {loading && <Spin style={{ display: 'block', margin: '12px auto' }} />}
+      {assets && assets.length > 0 && (
+        <Table<DataAssetRow>
+          rowKey={(r) => r.name}
+          dataSource={assets}
+          pagination={false}
+          size="small"
+          columns={[
+            { title: '表/资产', dataIndex: 'name' },
+            { title: '字段数', render: (_v, r) => r.tables.reduce((n, t) => n + t.fields.length, 0), width: 80 },
+            { title: '建议分级(可改)', dataIndex: 'classification', width: 220,
+              render: (v: string, _r, index) => (
+                <Select size="small" style={{ width: 200 }} value={v} options={levelOptions}
+                  onChange={(next) => updateLevel(index, next)} />
+              ) },
+            { title: '个人信息', render: (_v, r) => (r.is_sensitive_pii ? <Tag color="red">敏感PII</Tag>
+              : r.is_pii ? <Tag color="gold">PII</Tag> : '—') },
+            { title: '建议脱敏字段', render: (_v, r) => {
+              const masked = r.tables.flatMap((t) => t.fields.filter((f) => f.need_mask).map((f) => f.field_name))
+              return masked.length ? masked.join('、') : '—'
+            } },
+          ]}
+        />
+      )}
+      {assets && assets.every((a) => existingNames.includes(a.name)) && (
+        <Alert style={{ marginTop: 8 }} type="warning" showIcon
+          message="解析出的表都已存在, 确认导入后不会新增任何资产" />
+      )}
+      {rowCount > 0 && assets && assets.length === 0 && (
+        <Alert style={{ marginTop: 8 }} type="warning" showIcon message="未能解析出有效数据行" />
+      )}
+    </Modal>
   )
 }

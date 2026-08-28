@@ -16,10 +16,11 @@ class Project(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(200), comment="项目名称")
     code: Mapped[str] = mapped_column(String(64), unique=True, comment="项目编码")
-    type: Mapped[str] = mapped_column(String(32), comment="项目类型, 见 PROJECT_TYPES")
-    industry: Mapped[str] = mapped_column(String(100), default="银行业", comment="所属业务条目")
-    user_scale: Mapped[str] = mapped_column(String(32), comment="用户规模, 见 USER_SCALES")
-    deploy_env: Mapped[list] = mapped_column(JSON, default=list, comment="部署环境多选")
+    type: Mapped[str] = mapped_column(String(32), default="", comment="主项目类型(兼容保留), 见 PROJECT_TYPES")
+    types: Mapped[list] = mapped_column(JSON, default=list, comment="项目类型多选, 见 PROJECT_TYPES")
+    industry: Mapped[str | None] = mapped_column(String(100), comment="所属业务条目(已停用, 兼容保留)")
+    user_scale: Mapped[str] = mapped_column(String(32), default="", comment="用户规模, 见 USER_SCALES")
+    deploy_env: Mapped[list] = mapped_column(JSON, default=list, comment="部署环境(已停用, 兼容保留)")
     is_public: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否涉及公网访问")
     offshore_vendor: Mapped[bool] = mapped_column(
         Boolean, default=False, comment="是否存在境外外包/境外供应商"
@@ -29,6 +30,10 @@ class Project(Base):
     sec_contact_name: Mapped[str | None] = mapped_column(String(50), comment="安全对接人")
     compliance_targets: Mapped[list] = mapped_column(
         JSON, default=list, comment="合规目标, 见 COMPLIANCE_TARGETS"
+    )
+    owner_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("platform_users.id"), index=True,
+        comment="创建人(数据权限: 开发仅见本人项目)",
     )
     status: Mapped[str] = mapped_column(String(20), default="draft", comment="项目状态")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
@@ -45,6 +50,7 @@ class Project(Base):
     infra_assets: Mapped[list["InfraAsset"]] = relationship(back_populates="project")  # noqa: F821
     requirements: Mapped[list["SecurityRequirement"]] = relationship(back_populates="project")
     review_gates: Mapped[list["ReviewGate"]] = relationship(back_populates="project")  # noqa: F821
+    external_systems: Mapped[list["ExternalSystem"]] = relationship(back_populates="project")
 
 
 class GradingSurvey(Base):
@@ -67,3 +73,24 @@ class GradingSurvey(Base):
     def effective_level(self) -> str:
         """规则引擎使用: 最终定级优先, 无人工修正则取建议定级。"""
         return self.final_level or self.suggested_level or ""
+
+
+class ExternalSystem(Base):
+    """Step1 采集: 与本项目交互的外部系统清单(驱动外部交互类安全需求)。"""
+
+    __tablename__ = "external_systems"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    project_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("projects.id"), index=True, comment="所属项目"
+    )
+    name: Mapped[str] = mapped_column(String(200), comment="外部系统名称")
+    purpose: Mapped[str | None] = mapped_column(String(500), comment="对接内容/业务用途")
+    direction: Mapped[str] = mapped_column(
+        String(20), default="bidirectional", comment="数据方向, 见 EXTERNAL_SYSTEM_DIRECTIONS"
+    )
+    involves_sensitive: Mapped[bool] = mapped_column(
+        Boolean, default=False, comment="是否传输敏感数据"
+    )
+
+    project: Mapped[Project] = relationship(back_populates="external_systems")

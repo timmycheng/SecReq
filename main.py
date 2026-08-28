@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from models import init_db, make_engine, make_session_factory
-from routers import auth, generate, meta, projects, review, steps
+from routers import admin, auth, generate, meta, projects, steps
 from routers.common import auth_guard
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -34,6 +34,7 @@ async def lifespan(_: FastAPI):
     from services.classification_migration import (
         ensure_schema_upgrade, migrate_legacy_classification,
     )
+    from services.project_service import assign_legacy_projects, populate_project_types
 
     init_db(engine)
     ensure_schema_upgrade(engine)
@@ -43,18 +44,24 @@ async def lifespan(_: FastAPI):
         if stats["migrated"]:
             print(f"[SecReq] 老四级分级已迁移为 JR/T 0197 五级: {stats}")
         ensure_seed_users(db)
+        populate_project_types(db)
+        moved = assign_legacy_projects(db)
+        if moved:
+            print(f"[SecReq] {moved} 个存量项目已归入默认开发账号")
+        from routers.admin import _apply_policy_settings
+        _apply_policy_settings(db)
     finally:
         db.close()
     yield
 
 
 app = FastAPI(
-    title="SecReq — 安全准入管理平台(需求+设计阶段)",
-    description="嵌入行内项目评审流程的安全准入平台: JR/T 0197 五级数据分级、"
-                "监管合规基线映射、评审门禁与留痕",
-    version="1.0.0",
+    title="安全需求管理平台",
+    description="面向开发与安全两角色的安全需求管理平台: JR/T 0197 五级数据分级、"
+                "监管合规基线映射、安全需求清单生成与确认",
+    version="2.1.0",
     lifespan=lifespan,
-    dependencies=[Depends(auth_guard)],  # 全局 RBAC: 业务写接口需身份, 审计角色只读
+    dependencies=[Depends(auth_guard)],  # 全局认证: 开放路径外一律要求登录
 )
 
 app.add_middleware(
@@ -82,7 +89,7 @@ app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(steps.router)
 app.include_router(generate.router)
-app.include_router(review.router)
+app.include_router(admin.router)
 
 _dist = ROOT_DIR / "frontend" / "dist"
 if _dist.exists():  # 生产构建托管: npm run build 后可直接单进程启动

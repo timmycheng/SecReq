@@ -64,21 +64,6 @@ def main() -> None:
     print(summarize_requirements(result.requirements))
 
     print("[文档] 生成的 Word 文件:")
-    for doc_type, path in result.documents.items():
-        size_kb = path.stat().st_size / 1024
-        print(f"  - [{doc_type}] {path.name} ({size_kb:.1f} KB)")
-
-    # 抽样打印3条完整需求, 核验占位符渲染质量
-    for req_id in ("SEC-V12-001", "SEC-V4-002", "SEC-V2-005"):
-        sample = next((r for r in result.requirements if r.req_id == req_id), None)
-        if sample is None:
-            continue
-        print(f"\n【抽样核验】{sample.req_id} {sample.title}")
-        print(f"  描述: {sample.description}")
-        print(f"  验收标准: {sample.acceptance_criteria}")
-
-    session.close()
-
 
 if __name__ == "__main__":
     main()

@@ -72,26 +72,6 @@ templates:
         clause: 第38条
         summary: 向境外提供个人信息的法定条件
 
-  - id: SEC-REG-003
-    trigger: {type: regulatory_trigger, rule_key: saas_finance}
-    asvs_ref: "V1.1.1"
-    title: 信息科技外包风险分类分级评定
-    priority: high
-    suggested_phase: design
-    description: >
-      本项目(金融条线)部署于外采SaaS环境, 构成信息科技外包情形。按
-      《银行保险机构信息科技外包风险监管办法》要求开展外包风险分类分级评定,
-      重要外包须报备并纳入年度外包风险评估, 合同中明确数据安全与审计条款。
-    acceptance_criteria: >
-      1)外包风险分级评定表已完成并留存; 2)达到报告标准的外包事项已向监管部门报告;
-      3)SaaS服务商合同含数据归属、安全责任与审计权条款。
-    trigger_reason: "部署环境含外采SaaS且业务条目属金融, 触发信息科技外包风险评定"
-    regulatory_ref:
-      - file: 银行保险机构信息科技外包风险监管办法
-        clause: 参考
-        summary: 信息科技外包风险分类分级与报告要求
-        note: 待合规部门确认具体条文
-
   - id: SEC-REG-004
     trigger: {type: regulatory_trigger, rule_key: mobile_app_type}
     asvs_ref: "V1.1.1"
@@ -676,7 +656,7 @@ templates:
     priority: high
     suggested_phase: design
     description: >
-      项目计划设立super_admin角色(预计{{user_count}}人)。特权账号应遵循最小权限原则:
+      项目计划设立super_admin角色。特权账号应遵循最小权限原则:
       数量收敛、实名唯一(禁止共享)、开启操作全程录屏/命令审计、支持临时提权而非常驻全量权限。
     acceptance_criteria: >
       特权账号清单入册并在堡垒机纳管; 紧急通道提权操作留存审批与操作录像。
@@ -1235,3 +1215,94 @@ templates:
       - file: 中华人民共和国网络安全法
         clause: 第25条
         summary: 网络安全事件风险应对与补救措施
+
+  # ────────────────────────────────────────────
+  # 九、外部系统交互类
+  # ────────────────────────────────────────────
+
+  - id: SEC-EXT-001
+    trigger: {type: external_system}
+    asvs_ref: "V1.1.2"
+    title: 与外部系统「{{system_name}}」对接的边界安全控制
+    priority: high
+    suggested_phase: design
+    description: >
+      本系统与外部系统「{{system_name}}」存在{{direction_label}}交互。
+      对接边界须明确信任边界与认证方式: 服务端对外部调用方做身份认证与最小授权,
+      出站调用配置超时/重试与熔断, 双方交互报文过网关审计并保留可追溯日志。
+    acceptance_criteria: >
+      1)对接双方采用服务账号+密钥/证书认证, 禁用匿名调用; 2)边界网关配置了调用方白名单与访问控制策略;
+      3)对接链路有独立的审计日志留存(含调用方标识)。
+    trigger_reason: "向导第1步登记了外部系统「{{system_name}}」({{direction_label}})"
+    regulatory_ref:
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 安全区域边界(边界防护与访问控制)
+      - file: 商业银行信息科技风险管理指引
+        clause: 参考
+        summary: 系统间数据交换与边界管理要求
+        note: 待合规部门确认具体条文
+
+  - id: SEC-EXT-002
+    trigger: {type: external_system, condition: {sensitive_only: true}}
+    asvs_ref: "V1.1.3"
+    title: 外部系统「{{system_name}}」敏感数据交互管控
+    priority: critical
+    suggested_phase: design
+    description: >
+      本系统与「{{system_name}}」的交互包含敏感数据。传输链路须全程加密并做数据最小化:
+      仅传输业务必需字段, 敏感字段在报文中脱敏或加密; 明确数据权属、留存期限与销毁责任,
+      交互日志中敏感字段禁止明文落盘。
+    acceptance_criteria: >
+      1)交互接口清单与字段级映射经数据安全评审; 2)敏感字段加密/脱敏措施已在联调环境验证;
+      3)双方协议含数据安全责任与泄露通知条款。
+    trigger_reason: "外部系统「{{system_name}}」交互含敏感数据"
+    regulatory_ref:
+      - file: 个人金融信息保护技术规范
+        clause: 参考
+        summary: 敏感信息传输与使用限制
+        note: 待合规部门确认具体条文
+      - file: 中华人民共和国数据安全法
+        clause: 第27条
+        summary: 数据安全保护义务
+
+  # ────────────────────────────────────────────
+  # 十、开源许可证风险类
+  # ────────────────────────────────────────────
+
+  - id: SEC-LIC-001
+    trigger: {type: license_risk, condition: {risk: high}}
+    asvs_ref: "V1.1.1"
+    title: 高风险许可证组件「{{component_name}}」使用评估
+    priority: high
+    suggested_phase: design
+    description: >
+      组件 {{component_name}} 采用 {{license_name}} 许可证({{risk_label}})。
+      {{risk_note}}。评估替代方案或以独立进程/服务隔离方式集成, 评估结论经安全与法务确认后归档。
+    acceptance_criteria: >
+      1)许可证风险评估表已归档(含隔离/替换方案); 2)若保留使用, 法务出具书面同意意见;
+      3)组件来源与版本纳入SBOM持续跟踪。
+    trigger_reason: "组件 {{component_name}} 许可证 {{license_name}} 为 {{risk_label}}"
+    regulatory_ref:
+      - file: 商业银行信息科技风险管理指引
+        clause: 参考
+        summary: 外包与第三方组件引入风险管理
+        note: 待合规部门确认具体条文
+
+  - id: SEC-LIC-002
+    trigger: {type: license_risk, condition: {risk: medium}}
+    asvs_ref: "V1.1.1"
+    title: 中风险许可证组件「{{component_name}}」合规审查
+    priority: medium
+    suggested_phase: design
+    description: >
+      组件 {{component_name}} 采用 {{license_name}} 许可证({{risk_label}})。{{risk_note}}。
+      请确认使用方式符合许可证条款, 保留版权与许可声明, 并在交付物清单中登记。
+    acceptance_criteria: >
+      1)开源许可声明文件已随交付物发布; 2)许可证合规审查记录归档。
+    trigger_reason: "组件 {{component_name}} 许可证 {{license_name}} 为 {{risk_label}}"
+    regulatory_ref:
+      - file: 商业银行信息科技风险管理指引
+        clause: 参考
+        summary: 第三方组件开源合规要求
+        note: 待合规部门确认具体条文

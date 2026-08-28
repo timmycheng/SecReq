@@ -60,6 +60,8 @@ class RuleEngine:
             "compliance": self._match_compliance,
             "vulnerability": self._match_vulnerabilities,
             "regulatory_trigger": self._match_regulatory_triggers,
+            "external_system": self._match_external_systems,
+            "license_risk": self._match_license_risk,
         }
 
     @classmethod
@@ -79,6 +81,8 @@ class RuleEngine:
         seen: set[tuple[str, int]] = set()
 
         for tpl in self.kb.templates:
+            if not tpl.enabled:
+                continue
             handler = self._handlers[tpl.trigger_type]
             for match in handler(tpl, ctx):
                 key = (tpl.id, match.source_entity_id)
@@ -116,12 +120,47 @@ class RuleEngine:
                     source_entity_type=match.source_entity_type,
                     source_entity_id=match.source_entity_id,
                     trigger_reason=render(tpl.trigger_reason, merged, tpl.id),
+                    source_label=self._source_label(ctx, match.source_entity_type, match.source_entity_id),
                     status="open",
                     regulatory_ref=[dict(ref) for ref in tpl.regulatory_ref],
                     reg_confirmed=False,
                 )
             )
         return requirements
+
+    def _source_label(self, ctx: RequirementContext, entity_type: str, entity_id: int) -> str:
+        """来源溯源中文名(展示用, 替代 data_asset#3 形态)。"""
+        label = C.label(C.SOURCE_TYPE_LABELS, entity_type, entity_type)
+        if entity_type == "feature":
+            found = next((f for f in ctx.features if f.id == entity_id), None)
+            return f"{label}:{found.name}" if found else label
+        if entity_type == "role":
+            found = next((r for r in ctx.roles if r.id == entity_id), None)
+            return f"{label}:{found.name}" if found else label
+        if entity_type == "permission_entry":
+            entry = next((e for e in ctx.permission_entries if e.id == entity_id), None)
+            if entry:
+                role = self._entry_role(ctx, entry)
+                res = ctx.resource_by_id(entry.resource_id)
+                return f"权限授权:{role.name if role else '?'}→{res.name if res else '?'}({C.label(C.PERMISSION_ACTIONS, entry.action)})"
+            return label
+        if entity_type == "data_asset":
+            found = next((a for a in ctx.data_assets if a.id == entity_id), None)
+            return f"{label}:{found.name}" if found else label
+        if entity_type == "api_endpoint":
+            found = next((e for e in ctx.api_endpoints if e.id == entity_id), None)
+            return f"{label}:{found.name}" if found else label
+        if entity_type == "sbom_component":
+            found = next((c for c in ctx.components if c.id == entity_id), None)
+            return f"{label}:{found.name}@{found.version}" if found else label
+        if entity_type == "external_system":
+            found = next((s for s in ctx.external_systems if s.id == entity_id), None)
+            return f"{label}:{found.name}" if found else label
+        if entity_type == "compliance_target":
+            return label
+        if entity_type == "policy_baseline":
+            return f"{label}({ctx.grading_text})"
+        return label
 
     def generate_and_save(self, ctx: RequirementContext, session) -> list[SecurityRequirement]:
         """生成并持久化(供后续 POST /generate 路由复用); 重复执行先清空旧需求。"""
@@ -459,21 +498,14 @@ class RuleEngine:
                 detail.append("项目存在境外外包/境外供应商")
             return [Match({"cross_border_detail": "; ".join(detail)}, "project", pid)]
 
-        if key == "saas_finance":
-            envs = ctx.project.deploy_env or []
-            industry = ctx.project.industry or ""
-            if "saas" not in envs or not any(word in industry for word in ("金融", "银行", "保险")):
-                return []
-            return [Match({}, "project", pid)]
-
         if key == "mobile_app_type":
-            if ctx.project.type not in ("mobile_app", "mini_program"):
+            types = project_types(ctx.project)
+            mobile = [t for t in types if t in ("mobile_app", "mini_program")]
+            if not mobile:
                 return []
+            labels = "、".join(C.label(C.PROJECT_TYPES, t) for t in mobile)
             return [
-                Match(
-                    {"project_type_label": C.label(C.PROJECT_TYPES, ctx.project.type)},
-                    "project", pid,
-                )
+                Match({"project_type_label": labels}, "project", pid)
             ]
 
         if key == "ai_feature":
@@ -511,6 +543,52 @@ class RuleEngine:
             return [Match({}, "project", pid)]
 
         raise RuleEngineError(f"模板『{tpl.id}』未知监管报送 rule_key={key}")
+
+    def _match_external_systems(self, tpl: Template, ctx: RequirementContext) -> list[Match]:
+        """外部系统交互: 每个对接的外部系统一条需求。
+
+        condition:
+        - {} 或 {"sensitive_only": false}  命中全部外部系统
+        - {"sensitive_only": true}         仅命中传输敏感数据的外部系统
+        """
+        condition = tpl.trigger.get("condition") or {}
+        sensitive_only = bool(condition.get("sensitive_only"))
+        for system in ctx.external_systems:
+            if sensitive_only and not system.involves_sensitive:
+                continue
+            yield Match(
+                placeholders={
+                    "system_name": system.name,
+                    "direction_label": C.label(
+                        C.EXTERNAL_SYSTEM_DIRECTIONS, system.direction, system.direction),
+                },
+                source_entity_type="external_system",
+                source_entity_id=system.id,
+            )
+
+    def _match_license_risk(self, tpl: Template, ctx: RequirementContext) -> list[Match]:
+        """许可证风险: 组件申报许可证的风险等级达到模板阈值时每个组件一条需求。
+
+        condition: {"risk": "high"} 或 {"risk": "medium"}(含 medium 及以上)。
+        """
+        threshold = (tpl.trigger.get("condition") or {}).get("risk", "high")
+        threshold_rank = C.LICENSE_RISK_ORDER.get(threshold, 3)
+        for component in ctx.components:
+            info = C.LICENSE_RISK.get(component.license or "")
+            if info is None:
+                continue
+            if C.LICENSE_RISK_ORDER.get(info["risk"], 0) < threshold_rank:
+                continue
+            yield Match(
+                placeholders={
+                    "component_name": component.name,
+                    "license_name": component.license or "",
+                    "risk_label": info["label"],
+                    "risk_note": info["note"],
+                },
+                source_entity_type="sbom_component",
+                source_entity_id=component.id,
+            )
 
     def _match_vulnerabilities(self, tpl: Template, ctx: RequirementContext) -> list[Match]:
         """SBOM 漏洞联动: 组件存在 high/critical 漏洞时每个组件一条需求。
@@ -550,3 +628,12 @@ class RuleEngine:
                 )
             )
         return matches
+
+
+def project_types(project) -> list[str]:
+    """项目类型多选(兼容存量单值: types 为空回退 [type])。"""
+    types = list(getattr(project, "types", None) or [])
+    if not types:
+        single = getattr(project, "type", "")
+        types = [single] if single else []
+    return types

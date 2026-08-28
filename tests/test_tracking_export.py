@@ -46,7 +46,7 @@ def test_rows_ordered_by_priority_and_trace_in_note():
     assert ws.cell(row=2, column=8).value == "待处理"
     # 备注列含追溯信息
     note = ws.cell(row=2, column=9).value
-    assert "feature#1" in note and "触发" in note
+    assert note.startswith("feature ←") and "触发" in note  # source_label 未设置时回退类型名
 
 
 def test_jira_hint_sheet_exists():

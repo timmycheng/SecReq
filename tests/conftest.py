@@ -56,7 +56,7 @@ def api(tmp_path):
 
     TestClient 在独立线程执行请求, 内存库须用 StaticPool 共享单连接,
     否则每个线程各见一个空库。
-    默认身份为项目经理 pm_wang(存量用例的写操作均以其执行);
+    默认身份为开发 dev_li(存量用例的写操作均以其执行);
     需要其他身份时用 api_as(api, "sec_chen") 取对应身份的客户端。
     """
     from sqlalchemy import create_engine
@@ -87,11 +87,24 @@ def api(tmp_path):
             db.close()
 
     main.app.dependency_overrides[get_db] = _override_get_db
-    client = TestClient(main.app, headers={"X-Auth-User": "pm_wang"})
+    client = login_as(TestClient(main.app), "dev_li")
     yield client
     main.app.dependency_overrides.clear()
 
 
+def login_as(client: TestClient, username: str) -> TestClient:
+    """以种子默认密码登录并携带 Bearer token 的新 TestClient(共享同一测试库)。"""
+    from services.auth_service import SEED_DEFAULT_PASSWORD
+
+    resp = client.post(
+        "/api/auth/login",
+        json={"username": username, "password": SEED_DEFAULT_PASSWORD},
+    )
+    assert resp.status_code == 200, resp.text
+    token = resp.json()["token"]
+    return TestClient(client.app, headers={"Authorization": f"Bearer {token}"})
+
+
 def api_as(api, username: str):
     """以指定平台用户身份发起请求的 TestClient(共享同一测试库)。"""
-    return TestClient(api.app, headers={"X-Auth-User": username})
+    return login_as(TestClient(api.app), username)

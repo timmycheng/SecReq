@@ -28,17 +28,24 @@ class ApiEndpoint(Base):
 
 
 class InfraAsset(Base):
-    """服务器/数据库/中间件资产。"""
+    """服务器/网络设备/数据库/中间件资产。服务器需填规格; 网络设备设计期地址可预留。"""
 
     __tablename__ = "infra_assets"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     project_id: Mapped[int] = mapped_column(Integer, ForeignKey("projects.id"), index=True)
-    asset_type: Mapped[str] = mapped_column(String(20), comment="server/database/middleware")
+    asset_type: Mapped[str] = mapped_column(String(20), comment="server/network/database/middleware")
     name: Mapped[str] = mapped_column(String(200), comment="名称")
     env: Mapped[str] = mapped_column(String(10), comment="dev/test/prod")
-    ip: Mapped[str | None] = mapped_column(String(64), comment="IP地址")
+    ip: Mapped[str | None] = mapped_column(String(64), comment="IP地址(网络设备设计期可预留)")
     owner: Mapped[str | None] = mapped_column(String(50), comment="负责人")
     holds_sensitive: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否承载敏感数据")
+    # 服务器规格(设计期规划值)
+    cpu_cores: Mapped[int | None] = mapped_column(Integer, comment="CPU核数")
+    memory_gb: Mapped[int | None] = mapped_column(Integer, comment="内存(GB)")
+    disk_gb: Mapped[int | None] = mapped_column(Integer, comment="磁盘(GB)")
+    os: Mapped[str | None] = mapped_column(String(100), comment="操作系统")
+    quantity: Mapped[int | None] = mapped_column(Integer, comment="数量")
+    purpose: Mapped[str | None] = mapped_column(String(300), comment="用途说明/网络区域")
 
     project: Mapped[Project] = relationship(back_populates="infra_assets")

@@ -98,7 +98,7 @@ def test_super_admin_scan(engine, session):
 
     reqs = [r for r in gen_for(session, project, engine) if r.template_id == "SEC-V4-004"]
     assert len(reqs) == 1
-    assert "2" in reqs[0].description  # 预估人数渲染进描述
+    assert "super_admin" in reqs[0].description
     assert reqs[0].priority == "high"
 
 

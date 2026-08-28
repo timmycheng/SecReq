@@ -33,6 +33,9 @@ class SecurityRequirement(Base):
         String(40), comment="来源实体类型(feature/data_asset/api_endpoint/vulnerability等)"
     )
     source_entity_id: Mapped[int] = mapped_column(Integer, comment="来源实体主键")
+    source_label: Mapped[str | None] = mapped_column(
+        String(200), comment="来源中文名(如: 数据资产:客户信息表), 生成时写入"
+    )
     trigger_reason: Mapped[str] = mapped_column(Text, comment="触发了哪条输入(可回溯)")
     status: Mapped[str] = mapped_column(String(20), default="open", comment="open/in_progress/done/risk_accepted")
     regulatory_ref: Mapped[list] = mapped_column(

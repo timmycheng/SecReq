@@ -193,12 +193,26 @@ def append_components(
     return added, skipped
 
 
-def replace_inventory(
-    session: Session, project_id: int,
-    endpoints: list[ApiEndpointIn], infra_assets: list[InfraAssetIn],
-) -> dict:
+def replace_external_systems(
+    session: Session, project_id: int, items: list,
+) -> int:
+    """Step1 外部系统连接清单(整体替换)。items 为 schemas.project.ExternalSystemIn。"""
+    from models import ExternalSystem
+
+    session.query(ExternalSystem).filter_by(project_id=project_id).delete()
+    session.add_all(
+        ExternalSystem(
+            project_id=project_id, name=e.name, purpose=e.purpose,
+            direction=e.direction, involves_sensitive=e.involves_sensitive,
+        )
+        for e in items
+    )
+    session.commit()
+    return len(items)
+
+
+def replace_api_endpoints(session: Session, project_id: int, endpoints: list[ApiEndpointIn]) -> int:
     session.query(ApiEndpoint).filter_by(project_id=project_id).delete()
-    session.query(InfraAsset).filter_by(project_id=project_id).delete()
     session.add_all(
         ApiEndpoint(
             project_id=project_id, name=e.name, path=e.path, method=e.method,
@@ -207,12 +221,20 @@ def replace_inventory(
         )
         for e in endpoints
     )
+    session.commit()
+    return len(endpoints)
+
+
+def replace_infra_assets(session: Session, project_id: int, infra_assets: list[InfraAssetIn]) -> int:
+    session.query(InfraAsset).filter_by(project_id=project_id).delete()
     session.add_all(
         InfraAsset(
             project_id=project_id, asset_type=a.asset_type, name=a.name, env=a.env,
             ip=a.ip, owner=a.owner, holds_sensitive=a.holds_sensitive,
+            cpu_cores=a.cpu_cores, memory_gb=a.memory_gb, disk_gb=a.disk_gb,
+            os=a.os, quantity=a.quantity, purpose=a.purpose,
         )
         for a in infra_assets
     )
     session.commit()
-    return {"api_endpoints": len(endpoints), "infra_assets": len(infra_assets)}
+    return len(infra_assets)

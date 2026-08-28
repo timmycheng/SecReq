@@ -19,6 +19,8 @@ ALLOWED_TRIGGER_TYPES = {
     "compliance",
     "vulnerability",
     "regulatory_trigger",
+    "external_system",
+    "license_risk",
 }
 
 REQUIRED_TEMPLATE_FIELDS = [
@@ -49,6 +51,7 @@ class Template:
     suggested_phase: str
     trigger_reason: str
     regulatory_ref: list[dict] = field(default_factory=list)
+    enabled: bool = True
 
     @property
     def placeholders(self) -> set[str]:
@@ -169,6 +172,7 @@ def load_knowledge_base(path: str | Path | None = None) -> KnowledgeBase:
                 suggested_phase=_clean(item.get("suggested_phase")),
                 trigger_reason=_clean(item.get("trigger_reason")),
                 regulatory_ref=reg_refs,
+                enabled=bool(item.get("enabled", True)),
             )
         )
 

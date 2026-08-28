@@ -3,12 +3,14 @@
 
 种子数据的清理逻辑同样走 delete_project_cascade, 避免两处口径不一致。
 """
+from datetime import datetime
+
 from sqlalchemy.orm import Session
 
 import shared.constants as C
 from models import (
-    ApiEndpoint, AuthConfig, DataAsset, DataField, DataTable, Feature,
-    GradingSurvey, InfraAsset, PermissionEntry, Project,
+    ApiEndpoint, AuthConfig, DataAsset, DataField, DataTable, ExternalSystem,
+    Feature, GradingSurvey, InfraAsset, PermissionEntry, Project,
     SbomComponent, SecurityRequirement, VulnerabilityRecord, Resource, Role,
     ReviewEvidence, ReviewGate,
 )
@@ -18,14 +20,69 @@ class ProjectExistsError(Exception):
     """项目编码已被占用。"""
 
 
-def create_project(session: Session, data: dict) -> Project:
-    code = (data.get("code") or "").strip()
+def generate_project_code(session: Session) -> str:
+    """自动生成项目编码: XM<年份>-<三位序号>, 冲突时序号递增。"""
+    year = datetime.now().year
+    prefix = f"XM{year}-"
+    used = {
+        row[0] for row in session.query(Project.code).filter(Project.code.like(f"{prefix}%")).all()
+    }
+    seq = 1
+    while f"{prefix}{seq:03d}" in used:
+        seq += 1
+    return f"{prefix}{seq:03d}"
+
+
+def create_project(session: Session, data: dict, owner_user_id: int | None = None) -> Project:
+    code = (data.get("code") or "").strip() or generate_project_code(session)
     if session.query(Project).filter_by(code=code).first():
         raise ProjectExistsError(f"项目编码已存在: {code}")
-    project = Project(**data)
+    data = {k: v for k, v in data.items() if k != "code"} | {"code": code}
+    project = Project(**data, owner_user_id=owner_user_id)
     session.add(project)
     session.commit()
     return project
+
+
+def populate_project_types(session: Session) -> int:
+    """存量项目 types 为空时按单值 type 回填(类型多选改造), 幂等。"""
+    import json as _json
+
+    rows = session.query(Project).filter(Project.types.is_(None)).all()
+    rows += [r for r in session.query(Project).filter(
+        Project.types.isnot(None)).all() if not r.types]
+    seen = set()
+    for project in rows:
+        if project.id in seen:
+            continue
+        seen.add(project.id)
+        project.types = [project.type] if project.type else []
+        project.type = project.types[0] if project.types else ""
+        flag_modified(project)
+    if seen:
+        session.commit()
+    return len(seen)
+
+
+def flag_modified(instance) -> None:
+    """标记 JSON 列已变更(SQLite 存量 NULL 行更新需要)。"""
+    from sqlalchemy.orm.attributes import flag_modified as _fm
+    _fm(instance, "types")
+
+
+def assign_legacy_projects(session: Session) -> int:
+    """存量无主项目归入第一个有效开发账号(数据权限迁移), 幂等。返回处理数。"""
+    from models import PlatformUser
+
+    unowned = session.query(Project).filter(Project.owner_user_id.is_(None)).all()
+    if not unowned:
+        return 0
+    dev = session.query(PlatformUser).filter_by(role="developer", active=True).first()
+    target_id = dev.id if dev else None
+    for project in unowned:
+        project.owner_user_id = target_id
+    session.commit()
+    return len(unowned)
 
 
 def update_project(session: Session, project: Project, changes: dict) -> Project:
@@ -62,6 +119,7 @@ def delete_project_cascade(session: Session, project_id: int) -> None:
 
     session.query(ApiEndpoint).filter_by(project_id=pid).delete(synchronize_session=False)
     session.query(InfraAsset).filter_by(project_id=pid).delete(synchronize_session=False)
+    session.query(ExternalSystem).filter_by(project_id=pid).delete(synchronize_session=False)
     session.query(AuthConfig).filter_by(project_id=pid).delete(synchronize_session=False)
     session.query(GradingSurvey).filter_by(project_id=pid).delete(synchronize_session=False)
     session.query(Feature).filter_by(project_id=pid).delete(synchronize_session=False)
@@ -90,6 +148,7 @@ def project_counts(session: Session, project_id: int) -> dict[str, int]:
         "components": session.query(SbomComponent).filter_by(project_id=pid).count(),
         "api_endpoints": session.query(ApiEndpoint).filter_by(project_id=pid).count(),
         "infra_assets": session.query(InfraAsset).filter_by(project_id=pid).count(),
+        "external_systems": session.query(ExternalSystem).filter_by(project_id=pid).count(),
         "requirements": session.query(SecurityRequirement).filter_by(project_id=pid).count(),
         "vulnerabilities": session.query(VulnerabilityRecord).join(
             SbomComponent, VulnerabilityRecord.component_id == SbomComponent.id

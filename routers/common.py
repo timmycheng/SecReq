@@ -6,8 +6,8 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from models import (
-    ApiEndpoint, AuthConfig, DataAsset, DataField, DataTable, Feature,
-    GradingSurvey, InfraAsset, PermissionEntry, PlatformUser, Project,
+    ApiEndpoint, AuthConfig, DataAsset, DataField, DataTable, ExternalSystem,
+    Feature, GradingSurvey, InfraAsset, PermissionEntry, PlatformUser, Project,
     SbomComponent, VulnerabilityRecord, Resource, Role,
 )
 from schemas.component import ComponentOut, ComponentVulnInline
@@ -16,10 +16,8 @@ from schemas.survey import SurveyOut
 
 import shared.constants as C
 
-# 身份经 X-Auth-User 头携带(MVP 无口令, 见 services/auth_service)
-AUTH_HEADER = "X-Auth-User"
-# 开放路径前缀: 不要求身份(健康检查/枚举常量/登录)
-OPEN_API_PREFIXES = ("/api/health", "/api/meta", "/api/auth")
+# 身份经 Authorization: Bearer <token> 携带(登录后签发, 见 routers/auth.py)
+OPEN_API_PREFIXES = ("/api/health", "/api/meta", "/api/auth/login")
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
@@ -33,32 +31,33 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
-def get_current_user(request: Request, db: Session = Depends(get_db)) -> PlatformUser | None:
-    """按 X-Auth-User 头解析平台用户; 未携带或用户不存在返回 None。"""
-    from services.auth_service import get_user
+def _bearer_token(request: Request) -> str | None:
+    auth = request.headers.get("Authorization") or ""
+    if auth.startswith("Bearer "):
+        return auth[len("Bearer "):].strip() or None
+    return None
 
-    return get_user(db, request.headers.get(AUTH_HEADER))
+
+def get_current_user(request: Request, db: Session = Depends(get_db)) -> PlatformUser | None:
+    """按 Bearer token 解析平台用户; 未携带或会话失效返回 None。"""
+    from services.session_service import resolve_session
+
+    return resolve_session(db, _bearer_token(request))
 
 
 def auth_guard(
     request: Request, user: PlatformUser | None = Depends(get_current_user),
 ) -> None:
-    """全局 RBAC 拦截(挂载于 app 级依赖):
+    """全局认证拦截(挂载于 app 级依赖):
 
-    - 开放路径(健康/元数据/登录)直接放行;
-    - 其余业务写接口必须携带有效身份, 否则 401;
-    - 审计角色对任何业务接口只读, 写操作一律 403(验收标准第6条)。
+    - 开放路径(健康检查/枚举常量/登录)直接放行;
+    - 其余路径一律要求登录(读写都拦): 平台自身存储敏感数据, 不做匿名读。
     """
     path = request.url.path
     if any(path.startswith(prefix) for prefix in OPEN_API_PREFIXES):
         return
-    if request.method in WRITE_METHODS:
-        if user is None:
-            raise HTTPException(
-                status_code=401, detail=f"未登录: 请携带 {AUTH_HEADER} 请求头标识身份")
-        if user.role == "auditor":
-            raise HTTPException(
-                status_code=403, detail="内部审计角色只读, 禁止任何写操作")
+    if user is None:
+        raise HTTPException(status_code=401, detail="未登录或会话已过期, 请重新登录")
 
 
 def require_write_roles(*roles: str) -> Callable:
@@ -70,8 +69,7 @@ def require_write_roles(*roles: str) -> Callable:
         if request.method not in WRITE_METHODS:
             return user  # type: ignore[return-value]
         if user is None:
-            raise HTTPException(
-                status_code=401, detail=f"未登录: 请携带 {AUTH_HEADER} 请求头标识身份")
+            raise HTTPException(status_code=401, detail="未登录或会话已过期, 请重新登录")
         if user.role not in roles:
             role_names = "、".join(C.label(C.PLATFORM_ROLES, r) for r in roles)
             raise HTTPException(
@@ -83,10 +81,49 @@ def require_write_roles(*roles: str) -> Callable:
     return dependency
 
 
+def require_login(user: PlatformUser | None = Depends(get_current_user)) -> PlatformUser:
+    """读接口也要登录(项目数据按身份过滤, 不做匿名读)。"""
+    if user is None:
+        raise HTTPException(status_code=401, detail="未登录或会话已过期, 请重新登录")
+    return user
+
+
+def visible_projects_query(db: Session, user: PlatformUser):
+    """数据权限: 开发只看自己创建的项目, 安全看全部。"""
+    query = db.query(Project)
+    if user.role != "security":
+        query = query.filter(Project.owner_user_id == user.id)
+    return query.order_by(Project.created_at.desc(), Project.id.desc())
+
+
+def ensure_project_access(user: PlatformUser, project: Project) -> None:
+    """单项目访问口径: 安全全量可见, 开发仅限本人创建; 越权返回 404(不泄露存在性)。"""
+    if user.role != "security" and project.owner_user_id not in (None, user.id):
+        raise HTTPException(status_code=404, detail=f"项目不存在: id={project.id}")
+
+
 def get_project_or_404(project_id: int, db: Session = Depends(get_db)) -> Project:
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail=f"项目不存在: id={project_id}")
+    return project
+
+
+def get_accessible_project(
+    project: Project = Depends(get_project_or_404),
+    user: PlatformUser = Depends(require_login),
+) -> Project:
+    """读场景: 装载项目并做归属校验。"""
+    ensure_project_access(user, project)
+    return project
+
+
+def get_writable_project(
+    project: Project = Depends(get_project_or_404),
+    user: PlatformUser = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES)),
+) -> Project:
+    """写场景: 装载项目 + 角色白名单 + 归属校验。"""
+    ensure_project_access(user, project)
     return project
 
 
@@ -179,6 +216,11 @@ def wizard_state(db: Session, project: Project) -> dict:
     return {
         "project": _plain_project(project),
         "survey": _plain(survey_to_out(survey, pid)),
+        "external_systems": [
+            {"id": e.id, "name": e.name, "purpose": e.purpose,
+             "direction": e.direction, "involves_sensitive": bool(e.involves_sensitive)}
+            for e in db.query(ExternalSystem).filter_by(project_id=pid).order_by(ExternalSystem.id).all()
+        ],
         "features": [
             _plain_feature(f) for f in db.query(Feature).filter_by(project_id=pid).order_by(Feature.id).all()
         ],

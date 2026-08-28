@@ -1,10 +1,23 @@
-# SecReq — 安全准入管理平台(需求+设计阶段)
+# 安全需求管理平台(SecReq)
 
-面向银行软件项目的**项目经理、开发中心、安全中心评审员/负责人、风险管理、内部审计**:
-通过结构化表单收集项目信息, 按知识库规则引擎自动生成符合行内模板的安全需求与设计文档章节,
-并以**评审门禁与签核留痕**将安全准入嵌入行内项目评审流程。
+面向银行软件项目的**开发**与**安全**两类角色:
+通过 8 步向导采集项目信息(支持粘贴需求段落自动生成功能点、数据字典自动分级),
+按知识库规则引擎自动生成安全需求清单(产物以 Web 展示 + 一键复制到 Word)。
 
-整体设计见 `DESIGN.md`。当前进度:**基线工具三批全部交付 + 安全准入平台改造(v2.0)交付**。
+整体设计见 `DESIGN.md`。当前进度:**基线三批 + v2.0 平台化改造 + v2.1 走查整改交付**。
+
+## v2.1 走查整改(2026-08)
+
+| # | 整改点 | 落地 |
+| - | ------ | ---- |
+| 1 | 账号密码登录 | `PlatformUser.password_hash`(pbkdf2) + `user_sessions` 表; 登录页签发 Bearer token(12h), 全接口鉴权(读写都拦); 登录失败 5 次锁定 5 分钟; 右上角可改密 |
+| 2 | 角色精简为 开发/安全 | `PLATFORM_ROLES = {developer, security}`; 存量 6 角色自动迁移(风管/审计账号停用); 数据权限: **开发只能看到/操作自己创建的项目, 安全全量可见**(越权一律 404) |
+| 3 | 门禁下线 | 评审路由/页面/服务摘除, 项目状态机简化; 数据权限(见上)替代门禁的准入控制 |
+| 4 | Dashboard 布局 | 左侧菜单(项目管理/系统管理) + 顶栏用户区; 标题改为「安全需求管理平台」 |
+| 5 | 向导重构为 8 步 | 新建项目**去弹窗**直通第 1 步, 项目编码自动生成(`XM2026-001`); 第 1 步合并原 1/2/6(基本信息+外部系统连接清单+定级问卷内联/可直接指定+定级后即时预览策略与合规基线); 原权限矩阵去掉"角色数量"并可**从功能清单导入资源**; 组件按层级分组点选(自带默认许可证与风险提示); API 接口与基础设施拆为两步, 服务器填规格(CPU/内存/OS/磁盘/数量), 网络设备设计期地址可预留 |
+| 6 | 智能录入 | 功能清单**粘贴需求段落自动生成**候选功能点(OpenAI 兼容大模型优先, 未配置/失败降级关键词规则); 数据字典**粘贴/上传自动解析分级**(字段名模式库推断 JR/T 五级/PII/脱敏建议, 确认后入库) |
+| 7 | 产物 Web 化 | **Word 生成整体移除**(docgen 下线); 产物页改为 Web 视图: 需求清单**平铺全文**(不再折叠/截断), 来源中文化(`source_label`, 替代 `data_asset#3`), **去责任人、统一确认动作 + 批量确认**; 「复制到 Word」按钮(HTML 剪贴板, 粘贴即保留标题/表格/标红); 保留 SBOM JSON 与 Jira Excel 跟踪表 |
+| 8 | 系统管理(安全角色) | 知识库可视化配置(列表/搜索/启用停用/编辑, 写回 YAML 自动备份+全量校验); 定级题库编辑; 密码策略基线按定级可配置; OpenAI 兼容大模型接入配置; 用户管理(新增/重置密码/启停); 审计日志(登录/生成/确认/管理变更) |
 - 基线第一批: 后端数据模型 + 知识库 YAML + 规则引擎 + pytest 测试;
 - 基线第二批: SBOM(CycloneDX 1.5)生成、OSV.dev 漏洞查询(24h缓存/失败降级)、
   Word 文档生成与全流程编排(`services/pipeline.py`);
@@ -22,45 +35,16 @@
 | 5 | 6 角色RBAC | `PlatformUser`(pm/developer/security_reviewer/security_lead/risk_manager/auditor); `X-Auth-User` 头携带身份; 审计只读(任何业务 POST 403); pm 不能审自己提交的门禁; 评审员通过后负责人才能终审(两步签核, 且终审人≠第一步评审人) |
 | 6 | 文档模板升级 | 《需求规格说明书》按"监管报送类/等保条款类/通用安全类"三组排序 + **合规依据列** + 评审记录页(签字栏); 《总体设计说明书》数据字典改 JR/T 五级表述 + 新增"监管报送事项清单"章节; 《系统定级建议书》新增"判定依据"(GB/T 22240 / JR/T 0071 / 公通字〔2007〕43号 / 网安法21条)与"安全中心复核意见"栏; **新增第5份文档《项目安全评审表》**(门禁状态/需求覆盖统计/漏洞概况/遗留问题, 评审会材料) |
 
-### 门禁流程
-
-```
-                 ┌────────────────────────────────────────────────────┐
-                 │  pm/developer 填报向导 → 生成安全基线(需求+SBOM+5文档) │
-                 └───────────────────────┬────────────────────────────┘
-                                         ▼
-   ┌───────────┐   提交(硬校验)  ┌─────────────┐  评审员审核   ┌────────────────┐
-   │ pending    ├───────────────►│ in_review   ├─────────────►│ reviewer approve│
-   └───────────┘   不满足则 409  └──────┬──────┘              └───────┬────────┘
-                  {"gate","status":     │ request_change/reject       │ security_lead 终审
-                   "blocked",           ▼                             ▼ (sign/reject)
-                   "missing":[...]}  rectifying / rejected      ┌──────────┐
-                                                     └─────────►│ passed   │
-                                                                └──────────┘
-   每一步动作写 ReviewEvidence: curr_hash = SHA256(prev_hash + 动作字段), 可复算审计
-```
-
-**门禁通过条件(硬校验口径)**
-
-| 门禁 | 通过条件(全部满足) |
-| ---- | ----------------- |
-| 立项 | 问卷已提交且存在有效定级; 监管报送类需求全部经 pm 确认 |
-| 需求 | 安全需求数 ≥ 1; 每条需求 source_entity_id 非空; 无 critical 需求缺责任人 |
-| 设计 | SBOM 已生成; SoD 冲突=0 或已生成整改需求(SEC-V4-003); 数据资产 100% 关联 L1-L5 |
-| POC/上线 | 本期仅保留数据结构, 流程未启用 |
-
 ### 平台角色与演示账号
 
 | 账号 | 角色 | 权限 |
 | ---- | ---- | ---- |
-| pm_wang | 项目经理 | 建项目/填报/生成/提交门禁/指定责任人/确认报送事项 |
-| dev_li | 开发中心 | 同 pm 的向导写入(填技术方案), 不能审核 |
-| sec_chen | 安全中心评审员 | 门禁第一步审核(通过/退回/否决), 不能终审自己之外的回避规则同约束 |
-| sec_zhao | 安全中心负责人 | 终审签核(须评审员已通过) |
-| risk_liu | 风险管理部门 | 只读查看 |
-| audit_sun | 内部审计 | 全量只读, 任何业务写接口 403, 可校验哈希链 |
+| dev_li / dev_zhang | 开发 | 新建项目(仅可见自己创建的)、填报向导、生成基线、确认需求 |
+| sec_chen / sec_zhao | 安全 | 查看全部项目、系统管理(知识库/题库/策略/用户/审计/LLM) |
 
-页面上方身份切换即登录(MVP 无口令, 电子签章以"姓名+工号+时间戳+哈希"代替)。
+初始密码统一 `Sec123456`(登录后可在右上角修改)。存量库旧角色自动迁移:
+pm/developer → 开发; security_reviewer/security_lead → 安全; 风管/审计账号停用;
+存量项目自动归入第一个开发账号。
 
 ### 存量数据迁移
 
@@ -75,48 +59,48 @@
 ### 演示走查(代替录屏)
 
 ```bash
-.venv/Scripts/python scripts/demo_review_flow.py
-# 输出即走查记录: pm 填报 → 门禁409阻断(附missing) → 审计403 → 补齐责任人/确认报送
-# → 评审员审核 → 负责人终审 → 留痕哈希链复算 valid → 导出《项目安全评审表》
-```
+
 
 ## 目录结构
 
 ```
 SecReq/
 ├─ DESIGN.md              # 需求与设计文档
-├─ main.py                # FastAPI 入口(启动时自动补列+迁移+种子用户; 兼管前端构建托管)
-├─ shared/constants.py    # 前后端共享枚举(JR/T 五级/平台角色/门禁常量, 经 /api/meta/constants 供数)
-├─ models/                # SQLAlchemy 2.0 模型(含 review.py: ReviewGate/ReviewEvidence/PlatformUser)
+├─ main.py                # FastAPI 入口(启动时自动补列+迁移+种子用户+策略注入; 兼管前端构建托管)
+├─ shared/constants.py    # 前后端共享枚举(JR/T 五级/平台角色/许可证风险库/常用组件目录, 经 /api/meta/constants 供数)
+├─ models/                # SQLAlchemy 2.0 模型(project/feature/data_dictionary/permission/auth/sbom/
+│                         #   inventory/requirement/review(遗留表)/session/setting/audit)
 ├─ schemas/               # Pydantic 请求/响应模型(API 契约层)
-├─ routers/               # projects/steps/generate/meta/review/auth(common.py 含 RBAC 依赖)
+├─ routers/               # projects/steps/generate/meta/auth/admin(common.py 含 Bearer 认证与数据权限依赖)
 ├─ rules/
-│  ├─ knowledge_base.yml  # 安全需求知识库(58条模板, 全部含 regulatory_ref; 数据文件可独立维护)
-│  ├─ grading_questions.yml # 定级问卷题库(分值/判定依据文案, 安全中心维护)
+│  ├─ knowledge_base.yml  # 安全需求知识库(61条模板, 全部含 regulatory_ref, 支持 enabled 停用)
+│  ├─ grading_questions.yml # 定级问卷题库(分值/判定依据文案, 系统管理页可编辑)
 │  ├─ loader.py           # YAML 加载与完整性校验(regulatory_ref 必填)
 │  ├─ context.py          # 规则引擎输入上下文(项目输入数据快照)
-│  ├─ policy.py           # 密码/会话策略生效值计算(引擎与文档共用口径)
-│  └─ engine.py           # 规则引擎: 模板匹配 → 占位符渲染 → SecurityRequirement(报送类置顶)
+│  ├─ policy.py           # 密码/会话策略生效值计算(默认基线可在系统管理页覆盖)
+│  └─ engine.py           # 规则引擎: 模板匹配 → 占位符渲染 → SecurityRequirement(报送类置顶, 停用模板跳过)
 ├─ services/
 │  ├─ grading.py          # 问卷加权打分 → 建议定级 + 判定理由
-│  ├─ project_service.py  # 项目 CRUD / 级联删除 / 列表计数装配
+│  ├─ project_service.py  # 项目 CRUD / 数据权限 / 存量归属与类型回填 / 级联删除
 │  ├─ step_store.py       # 向导各步骤整卷保存(整体替换, 幂等)
+│  ├─ feature_extract.py  # 粘贴需求段落 → 候选功能点(LLM 优先, 关键词规则降级)
+│  ├─ dictionary_import.py# 数据字典粘贴/上传解析 + 字段自动分级(JR/T 五级/PII/脱敏建议)
 │  ├─ seed_data.py        # 种子数据「个人网银系统」(JR/T 五级 + C3 标签)
 │  ├─ sbom.py / sbom_import.py / osv.py   # SBOM 构建/导入/OSV 查询
-│  ├─ docgen.py           # python-docx 生成 5 份 Word(合规依据列/评审记录页/安全评审表)
 │  ├─ tracking_export.py  # openpyxl 需求跟踪表(含合规依据列)
-│  ├─ pipeline.py         # 全流程编排: 漏洞同步→规则引擎→SBOM+文档落盘
-│  ├─ auth_service.py     # 平台用户种子/身份解析/签章文案
-│  ├─ gate_service.py     # 门禁硬校验/版本快照SHA256/链式哈希留痕/两步签核状态机
-│  └─ classification_migration.py  # 老4级→五级迁移(脚本与启动共用)
-├─ docs/templates/doc_style.yml  # 文档版式参数(字体/标红色/底纹), 安全中心可维护替换
-├─ frontend/              # React 18 + TS + AntD(8步向导 + 评审门禁页 + 顶栏身份切换)
+│  ├─ pipeline.py         # 全流程编排: 漏洞同步→规则引擎→SBOM JSON 落盘
+│  ├─ session_service.py  # Bearer 会话签发/校验/吊销 + 登录失败锁定
+│  ├─ auth_service.py     # 账密哈希(pbkdf2)/种子用户/存量角色迁移
+│  ├─ kb_admin.py         # 知识库/题库写回 YAML(自动备份+全量校验+失败回滚)
+│  ├─ settings_service.py # 系统级键值设置(LLM 接入/策略基线)
+│  ├─ audit_service.py    # 审计留痕(登录/生成/确认/管理变更)
+│  └─ classification_migration.py  # 存量库升级(补列+老4级迁移+角色/归属/类型迁移)
+├─ frontend/              # React 19 + TS + AntD(登录页 + dashboard 布局 + 8步向导 + 产物Web页 + 系统管理)
 ├─ scripts/
 │  ├─ run_seed_demo.py         # 一键验证: 建库 → 种子 → 漏洞同步 → 生成 → 打印清单
-│  ├─ migrate_classification.py # 老四级分级迁移脚本(交付物)
-│  └─ demo_review_flow.py      # 评审流程完整走查(交付物, 代替录屏)
-├─ output/<项目编码>/       # 每次生成的 SBOM JSON 与 5 份 Word 落盘位置
-└─ tests/                 # pytest(131个用例, 含五级联动/报送触发/门禁阻断/RBAC/哈希链验收用例)
+│  └─ migrate_classification.py # 老四级分级迁移脚本(交付物)
+├─ output/<项目编码>/       # 每次生成的 SBOM JSON 落盘位置
+└─ tests/                 # pytest(126个用例: 认证与数据权限/智能录入/管理端/五级联动/报送触发等)
 ```
 
 ## 快速开始

@@ -27,6 +27,7 @@ class RequirementOut(BaseModel):
     suggested_phase: str
     source_entity_type: str
     source_entity_id: int
+    source_label: str | None = None
     trigger_reason: str
     status: str
     regulatory_ref: list[RegulatoryRefOut] = []
@@ -69,5 +70,4 @@ class GenerateSummary(BaseModel):
     critical_vulnerabilities: int
     osv_summary: str
     degraded: bool = False
-    documents: dict[str, str] = {}   # doc_type → 文件名
     bom_file: str | None = None

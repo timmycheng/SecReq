@@ -16,26 +16,25 @@ import { navigate } from '../router'
 import { setLeaveAsker } from './dirtyGuard'
 import { StepHandleContext, type StepHandle } from './steps/stepContext'
 
-import Step1BasicInfo from './steps/Step1BasicInfo'
-import Step2Survey from './steps/Step2Survey'
+import Step1ProjectInfo from './steps/Step1ProjectInfo'
 import Step3Features from './steps/Step3Features'
 import Step4DataAssets from './steps/Step4DataAssets'
 import Step5PermissionMatrix from './steps/Step5PermissionMatrix'
-import Step6AuthPolicy from './steps/Step6AuthPolicy'
 import Step7Components from './steps/Step7Components'
-import Step8Inventory from './steps/Step8Inventory'
+import Step6ApiList from './steps/Step6ApiList'
+import Step7InfraList from './steps/Step7InfraList'
 import ConfirmStep from './steps/ConfirmStep'
 
+// 标题/描述保持短句, 避免 8 步并排时在窄屏被挤成竖排
 const STEPS: { title: string; description: string }[] = [
-  { title: '项目基本信息', description: '类型/规模/合规目标' },
-  { title: '等保定级问卷', description: '定级决定安全基线档位' },
-  { title: '功能清单', description: '功能分类触发功能安全需求' },
-  { title: '数据字典', description: '资产分级触发数据安全需求' },
-  { title: '用户权限矩阵', description: '授权交叉检查越权与SoD' },
-  { title: '认证与密码策略', description: '按定级预填默认基线' },
-  { title: '软件/框架清单', description: '组件版本联动漏洞扫描' },
-  { title: '接口与资产清单', description: '公网/匿名接口专项检查' },
-  { title: '确认生成', description: '试算预览并生成产物' },
+  { title: '项目定级', description: '基本信息/外部系统' },
+  { title: '功能清单', description: '功能安全' },
+  { title: '数据字典', description: '分级与脱敏' },
+  { title: '权限矩阵', description: '越权与SoD' },
+  { title: '组件许可', description: '漏洞/许可证' },
+  { title: 'API接口', description: '匿名/公网' },
+  { title: '基础设施', description: '服务器/网络' },
+  { title: '确认生成', description: '预览/生成' },
 ]
 const LAST = STEPS.length - 1
 
@@ -166,28 +165,26 @@ export default function WizardPage({ projectId }: { projectId: number }) {
   }
 
   const done: boolean[] = [
-    Boolean(ws.project.name && ws.project.type && ws.project.user_scale),
-    (ws.survey?.answers_json?.length ?? 0) > 0,
+    Boolean(ws.project.name && ws.project.user_scale && ws.survey?.effective_level),
     ws.features.length > 0,
     ws.data_assets.length > 0,
     ws.roles.length > 0 && ws.resources.length > 0,
-    Boolean(ws.auth_config),
     ws.components.length > 0,
-    ws.api_endpoints.length > 0 || ws.infra_assets.length > 0,
+    ws.api_endpoints.length > 0,
+    ws.infra_assets.length > 0,
     false,
   ]
   const statusOf = (i: number): 'process' | 'finish' | 'wait' =>
     i === current ? 'process' : done[i] ? 'finish' : 'wait'
 
   const renderers: ((props: StepProps) => ReactNode)[] = [
-    (p) => <Step1BasicInfo {...p} />,
-    (p) => <Step2Survey {...p} />,
+    (p) => <Step1ProjectInfo {...p} />,
     (p) => <Step3Features {...p} />,
     (p) => <Step4DataAssets {...p} />,
     (p) => <Step5PermissionMatrix {...p} />,
-    (p) => <Step6AuthPolicy {...p} />,
     (p) => <Step7Components {...p} />,
-    (p) => <Step8Inventory {...p} />,
+    (p) => <Step6ApiList {...p} />,
+    (p) => <Step7InfraList {...p} />,
     (p) => <ConfirmStep {...p} />,
   ]
 
@@ -234,8 +231,8 @@ export default function WizardPage({ projectId }: { projectId: number }) {
           description={(
             <span>
               按 1→8 步采集项目信息, 每步点「保存并下一步」即可, 也可点击顶部步骤条随时跳转
-              (有未保存修改时会先询问); 最后在第 9 步试算预览并一键生成安全需求、SBOM 与 5 份 Word 文档(含评审会用的《项目安全评审表》)。
-              生成后到「安全评审」页按提示提交评审即可, 材料缺什么页面会一键帮你补齐。
+              (有未保存修改时会先询问); 最后一步试算预览并一键生成安全需求清单与 SBOM。
+              第 1 步完成定级后即可预览本项目的合规基线要求。
               各步骤填什么, 看每步顶部说明与术语旁的 <QuestionCircleOutlined style={{ color: '#999' }} /> 图标。
             </span>
           )}
@@ -268,6 +265,7 @@ export default function WizardPage({ projectId }: { projectId: number }) {
             </Space>
           ) : (
             <Steps
+              labelPlacement="vertical"
               current={current}
               onChange={(idx) => idx !== current && guardLeave(() => switchTo(idx))}
               items={STEPS.map((s, i) => ({

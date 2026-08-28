@@ -19,8 +19,8 @@ GENESIS_HASH = "0" * 64
 class PlatformUser(Base):
     """平台侧用户(与项目内权限矩阵的 Role 无关)。
 
-    MVP 阶段用户由种子数据维护(见 services.auth_service), 登录仅校验用户名存在,
-    请求通过 X-Auth-User 头携带身份; 电子签章以「姓名+工号+时间戳+哈希」代替。
+    账号+密码登录(走查整改): 密码仅存 pbkdf2 哈希(services.auth_service);
+    登录成功后签发 Bearer token(routers.auth), 电子签章以「姓名+工号+时间戳+哈希」代替。
     """
 
     __tablename__ = "platform_users"
@@ -30,6 +30,7 @@ class PlatformUser(Base):
     display_name: Mapped[str] = mapped_column(String(50), comment="姓名(签章展示用)")
     employee_id: Mapped[str | None] = mapped_column(String(30), comment="工号(签章展示用)")
     role: Mapped[str] = mapped_column(String(30), comment="平台角色, 见 PLATFORM_ROLES")
+    password_hash: Mapped[str | None] = mapped_column(String(256), comment="pbkdf2 口令哈希, None=未初始化")
     active: Mapped[bool] = mapped_column(Boolean, default=True, comment="是否启用")
 
 

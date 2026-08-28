@@ -1,28 +1,55 @@
-/* API 客户端: 统一错误提示; 文档/Excel 下载走原生链接。
-   身份: 登录后的用户名存 localStorage, 每个请求经 X-Auth-User 头携带(RBAC 依据)。 */
+/* API 客户端: 统一错误提示; 附件下载走 fetch→blob(需携带登录态)。
+   身份: 登录后 token 存 localStorage, 每个请求经 Authorization: Bearer 携带;
+   遇 401 广播 AUTH_EXPIRED_EVENT, 由 App 清除登录态并回到登录页。 */
 import type {
-  ApiEndpointRow, AuthConfigRow, ChainVerify, ComponentRow, DataAssetRow,
-  EvidenceRow, FeatureRow, GateRow, GenerateSummary, GradingQuestion,
-  InfraAssetRow, LabelMap, LoginInfo, MatrixEntryIn, PlatformUserRow,
+  ApiEndpointRow, AuthConfigRow, ComponentRow, DataAssetRow,
+  ExternalSystemRow, FeatureRow, GenerateSummary, GradingQuestion,
+  InfraAssetRow, LabelMap, LoginInfo, MatrixEntryIn,
   PreviewResult, ProjectDetail, ProjectInfo, RequirementRow, RoleRow,
   ResourceRow, SurveyAnswer, VulnerabilityRow, WizardState,
 } from './types'
 
 export type { MatrixEntryIn }
 
-export const AUTH_STORAGE_KEY = 'secreq.auth.user'
+export const AUTH_STORAGE_KEY = 'secreq.auth.token'
+export const USER_STORAGE_KEY = 'secreq.auth.info'
 
-/** 身份变更事件: 顶栏切换身份后, 各页面据此刷新"现在可以做什么"提示。 */
-export const IDENTITY_EVENT = 'secreq:identity-changed'
+/** 会话失效事件: App 监听后清除本地登录态并展示登录页。 */
+export const AUTH_EXPIRED_EVENT = 'secreq:auth-expired'
 
-export function getStoredUsername(): string | null {
+export interface StoredUser {
+  username: string
+  display_name: string
+  role: string
+  role_label: string
+}
+
+export function getStoredToken(): string | null {
   return localStorage.getItem(AUTH_STORAGE_KEY)
 }
 
-export function storeUsername(username: string | null) {
-  if (username) localStorage.setItem(AUTH_STORAGE_KEY, username)
-  else localStorage.removeItem(AUTH_STORAGE_KEY)
-  window.dispatchEvent(new Event(IDENTITY_EVENT))
+export function getStoredUser(): StoredUser | null {
+  try {
+    const raw = localStorage.getItem(USER_STORAGE_KEY)
+    return raw ? (JSON.parse(raw) as StoredUser) : null
+  } catch {
+    return null
+  }
+}
+
+export function storeAuth(info: LoginInfo) {
+  localStorage.setItem(USER_STORAGE_KEY, JSON.stringify({
+    username: info.username,
+    display_name: info.display_name,
+    role: info.role,
+    role_label: info.role_label,
+  }))
+  localStorage.setItem(AUTH_STORAGE_KEY, info.token ?? '')
+}
+
+export function clearAuth() {
+  localStorage.removeItem(AUTH_STORAGE_KEY)
+  localStorage.removeItem(USER_STORAGE_KEY)
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -30,10 +57,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     'Content-Type': 'application/json',
     ...((init?.headers as Record<string, string>) ?? {}),
   }
-  const user = getStoredUsername()
-  if (user) headers['X-Auth-User'] = user
+  const token = getStoredToken()
+  if (token) headers.Authorization = `Bearer ${token}`
   const resp = await fetch(path, { ...init, headers })
   if (!resp.ok) {
+    if (resp.status === 401) window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
     let detail = `HTTP ${resp.status}`
     try {
       const body = await resp.json()
@@ -43,6 +71,30 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (resp.status === 204) return undefined as T
   return (await resp.json()) as T
+}
+
+/** 触发浏览器下载: 经 fetch 携带 Bearer token, 再转 object URL 保存。 */
+export async function downloadFile(path: string, filename?: string) {
+  const token = getStoredToken()
+  const resp = await fetch(path, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  })
+  if (!resp.ok) {
+    if (resp.status === 401) window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
+    const body = await resp.json().catch(() => null)
+    throw new Error(body?.detail ?? `下载失败 HTTP ${resp.status}`)
+  }
+  const blob = await resp.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename ?? (resp.headers.get('content-disposition') ?? '').split("filename*=")[1]?.split("''")[1]
+    ?? `download-${Date.now()}`
+  a.rel = 'noopener'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
 }
 
 export interface Constants {
@@ -56,10 +108,18 @@ export const api = {
     request<{ questions: GradingQuestion[] }>('/api/meta/grading-questions')
       .then((r) => r.questions),
 
-  /* ── 平台身份 ── */
-  listUsers: () => request<PlatformUserRow[]>('/api/auth/users'),
-  login: (username: string) =>
-    request<LoginInfo>('/api/auth/login', { method: 'POST', body: JSON.stringify({ username }) }),
+  /* ── 平台认证 ── */
+  login: (username: string, password: string) =>
+    request<LoginInfo>('/api/auth/login', {
+      method: 'POST', body: JSON.stringify({ username, password }),
+    }),
+  logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
+  me: () => request<LoginInfo | null>('/api/auth/me'),
+  changePassword: (oldPassword: string, newPassword: string) =>
+    request<{ message: string }>('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
+    }),
 
   listProjects: () => request<ProjectDetail[]>('/api/projects'),
   getProject: (id: number) => request<ProjectDetail>(`/api/projects/${id}`),
@@ -71,6 +131,12 @@ export const api = {
 
   loadWizard: (id: number) => request<WizardState>(`/api/projects/${id}/wizard-state`),
 
+  saveExternalSystems: (id: number, rows: ExternalSystemRow[]) =>
+    request<ExternalSystemRow[]>(`/api/projects/${id}/external-systems`, {
+      method: 'POST', body: JSON.stringify(rows),
+    }),
+  getGradingBaseline: (id: number) =>
+    request<GradingBaseline>(`/api/projects/${id}/grading-baseline`),
   saveSurvey: (id: number, answers: SurveyAnswer[], finalLevel?: string | null, note?: string | null) => {
     const body = finalLevel
       ? { answers, final_level: finalLevel, manual_adjust_note: note }
@@ -78,6 +144,29 @@ export const api = {
     return request<Record<string, never>>(`/api/projects/${id}/survey`, {
       method: 'POST', body: JSON.stringify(body),
     })
+  },
+  extractFeatures: (id: number, text: string) =>
+    request<{ mode: 'llm' | 'rules'; note: string; candidates: FeatureRow[] & { source_quote?: string | null }[] }>(
+      `/api/projects/${id}/features/extract`,
+      { method: 'POST', body: JSON.stringify({ text }) },
+    ),
+  parseDictionary: (id: number, content: string) =>
+    request<{ row_count: number; assets: DataAssetRow[] }>(`/api/projects/${id}/data-assets/parse-dictionary`, {
+      method: 'POST', body: JSON.stringify({ content }),
+    }),
+  importDictionaryFile: async (id: number, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    const token = getStoredToken()
+    const resp = await fetch(`/api/projects/${id}/data-assets/import-dictionary`, {
+      method: 'POST', body: form,
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    })
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => null)
+      throw new Error(body?.detail ?? `解析失败 HTTP ${resp.status}`)
+    }
+    return (await resp.json()) as { row_count: number; assets: DataAssetRow[] }
   },
   saveFeatures: (id: number, rows: FeatureRow[]) =>
     request<FeatureRow[]>(`/api/projects/${id}/features`, {
@@ -111,10 +200,10 @@ export const api = {
   importSbomFile: async (id: number, file: File) => {
     const form = new FormData()
     form.append('file', file)
-    const user = getStoredUsername()
+    const token = getStoredToken()
     const resp = await fetch(`/api/projects/${id}/components/import-sbom`, {
       method: 'POST', body: form,
-      headers: user ? { 'X-Auth-User': user } : undefined,
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     })
     if (!resp.ok) {
       const body = await resp.json().catch(() => null)
@@ -124,11 +213,14 @@ export const api = {
       filename: string, format: string, total_parsed: number, added: number, skipped_duplicate: number,
     }
   },
-  saveInventory: (id: number, apiEndpoints: ApiEndpointRow[], infraAssets: InfraAssetRow[]) =>
-    request<{ saved: Record<string, number>, api_endpoints: ApiEndpointRow[], infra_assets: InfraAssetRow[] }>(
-      `/api/projects/${id}/inventory`,
-      { method: 'POST', body: JSON.stringify({ api_endpoints: apiEndpoints, infra_assets: infraAssets }) },
-    ),
+  saveApiEndpoints: (id: number, rows: ApiEndpointRow[]) =>
+    request<ApiEndpointRow[]>(`/api/projects/${id}/api-endpoints`, {
+      method: 'POST', body: JSON.stringify(rows),
+    }),
+  saveInfraAssets: (id: number, rows: InfraAssetRow[]) =>
+    request<InfraAssetRow[]>(`/api/projects/${id}/infra-assets`, {
+      method: 'POST', body: JSON.stringify({ assets: rows }),
+    }),
 
   previewRequirements: (id: number) =>
     request<PreviewResult>(`/api/projects/${id}/requirements/preview`, { method: 'POST' }),
@@ -139,53 +231,106 @@ export const api = {
 
   listRequirements: (id: number) => request<RequirementRow[]>(`/api/projects/${id}/requirements`),
   listVulnerabilities: (id: number) => request<VulnerabilityRow[]>(`/api/projects/${id}/vulnerabilities`),
-  setRequirementOwner: (id: number, reqId: string, owner: string) =>
-    request<RequirementRow>(`/api/projects/${id}/requirements/${reqId}/owner`, {
-      method: 'POST', body: JSON.stringify({ owner }),
-    }),
   confirmRegulatory: (id: number, reqId: string) =>
     request<RequirementRow>(`/api/projects/${id}/requirements/${reqId}/confirm`, { method: 'POST' }),
 
-  /* ── 评审门禁 ── */
-  listGates: (id: number) => request<GateRow[]>(`/api/projects/${id}/gates`),
-  submitGate: (id: number, gateType: string) =>
-    request<GateRow>(`/api/projects/${id}/gates/${gateType}/submit`, { method: 'POST' }),
-  reviewGate: (id: number, gateId: number, action: string, opinion: string) =>
-    request<GateRow>(`/api/projects/${id}/gates/${gateId}/review`, {
-      method: 'POST', body: JSON.stringify({ action, opinion }),
+  /* ── 系统管理(仅安全角色) ── */
+  listKb: (keyword?: string) =>
+    request<{ total: number; templates: KbTemplateRow[] }>(
+      `/api/admin/knowledge-base${keyword ? `?keyword=${encodeURIComponent(keyword)}` : ''}`),
+  updateKbTemplate: (templateId: string, changes: Partial<KbTemplateRow>) =>
+    request<KbTemplateRow>(`/api/admin/knowledge-base/${templateId}`, {
+      method: 'PUT', body: JSON.stringify(changes),
     }),
-  finalizeGate: (id: number, gateId: number, action: string, opinion: string) =>
-    request<GateRow>(`/api/projects/${id}/gates/${gateId}/final`, {
-      method: 'POST', body: JSON.stringify({ action, opinion }),
+  createKbTemplate: (data: Record<string, unknown>) =>
+    request<KbTemplateRow>('/api/admin/knowledge-base', { method: 'POST', body: JSON.stringify(data) }),
+  getQuestionBank: () => request<QuestionBank>(`/api/admin/grading-questions`),
+  saveQuestionBank: (bank: QuestionBank) =>
+    request<{ status: string }>('/api/admin/grading-questions', { method: 'PUT', body: JSON.stringify(bank) }),
+  getPolicyBaselines: () => request<PolicyBaselines>('/api/admin/policy-baselines'),
+  savePolicyBaselines: (data: PolicyBaselines) =>
+    request<{ status: string }>('/api/admin/policy-baselines', { method: 'PUT', body: JSON.stringify(data) }),
+  getLlmConfig: () => request<LlmConfig>('/api/admin/llm-config'),
+  saveLlmConfig: (data: LlmConfig) =>
+    request<{ status: string }>('/api/admin/llm-config', { method: 'PUT', body: JSON.stringify(data) }),
+  adminListUsers: () => request<AdminUserRow[]>('/api/admin/users'),
+  adminCreateUser: (data: { username: string; display_name: string; employee_id?: string; role: string; password?: string }) =>
+    request<{ status: string; initial_password: string }>('/api/admin/users', { method: 'POST', body: JSON.stringify(data) }),
+  adminResetPassword: (username: string, password: string) =>
+    request<{ status: string }>(`/api/admin/users/${username}/reset-password`, {
+      method: 'POST', body: JSON.stringify({ password }),
     }),
-  listEvidence: (id: number, gateId: number) =>
-    request<EvidenceRow[]>(`/api/projects/${id}/gates/${gateId}/evidence`),
-  verifyChain: (id: number, gateId: number) =>
-    request<ChainVerify>(`/api/projects/${id}/gates/${gateId}/evidence/verify`),
+  adminToggleUser: (username: string) =>
+    request<{ username: string; active: boolean }>(`/api/admin/users/${username}/toggle-active`, { method: 'POST' }),
+  listAuditLogs: () => request<AuditLogRow[]>('/api/admin/audit-logs'),
+  batchConfirmRequirements: (id: number, reqIds: string[]) =>
+    request<{ confirmed: number; missing: string[] }>(`/api/projects/${id}/requirements/batch-confirm`, {
+      method: 'POST', body: JSON.stringify({ req_ids: reqIds }),
+    }),
 }
 
-/** 提交评审被门禁阻断时的 409 响应体(后端固定口径)。 */
-export interface GateBlocked {
-  gate: string
-  status: 'blocked'
-  missing: string[]
-  message?: string
+/** 定级基线: 按当前输入干跑引擎得到的合规/策略/报送类要求(定级后即时反馈)。 */
+export interface GradingBaseline {
+  grading_level: string
+  grading_text: string
+  pwd_defaults: Record<string, number>
+  requirements: {
+    req_id: string
+    title: string
+    description: string
+    category: string
+    priority: string
+    reg_confirmed?: boolean
+  }[]
 }
 
-export function parseGateBlocked(err: Error): GateBlocked | null {
-  try {
-    const body = JSON.parse(err.message)
-    if (body && body.status === 'blocked' && Array.isArray(body.missing)) return body
-  } catch { /* 非阻断结构 */ }
-  return null
+/* ── 系统管理数据形态 ── */
+export interface KbTemplateRow {
+  id: string
+  trigger_type: string
+  trigger: Record<string, unknown>
+  title: string
+  priority: string
+  suggested_phase: string
+  enabled: boolean
+  description?: string
+  acceptance_criteria?: string
+  trigger_reason?: string
 }
 
-/** 触发浏览器下载(GET 附件)。 */
-export function downloadUrl(url: string) {
-  const a = document.createElement('a')
-  a.href = url
-  a.rel = 'noopener'
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
+export interface QuestionBank {
+  questions: { id: string; title: string; options: { id: string; label: string; score: number; basis?: string; tags?: string[] }[] }[]
+  levels: { level: string; min_score: number; combined_tags?: string[] }[]
+  [key: string]: unknown
+}
+
+export interface PolicyBaselines {
+  baselines: Record<string, { pwd_min_length: number; pwd_complexity: number; pwd_valid_days: number }>
+  lockout_threshold: number
+  session_timeout_min: number
+}
+
+export interface LlmConfig {
+  base_url?: string
+  api_key?: string
+  model?: string
+  configured?: boolean
+}
+
+export interface AdminUserRow {
+  id: number
+  username: string
+  display_name: string
+  employee_id?: string | null
+  role: string
+  active: boolean
+}
+
+export interface AuditLogRow {
+  id: number
+  username: string
+  action: string
+  detail: Record<string, unknown>
+  ip?: string | null
+  created_at: string
 }

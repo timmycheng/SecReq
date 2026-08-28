@@ -50,7 +50,7 @@ def test_full_wizard_flow_and_generate_offline(api):
         # ── Step1 创建 ──
         resp = api.post("/api/projects", json={
             "name": "API端到端测试项目", "code": code, "type": "web",
-            "user_scale": "over_1m", "deploy_env": ["private_cloud"],
+            "user_scale": "over_1m",
             "is_public": True,
             "compliance_targets": ["djcp_l3", "pipl"],
             "pm_name": "测试经理",
@@ -61,11 +61,13 @@ def test_full_wizard_flow_and_generate_offline(api):
         assert detail["counts"] == {
             "features": 0, "data_assets": 0, "roles": 0, "resources": 0,
             "permission_entries": 0, "components": 0, "api_endpoints": 0,
-            "infra_assets": 0, "requirements": 0, "vulnerabilities": 0,
+            "infra_assets": 0, "external_systems": 0, "requirements": 0,
+            "vulnerabilities": 0,
         }
 
         # 未生成前导出应被拦截(409)
         assert api.get(f"/api/projects/{pid}/export/xlsx").status_code == 409
+        assert api.get(f"/api/projects/{pid}/export/docx").status_code == 409
 
         # ── Step2 问卷 ──
         resp = api.post(f"/api/projects/{pid}/survey",
@@ -197,24 +199,33 @@ def test_full_wizard_flow_and_generate_offline(api):
         assert resp.status_code == 400 or resp.status_code == 422
 
         # ── Step8 接口清单与资产清单 ──
-        inv = {
-            "api_endpoints": [
-                {"name": "匿名行情", "path": "/open/rates", "method": "GET",
-                 "auth_required": False, "public_exposed": True,
-                 "sensitive_asset_ids": []},
-                {"name": "账户查询", "path": "/api/accounts/{id}", "method": "GET",
-                 "auth_required": True, "public_exposed": False,
-                 "sensitive_asset_ids": [asset_id], "rate_limit": "50 QPS/IP"},
-            ],
-            "infra_assets": [
-                {"asset_type": "database", "name": "核心库", "env": "prod",
-                 "ip": "10.0.0.9", "owner": "DBA组", "holds_sensitive": True},
-            ],
-        }
-        resp = api.post(f"/api/projects/{pid}/inventory", json=inv)
-        assert resp.status_code == 200
-        got = api.get(f"/api/projects/{pid}/inventory").json()
-        assert got["api_endpoints"][1]["sensitive_asset_ids"] == [asset_id]
+        endpoints = [
+            {"name": "匿名行情", "path": "/open/rates", "method": "GET",
+             "auth_required": False, "public_exposed": True,
+             "sensitive_asset_ids": []},
+            {"name": "账户查询", "path": "/api/accounts/{id}", "method": "GET",
+             "auth_required": True, "public_exposed": False,
+             "sensitive_asset_ids": [asset_id], "rate_limit": "50 QPS/IP"},
+        ]
+        resp = api.post(f"/api/projects/{pid}/api-endpoints", json=endpoints)
+        assert resp.status_code == 200, resp.text
+        got = api.get(f"/api/projects/{pid}/api-endpoints").json()
+        assert got[1]["sensitive_asset_ids"] == [asset_id]
+
+        infra = {"assets": [
+            {"asset_type": "database", "name": "核心库", "env": "prod",
+             "ip": "10.0.0.9", "owner": "DBA组", "holds_sensitive": True},
+            {"asset_type": "server", "name": "应用服务器1", "env": "prod",
+             "cpu_cores": 8, "memory_gb": 16, "disk_gb": 500,
+             "os": "CentOS 7.9", "quantity": 2, "purpose": "应用集群"},
+            {"asset_type": "network", "name": "负载均衡", "env": "prod",
+             "ip": None, "purpose": "设计期地址预留"},
+        ]}
+        resp = api.post(f"/api/projects/{pid}/infra-assets", json=infra)
+        assert resp.status_code == 200, resp.text
+        got_infra = api.get(f"/api/projects/{pid}/infra-assets").json()
+        assert got_infra[1]["cpu_cores"] == 8 and got_infra[1]["quantity"] == 2
+        assert got_infra[2]["ip"] is None
 
         # ── 确认页预览(干跑, 不落库) ──
         before = api.get(f"/api/projects/{pid}").json()["counts"]["requirements"]
@@ -233,7 +244,6 @@ def test_full_wizard_flow_and_generate_offline(api):
         assert resp.status_code == 200, resp.text
         summary = resp.json()
         assert summary["requirements_total"] >= preview["total"]
-        assert set(summary["documents"]) == {"grading", "requirement", "design", "sbom_vuln", "review"}
         assert summary["osv_summary"]               # 离线文案
 
         detail = api.get(f"/api/projects/{pid}").json()
@@ -260,19 +270,35 @@ def test_full_wizard_flow_and_generate_offline(api):
         names = {c["name"] for c in bom["components"]}
         assert "log4j-core" in names and "minio-py" in names
 
-        # ── 文档下载(Word×4 + Excel 跟踪表) ──
-        docx_mime = ("application/vnd.openxmlformats-officedocument."
-                     "wordprocessingml.document")
-        for doc_type in ("grading", "requirement", "design", "sbom_vuln"):
-            resp = api.get(f"/api/projects/{pid}/export/docx/{doc_type}")
-            assert resp.status_code == 200, (doc_type, resp.text)
-            assert resp.headers["content-type"].startswith(docx_mime)
-            assert resp.content[:2] == b"PK"
-        assert api.get(f"/api/projects/{pid}/export/docx/nope").status_code == 404
+        # Word 下载已移除: 产物页 Web 展示 + 复制到 Word(走查整改)
 
         resp = api.get(f"/api/projects/{pid}/export/xlsx")
         assert resp.status_code == 200
         assert resp.content[:2] == b"PK"
+
+        # ── Word 全文下载(走查整改: 全文改为 .docx 下载) ──
+        resp = api.get(f"/api/projects/{pid}/export/docx")
+        assert resp.status_code == 200, resp.text
+        assert resp.content[:2] == b"PK"
+        disposition = resp.headers["content-disposition"]
+        assert disposition.startswith("attachment; filename*=UTF-8''") and ".docx" in disposition
+
+        # ── 需求确认: 单条 + 批量(走查整改) + 来源中文化 ──
+        reqs = api.get(f"/api/projects/{pid}/requirements").json()
+        reg = next(r for r in reqs if r["category"] == "监管报送")
+        assert api.post(f"/api/projects/{pid}/requirements/{reg['req_id']}/confirm").status_code == 200
+        some = [r["req_id"] for r in reqs[:5] if r["req_id"] != reg["req_id"]]
+        resp = api.post(f"/api/projects/{pid}/requirements/batch-confirm",
+                        json={"req_ids": some + ["SEC-NOPE-999"]})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["confirmed"] == len(some) and body["missing"] == ["SEC-NOPE-999"]
+        after = api.get(f"/api/projects/{pid}/requirements").json()
+        confirmed = {r["req_id"] for r in after if r["reg_confirmed"]}
+        assert reg["req_id"] in confirmed and set(some) <= confirmed
+        # 来源展示: source_label 为中文(如 功能:xxx / 数据资产:xxx), 不再是 data_asset#3 形态
+        with_label = [r for r in after if r.get("source_label")]
+        assert with_label and all("#" not in r["source_label"] for r in with_label)
 
         # 向导状态一次拉全
         state = api.get(f"/api/projects/{pid}/wizard-state").json()

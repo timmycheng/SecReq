@@ -11,7 +11,7 @@ class SurveyAnswerIn(BaseModel):
 class SurveySubmitIn(BaseModel):
     """整卷提交。final_level 为人工修正值, 不传则引擎使用系统建议定级。"""
 
-    answers: list[SurveyAnswerIn] = Field(min_length=1)
+    answers: list[SurveyAnswerIn] = Field(default_factory=list)
     final_level: str | None = None
     manual_adjust_note: str | None = None
 

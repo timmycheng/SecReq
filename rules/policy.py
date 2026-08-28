@@ -10,10 +10,24 @@ from rules.context import RequirementContext
 # 定级缺省兜底(未定级或未知等级时)
 _FALLBACK_BASELINE = {"pwd_min_length": 8, "pwd_complexity": 3, "pwd_valid_days": 180}
 
+# 管理端覆盖(系统管理→策略基线; None 时用 shared.constants 内置默认)
+_baseline_override: dict | None = None
+
+
+def get_policy_baselines() -> dict:
+    """按等级的默认密码基线(内置默认或管理端覆盖)。"""
+    return _baseline_override or C.DEFAULT_PWD_POLICY_BY_LEVEL
+
+
+def set_policy_baselines(value: dict | None) -> None:
+    """管理端保存后注入(进程内生效); value=None 恢复内置默认。"""
+    global _baseline_override
+    _baseline_override = value
+
 
 def effective_password_policy(ctx: RequirementContext) -> dict[str, str]:
     """返回全部策略键的字符串形态值(占位符渲染与文档表格直接可用)。"""
-    defaults = C.DEFAULT_PWD_POLICY_BY_LEVEL.get(ctx.grading_level, _FALLBACK_BASELINE)
+    defaults = get_policy_baselines().get(ctx.grading_level, _FALLBACK_BASELINE)
     cfg = ctx.auth_config
 
     def pick(key: str, fallback) -> str:

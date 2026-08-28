@@ -1,15 +1,20 @@
-/* Step3 功能清单: 动态增删行, 功能分类为受控枚举多选(规则引擎按交集触发)。 */
+/* Step3 功能清单: 手工增删 + 粘贴业务需求段落自动生成候选(大模型优先, 规则降级)。 */
 import { useRef, useState } from 'react'
 import {
-  Button, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Typography, message,
+  Alert, Button, Checkbox, Form, Input, Modal, Popconfirm, Select, Space, Spin,
+  Switch, Table, Tag, Typography, message,
 } from 'antd'
-import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
+import { DeleteOutlined, EditOutlined, PlusOutlined, SnippetsOutlined } from '@ant-design/icons'
 
 import { api } from '../../api'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
 import { useRegisterStepHandle } from './stepContext'
 import type { StepProps } from '../WizardPage'
 import type { FeatureRow } from '../../types'
+
+interface CandidateFeature extends FeatureRow {
+  source_quote?: string | null
+}
 
 const EMPTY: FeatureRow = {
   name: '', module: '', categories: [], sensitivity: 'internal',
@@ -42,6 +47,7 @@ export default function Step3Features({ ws, patch }: StepProps) {
   const [rows, setRows] = useState<FeatureRow[]>(ws.features)
   const [editing, setEditing] = useState<FeatureRow | null>(null)
   const [editIndex, setEditIndex] = useState<number>(-1)
+  const [pasteOpen, setPasteOpen] = useState(false)
   const savedRef = useRef(JSON.stringify(rows))
 
   const openAdd = () => { setEditIndex(-1); setEditing({ ...EMPTY }) }
@@ -77,8 +83,11 @@ export default function Step3Features({ ws, patch }: StepProps) {
 
   return (
     <div style={{ maxWidth: 980, margin: '0 auto' }}>
-      <Space style={{ marginBottom: 12 }}>
+      <Space style={{ marginBottom: 12 }} wrap>
         <Button icon={<PlusOutlined />} onClick={openAdd}>新增功能</Button>
+        <Button type="primary" ghost icon={<SnippetsOutlined />} onClick={() => setPasteOpen(true)}>
+          粘贴需求段落自动生成
+        </Button>
         <Typography.Text type="secondary">
           本步录入系统对外提供的功能。共 {rows.length} 条 ·
           功能分类直接决定规则引擎触发的安全需求(新增时每个分类下有说明)
@@ -120,7 +129,124 @@ export default function Step3Features({ ws, patch }: StepProps) {
         onCancel={() => setEditing(null)}
         onOk={applyEdit}
       />
+
+      <PasteExtractModal
+        projectId={ws.project.id}
+        open={pasteOpen}
+        onClose={() => setPasteOpen(false)}
+        onConfirm={(picked) => {
+          const existing = new Set(rows.map((r) => r.name))
+          const fresh = picked.filter((r) => !existing.has(r.name))
+          setRows([...rows, ...fresh.map(({ source_quote: _q, ...rest }) => rest)])
+          setPasteOpen(false)
+          const skipped = picked.length - fresh.length
+          message.success(
+            `已加入 ${fresh.length} 个功能点${skipped ? `(重名跳过 ${skipped} 个)` : ''}, 请点「保存并下一步」落库`)
+        }}
+      />
     </div>
+  )
+}
+
+/** 粘贴业务需求段落 → 候选功能点勾选确认。 */
+function PasteExtractModal({ projectId, open, onClose, onConfirm }: {
+  projectId: number
+  open: boolean
+  onClose: () => void
+  onConfirm: (picked: CandidateFeature[]) => void
+}) {
+  const enums = useEnums()
+  const [text, setText] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [candidates, setCandidates] = useState<CandidateFeature[] | null>(null)
+  const [note, setNote] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const categoryMap = labelMapOf(enums, 'feature_categories')
+
+  const doExtract = async () => {
+    if (!text.trim()) { message.warning('请先粘贴需求内容'); return }
+    setLoading(true)
+    try {
+      const resp = await api.extractFeatures(projectId, text)
+      setCandidates(resp.candidates as CandidateFeature[])
+      setNote(resp.note || (resp.mode === 'llm' ? '大模型提取' : '关键词规则提取'))
+      setSelected(new Set(resp.candidates.map((_, i) => i)))
+    } catch (e) {
+      message.error((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const toggle = (index: number, checked: boolean) => {
+    const next = new Set(selected)
+    if (checked) next.add(index)
+    else next.delete(index)
+    setSelected(next)
+  }
+
+  return (
+    <Modal
+      title="粘贴业务需求段落, 自动生成功能点"
+      open={open} onCancel={onClose} width={880}
+      footer={[
+        <Button key="cancel" onClick={onClose}>取消</Button>,
+        candidates && candidates.length > 0 && (
+          <Button key="ok" type="primary"
+            onClick={() => onConfirm(candidates.filter((_, i) => selected.has(i)))}>
+            确认加入所选 {selected.size} 项
+          </Button>
+        ),
+      ]}
+    >
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+        把业务需求书/会议纪要里的功能描述段落贴到下面, 系统自动提取功能点并建议分类,
+        确认后再加入清单 —— 只建议不落库, 加入后仍可修改删除。
+      </Typography.Paragraph>
+      <Input.TextArea
+        rows={6}
+        placeholder={'示例: 系统支持个人用户注册登录, 登录需要短信验证码。\n客户可在线提交转账支付申请, 并查询交易订单。\n管理后台提供数据导出与操作日志功能。'}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <Space style={{ margin: '10px 0' }}>
+        <Button type="primary" loading={loading} onClick={() => void doExtract()}>提取功能点</Button>
+        {note && <Typography.Text type="secondary">{note}</Typography.Text>}
+      </Space>
+
+      {loading && <Spin style={{ display: 'block', margin: '12px auto' }} />}
+      {candidates && candidates.length > 0 && (
+        <Table<CandidateFeature>
+          rowKey={(_, i) => String(i)}
+          dataSource={candidates}
+          pagination={false}
+          size="small"
+          columns={[
+            {
+              title: '加入', width: 60,
+              render: (_v, _r, index) => (
+                <Checkbox
+                  checked={selected.has(index)}
+                  onChange={(e) => toggle(index, e.target.checked)}
+                />
+              ),
+            },
+            { title: '功能点', dataIndex: 'name', width: 300 },
+            { title: '建议分类', dataIndex: 'categories',
+              render: (cats: string[]) => cats.map((c) => <Tag key={c} color="blue">{categoryMap[c] ?? c}</Tag>) },
+            { title: '资金', dataIndex: 'involves_payment', width: 60,
+              render: (v: boolean) => (v ? <Tag color="red">是</Tag> : '否') },
+            { title: '公网', dataIndex: 'exposed_to_internet', width: 60,
+              render: (v: boolean) => (v ? <Tag color="orange">是</Tag> : '否') },
+            { title: '敏感级别', dataIndex: 'sensitivity', width: 90,
+              render: (v: string) => labelMapOf(enums, 'sensitivity_levels')[v] ?? v },
+          ]}
+        />
+      )}
+      {candidates && candidates.length === 0 && (
+        <Alert type="warning" showIcon message="没有提取到功能点, 请检查文本内容或改用手动录入" />
+      )}
+    </Modal>
   )
 }
 

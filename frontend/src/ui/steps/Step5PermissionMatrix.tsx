@@ -5,7 +5,7 @@
 import { useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import {
-  Alert, Button, Checkbox, Input, InputNumber, Popover, Select, Space,
+  Alert, Button, Checkbox, Input, Popover, Select, Space,
   Tag, Typography, message,
 } from 'antd'
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
@@ -21,7 +21,7 @@ import type { StepProps } from '../WizardPage'
 /** cell[roleIndex][resourceIndex] = { 动作code → 是否需审批 }(键为下标的字符串形态) */
 type CellGrants = Record<string, Record<string, Record<string, boolean>>>
 
-const EMPTY_ROLE: RoleRow = { name: '', role_type: 'normal', user_count_estimate: 0 }
+const EMPTY_ROLE: RoleRow = { name: '', role_type: 'normal' }
 const EMPTY_RESOURCE: ResourceRow = { name: '', resource_type: 'data_record', criticality: 'medium' }
 
 export default function Step5PermissionMatrix({ ws, patch }: StepProps) {
@@ -147,14 +147,25 @@ export default function Step5PermissionMatrix({ ws, patch }: StepProps) {
                 <Select size="small" style={{ width: 130 }} value={row.role_type}
                   options={optionsOf(enums, 'role_types')}
                   onChange={(v) => setRow({ ...row, role_type: v })} />
-                <InputNumber size="small" min={0} value={row.user_count_estimate}
-                  onChange={(v) => setRow({ ...row, user_count_estimate: v ?? 0 })} />
                 {removeBtn}
               </>
             )}
           />
           {/* ── 资源维护 ── */}
-          <Typography.Text strong>资源</Typography.Text>
+          <Space size={8}>
+            <Typography.Text strong>资源</Typography.Text>
+            <Button size="small" onClick={() => {
+              const existing = new Set(resources.map((r) => r.name))
+              const imported = ws.features
+                .filter((f) => !existing.has(f.name))
+                .map((f) => ({ ...EMPTY_RESOURCE, name: f.name }))
+              if (!imported.length) { message.info('功能清单中的条目都已是资源, 无需导入'); return }
+              setResources([...resources, ...imported])
+              message.success(`已从功能清单导入 ${imported.length} 个资源, 请按需调整类型与重要级别`)
+            }}>
+              从功能清单导入
+            </Button>
+          </Space>
           <RoleResourceEditor<ResourceRow>
             rows={resources}
             empty={EMPTY_RESOURCE}
@@ -206,7 +217,6 @@ export default function Step5PermissionMatrix({ ws, patch }: StepProps) {
                     <Tag color={ROLE_TYPE_COLOR[role.role_type]}>
                       {labelMapOf(enums, 'role_types')[role.role_type] ?? role.role_type}
                     </Tag>
-                    <span style={{ color: '#999', fontSize: 12 }}>{role.user_count_estimate} 人</span>
                   </td>
                   {resources.map((_res, ci) => {
                     const cell = grants[String(ri)]?.[String(ci)] ?? {}

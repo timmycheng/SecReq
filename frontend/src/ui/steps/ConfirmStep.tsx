@@ -70,11 +70,11 @@ export default function ConfirmStep({ ws, goto }: StepProps) {
   )
 
   const gaps: string[] = []
-  if (!ws.survey?.effective_level) gaps.push('等保定级问卷未完成')
+  if (!ws.survey?.effective_level) gaps.push('定级未完成')
   if (!ws.features.length) gaps.push('功能清单为空')
   if (!ws.data_assets.length) gaps.push('数据字典为空')
   if (!ws.roles.length || !ws.resources.length) gaps.push('权限矩阵未维护')
-  if (!ws.components.length) gaps.push('软件/框架清单为空(将跳过漏洞扫描)')
+  if (!ws.components.length) gaps.push('组件清单为空(将跳过漏洞与许可证扫描)')
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>
@@ -102,32 +102,38 @@ export default function ConfirmStep({ ws, goto }: StepProps) {
             key: 'grading',
             label: <GlossaryTip term="grading">定级结论</GlossaryTip>,
             children: ws.survey?.effective_level
-              ? <Tag color="blue">等保{ws.survey.effective_level}{ws.survey.final_level ? '(人工修正)' : '(系统建议)'}</Tag>
-              : withFix(1, '未完成问卷', true),
+              ? <Tag color="blue">等保{ws.survey.effective_level}{ws.survey.final_level ? (ws.survey.suggested_level ? '(人工修正)' : '(直接指定)') : '(系统建议)'}</Tag>
+              : withFix(0, '未定级', true),
           },
-          { key: 'features', label: '功能清单', children: withFix(2, `${ws.features.length} 个功能`, !ws.features.length) },
+          {
+            key: 'types',
+            label: '项目类型',
+            children: (ws.project.types ?? []).map((t) => labelMapOf(enums, 'project_types')[t] ?? t).join('、') || '—',
+          },
+          {
+            key: 'ext',
+            label: '外部系统连接',
+            children: withFix(0, `${ws.external_systems.length} 个外部系统`, false),
+          },
+          { key: 'features', label: '功能清单', children: withFix(1, `${ws.features.length} 个功能`, !ws.features.length) },
           {
             key: 'assets',
             label: '数据字典',
-            children: withFix(3, `${ws.data_assets.length} 个资产 / ${ws.data_assets.reduce((n, a) => n + a.tables.length, 0)} 张表`, !ws.data_assets.length),
+            children: withFix(2, `${ws.data_assets.length} 个资产 / ${ws.data_assets.reduce((n, a) => n + a.tables.length, 0)} 张表`, !ws.data_assets.length),
           },
           {
             key: 'matrix',
             label: <GlossaryTip term="sod">权限矩阵</GlossaryTip>,
-            children: withFix(4, `${ws.roles.length} 角色 × ${ws.resources.length} 资源, ${ws.permission_entries.length} 条授权`, !ws.roles.length || !ws.resources.length),
+            children: withFix(3, `${ws.roles.length} 角色 × ${ws.resources.length} 资源, ${ws.permission_entries.length} 条授权`, !ws.roles.length || !ws.resources.length),
           },
           {
             key: 'auth',
             label: '认证方式',
-            children: withFix(5, ws.auth_config?.auth_methods.map((m) => labelMapOf(enums, 'auth_methods')[m] ?? m).join('、') || '未设置', !ws.auth_config),
+            children: ws.auth_config?.auth_methods.map((m) => labelMapOf(enums, 'auth_methods')[m] ?? m).join('、') || '未设置(按基线)',
           },
-          { key: 'sbom', label: <GlossaryTip term="sbom">软件/框架清单</GlossaryTip>, children: withFix(6, `${ws.components.length} 个组件`, !ws.components.length) },
-          { key: 'apis', label: '接口/资产清单', children: withFix(7, `${ws.api_endpoints.length} 接口 · ${ws.infra_assets.length} 基础设施资产`, false) },
-          {
-            key: 'deploy',
-            label: '部署环境',
-            children: (ws.project.deploy_env ?? []).map((d) => labelMapOf(enums, 'deploy_envs')[d] ?? d).join('、') || '—',
-          },
+          { key: 'sbom', label: <GlossaryTip term="sbom">组件与许可证</GlossaryTip>, children: withFix(4, `${ws.components.length} 个组件`, !ws.components.length) },
+          { key: 'apis', label: 'API 接口', children: withFix(5, `${ws.api_endpoints.length} 个接口`, false) },
+          { key: 'infra', label: '基础设施', children: withFix(6, `${ws.infra_assets.length} 项资产`, false) },
           {
             key: 'compliance',
             label: '合规目标',
@@ -182,7 +188,7 @@ export default function ConfirmStep({ ws, goto }: StepProps) {
           ? <Spin tip="正在执行规则引擎与文档生成…"><div style={{ height: 60 }} /></Spin>
           : (
             <Button type="primary" size="large" onClick={doGenerate}>
-              生成安全基线(需求 + SBOM + 5 份 Word 文档)
+              生成安全基线(安全需求 + SBOM + 漏洞清单)
             </Button>
           )}
       </div>

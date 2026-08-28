@@ -7,9 +7,8 @@ export interface ProjectInfo {
   name: string
   code: string
   type: string
-  industry?: string | null
+  types: string[]
   user_scale: string
-  deploy_env: string[]
   is_public: boolean
   offshore_vendor?: boolean
   pm_name?: string | null
@@ -90,7 +89,14 @@ export interface RoleRow {
   id?: number
   name: string
   role_type: string
-  user_count_estimate: number
+}
+
+export interface ExternalSystemRow {
+  id?: number
+  name: string
+  purpose?: string | null
+  direction: string
+  involves_sensitive: boolean
 }
 
 export interface ResourceRow {
@@ -166,11 +172,18 @@ export interface InfraAssetRow {
   ip?: string | null
   owner?: string | null
   holds_sensitive: boolean
+  cpu_cores?: number | null
+  memory_gb?: number | null
+  disk_gb?: number | null
+  os?: string | null
+  quantity?: number | null
+  purpose?: string | null
 }
 
 export interface WizardState {
   project: ProjectDetail
   survey: SurveyOut | null
+  external_systems: ExternalSystemRow[]
   features: FeatureRow[]
   data_assets: DataAssetRow[]
   roles: RoleRow[]
@@ -226,6 +239,7 @@ export interface RequirementRow {
   suggested_phase: string
   source_entity_type: string
   source_entity_id: number
+  source_label?: string | null
   trigger_reason: string
   status: string
   regulatory_ref?: RegulatoryRefItem[]
@@ -246,61 +260,13 @@ export interface VulnerabilityRow {
   summary: string | null
 }
 
-/* ── 评审门禁(改造点4/5) ─────────────────────────── */
+/* ── 平台认证 ───────────────────────────────────── */
 
-export interface PlatformUserRow {
+export interface LoginInfo {
   username: string
   display_name: string
   employee_id?: string | null
   role: string
-}
-
-export interface LoginInfo extends PlatformUserRow {
   role_label: string
-}
-
-export interface GateCheck {
-  status: 'passed' | 'blocked' | 'not_available'
-  missing: string[]
-}
-
-export interface GateRow {
-  id: number
-  gate_type: string
-  gate_label: string
-  status: string
-  status_label: string
-  latest_verb: string
-  submitted_at?: string | null
-  reviewed_at?: string | null
-  submitter?: string | null
-  reviewer?: string | null
-  reviewer_conclusion?: 'approve' | 'reject' | 'request_change' | null
-  reviewer_opinion?: string | null
-  final_reviewer?: string | null
-  final_opinion?: string | null
-  final_reviewed_at?: string | null
-  version_hash?: string | null
-  check: GateCheck
-  evidence_count: number
-}
-
-export interface EvidenceRow {
-  id: number
-  actor: string
-  actor_role: string
-  action: string
-  action_label: string
-  timestamp: string
-  ip?: string | null
-  comment?: string | null
-  prev_hash: string
-  curr_hash: string
-}
-
-export interface ChainVerify {
-  gate_id: number
-  valid: boolean
-  count: number
-  broken_at?: number | null
+  token?: string | null
 }

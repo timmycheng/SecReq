@@ -254,14 +254,87 @@ SEVERITY_LABELS = {
 HTTP_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH"]
 INFRA_ASSET_TYPES = {
     "server": "服务器",
+    "network": "网络设备",
     "database": "数据库实例",
     "middleware": "中间件",
 }
 ENV_NAMES = {"dev": "开发", "test": "测试", "prod": "生产"}
 
+# ── 外部系统连接(Step1 采集) ───────────────────────────
+EXTERNAL_SYSTEM_DIRECTIONS = {
+    "inbound": "外部调用本系统",
+    "outbound": "本系统调用外部",
+    "bidirectional": "双向交互",
+}
+
+# ── 常用组件目录(按层级分组, 含默认许可证) ──────────────
+COMMON_COMPONENTS: dict[str, list[dict]] = {
+    "frontend": [
+        {"name": "Vue", "license": "MIT"}, {"name": "React", "license": "MIT"},
+        {"name": "Angular", "license": "MIT"}, {"name": "Element", "license": "MIT"},
+        {"name": "AntDesign", "license": "MIT"}, {"name": "lodash", "license": "MIT"},
+        {"name": "axios", "license": "MIT"}, {"name": "Ionic", "license": "MIT"},
+        {"name": "jwt", "license": "MIT"},
+    ],
+    "backend": [
+        {"name": "Spring Boot", "license": "Apache-2.0"}, {"name": "Spring Security", "license": "Apache-2.0"},
+        {"name": "Django", "license": "BSD-3-Clause"}, {"name": "Flask", "license": "BSD-3-Clause"},
+        {"name": "okhttp", "license": "Apache-2.0"}, {"name": "Retrofit", "license": "Apache-2.0"},
+        {"name": "Struts2", "license": "Apache-2.0"}, {"name": "netty", "license": "Apache-2.0"},
+        {"name": "dubbo", "license": "Apache-2.0"},
+    ],
+    "database": [
+        {"name": "MySQL", "license": "GPL-2.0"}, {"name": "PostgreSQL", "license": "PostgreSQL"},
+        {"name": "MongoDB", "license": "SSPL-1.0"}, {"name": "Oracle", "license": "商业授权"},
+        {"name": "Redis", "license": "RSAL-2.0"},
+    ],
+    "middleware": [
+        {"name": "Nginx", "license": "BSD-2-Clause"}, {"name": "kafka", "license": "Apache-2.0"},
+        {"name": "RabbitMQ", "license": "MPL-2.0"}, {"name": "Elasticsearch", "license": "SSPL-1.0"},
+        {"name": "tomcat", "license": "Apache-2.0"}, {"name": "kubernetes", "license": "Apache-2.0"},
+        {"name": "Docker", "license": "Apache-2.0"}, {"name": "OpenSSL", "license": "Apache-2.0"},
+    ],
+    "library": [
+        {"name": "log4j", "license": "Apache-2.0"}, {"name": "log4j-core", "license": "Apache-2.0"},
+        {"name": "fastjson", "license": "Apache-2.0"}, {"name": "jackson", "license": "Apache-2.0"},
+        {"name": "gson", "license": "Apache-2.0"}, {"name": "mybatis", "license": "Apache-2.0"},
+        {"name": "Druid", "license": "Apache-2.0"}, {"name": "Shiro", "license": "Apache-2.0"},
+        {"name": "XStream", "license": "BSD-3-Clause"}, {"name": "dom4j", "license": "BSD-3-Clause"},
+        {"name": "poi", "license": "Apache-2.0"}, {"name": "itextpdf", "license": "AGPL-3.0"},
+        {"name": "requests", "license": "Apache-2.0"},
+    ],
+    "infra": [
+        {"name": "ImageMagick", "license": "ImageMagick"}, {"name": "FFmpeg", "license": "LGPL-2.1"},
+        {"name": "zlib", "license": "Zlib"}, {"name": "libcurl", "license": "curl"},
+        {"name": "Helm", "license": "Apache-2.0"},
+    ],
+}
+
+# 许可证风险库: 使用类 GPL 强传染许可证为高风险(需安全/法务评估)
+LICENSE_RISK: dict[str, dict] = {
+    "GPL-2.0": {"risk": "high", "label": "强传染 Copyleft", "note": "GPL 系列具有传染性, 组件以链接方式集成可能要求整体开源, 须安全与法务联合评估"},
+    "GPL-3.0": {"risk": "high", "label": "强传染 Copyleft", "note": "GPL 系列具有传染性, 商用闭源系统集成需法务评估"},
+    "AGPL-3.0": {"risk": "high", "label": "网络传染 Copyleft", "note": "AGPL 连网络调用也触发开源义务, 风险最高, 建议替换或隔离部署"},
+    "SSPL-1.0": {"risk": "high", "label": "非开源许可", "note": "SSPL 非 OSI 认可开源许可证, 提供服务场景需商业授权"},
+    "RSAL-2.0": {"risk": "high", "label": "非开源许可", "note": "限制性源码可用许可, 商用分发需商业授权"},
+    "LGPL-2.1": {"risk": "medium", "label": "弱传染 Copyleft", "note": "动态链接可隔离, 修改库本身需开源, 建议以独立进程/动态链接方式集成"},
+    "MPL-2.0": {"risk": "medium", "label": "文件级 Copyleft", "note": "修改 MPL 文件需开源该文件, 需评审修改范围"},
+    "EPL-2.0": {"risk": "medium", "label": "弱传染 Copyleft", "note": "修改需声明, 商用基本可控, 保留版权声明"},
+    "ImageMagick": {"risk": "medium", "label": "类 BSD 附加条款", "note": "含附加条款, 商用前评审声明要求"},
+    "商业授权": {"risk": "medium", "label": "商业许可", "note": "须确认采购授权范围与部署数量限制"},
+    "curl": {"risk": "low", "label": "宽松", "note": "MIT 类衍生许可, 保留版权声明即可"},
+    "Zlib": {"risk": "low", "label": "宽松", "note": "保留版权声明即可"},
+    "PostgreSQL": {"risk": "low", "label": "宽松", "note": "类 BSD 宽松许可"},
+    "BSD-2-Clause": {"risk": "low", "label": "宽松", "note": "保留版权声明即可"},
+    "BSD-3-Clause": {"risk": "low", "label": "宽松", "note": "保留版权声明即可"},
+    "MIT": {"risk": "low", "label": "宽松", "note": "保留版权声明即可"},
+    "Apache-2.0": {"risk": "low", "label": "宽松", "note": "保留版权与 NOTICE 声明即可"},
+}
+LICENSE_RISK_ORDER = {"high": 3, "medium": 2, "low": 1}
+
 # ── 合规目标(compliance 触发器 target 取值) ───────────
 COMPLIANCE_TARGETS = {
-    "djcp_l3": "网络安全等级保护三级",
+    "djcp_l3": "等级保护",
     "pipl": "个人信息保护法",
     "pci_dss": "PCI-DSS银行卡安全",
 }
@@ -285,6 +358,22 @@ REQUIREMENT_STATUS = {
     "risk_accepted": "风险接受",
 }
 
+# 来源实体类型 → 中文(需求溯源展示, 替代 data_asset#3 这类英文串)
+SOURCE_TYPE_LABELS = {
+    "feature": "功能",
+    "permission_entry": "权限授权",
+    "role": "角色",
+    "permission_matrix": "权限矩阵",
+    "auth_config": "认证与密码策略",
+    "policy_baseline": "定级策略基线",
+    "data_asset": "数据资产",
+    "api_endpoint": "API接口",
+    "compliance_target": "合规目标",
+    "sbom_component": "第三方组件",
+    "project": "项目整体",
+    "external_system": "外部系统",
+}
+
 # 需求业务归类(trigger.type → 中文类目), 用于文档分组与筛选
 TRIGGER_CATEGORY_LABELS = {
     "feature_category": "功能安全",
@@ -296,48 +385,20 @@ TRIGGER_CATEGORY_LABELS = {
     "compliance": "合规要求",
     "vulnerability": "第三方组件风险",
     "regulatory_trigger": "监管报送",
+    "external_system": "外部系统交互",
+    "license_risk": "开源许可证风险",
 }
 
-# ── 平台角色与评审门禁(改造点4/5) ───────────────────────
+# ── 平台角色与数据权限 ─────────────────────────────────
+# 走查整改: 角色精简为 开发/安全 两类(不再区分审计/风管/评审员/负责人)。
 PLATFORM_ROLES = {
-    "pm": "项目经理",
-    "developer": "开发中心",
-    "security_reviewer": "安全中心评审员",
-    "security_lead": "安全中心负责人",
-    "risk_manager": "风险管理部门",
-    "auditor": "内部审计",
+    "developer": "开发",
+    "security": "安全",
 }
 
-# 可修改向导/生成数据的角色(评审动作不在此列)
-WRITE_WIZARD_ROLES = ["pm", "developer"]
-# 门禁第一步评审角色 / 终审角色(两步签核)
-REVIEWER_ROLES = ["security_reviewer"]
-FINAL_REVIEWER_ROLES = ["security_lead"]
-
-GATE_TYPES = {
-    "initiation": "立项门禁",
-    "requirement": "需求门禁",
-    "design": "设计门禁",
-    "poc": "POC门禁(本期预留)",
-    "launch": "上线门禁(预留)",
-}
-GATE_ENABLED_TYPES = ["initiation", "requirement", "design"]
-
-GATE_STATUSES = {
-    "pending": "待提交",
-    "in_review": "评审中",
-    "passed": "已通过",
-    "rejected": "已否决",
-    "rectifying": "整改中",
-}
-
-REVIEW_ACTIONS = {
-    "submit": "提交评审",
-    "approve": "审核通过",
-    "reject": "否决",
-    "request_change": "退回整改",
-    "sign": "终审签核",
-}
+# 数据权限口径: 开发只能看到/操作自己创建的项目, 安全可以看到/操作全部。
+ALL_PLATFORM_ROLES = list(PLATFORM_ROLES.keys())
+WRITE_WIZARD_ROLES = ["developer", "security"]
 
 
 def label(mapping: dict, code, default="") -> str:

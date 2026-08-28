@@ -20,6 +20,16 @@ class InfraAssetIn(BaseModel):
     ip: str | None = Field(default=None, max_length=64)
     owner: str | None = Field(default=None, max_length=50)
     holds_sensitive: bool = False
+    cpu_cores: int | None = Field(default=None, ge=1, le=4096)
+    memory_gb: int | None = Field(default=None, ge=1, le=65536)
+    disk_gb: int | None = Field(default=None, ge=1, le=10_000_000)
+    os: str | None = Field(default=None, max_length=100)
+    quantity: int | None = Field(default=None, ge=1, le=10_000)
+    purpose: str | None = Field(default=None, max_length=300)
+
+
+class InfraAssetListIn(BaseModel):
+    assets: list[InfraAssetIn] = Field(default_factory=list)
 
 
 class InventorySaveIn(BaseModel):
@@ -50,3 +60,9 @@ class InfraAssetOut(BaseModel):
     ip: str | None
     owner: str | None
     holds_sensitive: bool
+    cpu_cores: int | None = None
+    memory_gb: int | None = None
+    disk_gb: int | None = None
+    os: str | None = None
+    quantity: int | None = None
+    purpose: str | None = None

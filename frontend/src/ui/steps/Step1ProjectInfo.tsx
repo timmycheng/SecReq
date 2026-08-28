@@ -1,0 +1,471 @@
+/* Step1 项目信息与定级(合并原 1/2/6 三步):
+   基本信息与合规目标 → 外部系统连接清单 → 等保定级(问卷内联, 可直接指定)
+   → 定级后即时展示密码策略基线与合规要求(可展开覆盖认证策略)。 */
+import { useEffect, useRef, useState } from 'react'
+import {
+  Alert, Button, Card, Checkbox, Col, Collapse, Form, Input, InputNumber, Modal,
+  Popconfirm, Radio, Row, Select, Space, Switch, Table, Tag, Typography, message,
+} from 'antd'
+import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
+
+import { api } from '../../api'
+import type { GradingBaseline } from '../../api'
+import { labelMapOf, optionsOf, useEnums } from '../../enums'
+import type {
+  AuthConfigRow, ExternalSystemRow, GradingQuestion, ProjectInfo, SurveyAnswer,
+} from '../../types'
+import GlossaryTip from '../GlossaryTip'
+import { useRegisterStepHandle } from './stepContext'
+import type { StepProps } from '../WizardPage'
+
+const LEVEL_OPTIONS = ['一级', '二级', '三级']
+
+const DEFAULT_CFG: AuthConfigRow = {
+  auth_methods: ['password'],
+  pwd_min_length: null, pwd_complexity: null, pwd_valid_days: null,
+  lockout_threshold: null, pwd_history_limit: null,
+  force_2fa: false, session_timeout_min: null, concurrent_limit: null,
+}
+
+const EMPTY_EXT: ExternalSystemRow = {
+  name: '', purpose: '', direction: 'bidirectional', involves_sensitive: false,
+}
+
+export default function Step1ProjectInfo({ ws, patch }: StepProps) {
+  const enums = useEnums()
+  const [form] = Form.useForm<ProjectInfo>()
+
+  // ── 外部系统 ──
+  const [extRows, setExtRows] = useState<ExternalSystemRow[]>(ws.external_systems)
+  const [extEditing, setExtEditing] = useState<ExternalSystemRow | null>(null)
+  const [extEditIndex, setExtEditIndex] = useState(-1)
+
+  // ── 定级 ──
+  const [questions, setQuestions] = useState<GradingQuestion[] | null>(null)
+  const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [finalLevel, setFinalLevel] = useState<string | undefined>(undefined)
+  const [note, setNote] = useState('')
+
+  // ── 认证与密码策略(原 Step6) ──
+  const [cfg, setCfg] = useState<AuthConfigRow>(ws.auth_config ?? DEFAULT_CFG)
+  const [baseline, setBaseline] = useState<GradingBaseline | null>(null)
+
+  const savedRef = useRef(JSON.stringify(snapshotOf(ws, cfg)))
+
+  function snapshotOf(state: typeof ws, config: AuthConfigRow) {
+    return {
+      project: {
+        name: state.project.name,
+        types: state.project.types ?? [],
+        user_scale: state.project.user_scale,
+        is_public: state.project.is_public,
+        offshore_vendor: state.project.offshore_vendor ?? false,
+        pm_name: state.project.pm_name ?? '',
+        dev_lead_name: state.project.dev_lead_name ?? '',
+        sec_contact_name: state.project.sec_contact_name ?? '',
+        compliance_targets: state.project.compliance_targets ?? [],
+      },
+      ext: state.external_systems,
+      survey: state.survey,
+      cfg: config,
+    }
+  }
+
+  useEffect(() => {
+    api.gradingQuestions().then(setQuestions).catch(() => setQuestions([]))
+    api.getGradingBaseline(ws.project.id).then(setBaseline).catch(() => undefined)
+    if (ws.survey) {
+      const map: Record<string, string> = {}
+      for (const a of ws.survey.answers_json ?? []) map[a.question_id] = a.option_id
+      setAnswers(map)
+      setFinalLevel(ws.survey.final_level ?? undefined)
+      setNote(ws.survey.manual_adjust_note ?? '')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const reloadBaseline = () => {
+    api.getGradingBaseline(ws.project.id).then(setBaseline).catch(() => undefined)
+  }
+
+  const save = async (): Promise<boolean> => {
+    const values = await form.validateFields().catch(() => null)
+    if (!values) return false
+    try {
+      const detail = await api.patchProject(ws.project.id, values)
+      const ext = await api.saveExternalSystems(ws.project.id, extRows)
+      // 定级: 已答完问卷则走打分; 未答完但显式选了等级则直接指定; 两者皆无则跳过
+      const answeredAll = questions ? questions.every((q) => answers[q.id]) : false
+      const surveyPayload: SurveyAnswer[] =
+        Object.entries(answers).map(([question_id, option_id]) => ({ question_id, option_id }))
+      let level = finalLevel ?? null
+      if (questions && surveyPayload.length > 0 && !answeredAll && !level) {
+        message.warning('定级问卷未答完: 请答完全部题目, 或清空答案后直接指定等级')
+        return false
+      }
+      if (!surveyPayload.length && !level) {
+        level = ws.survey?.effective_level || null // 未改动且已有定级 → 保持
+      }
+      let freshSurvey = ws.survey
+      if (surveyPayload.length || level) {
+        await api.saveSurvey(ws.project.id, surveyPayload, level, note || null)
+        const fresh = await api.loadWizard(ws.project.id)
+        freshSurvey = fresh.survey
+      }
+      const savedCfg = await api.saveAuthConfig(ws.project.id, cfg)
+      patch({
+        project: { ...ws.project, ...detail },
+        external_systems: ext,
+        survey: freshSurvey,
+        auth_config: savedCfg,
+      })
+      savedRef.current = JSON.stringify(snapshotOf({ ...ws, survey: freshSurvey }, cfg))
+      message.success('项目信息与定级已保存')
+      reloadBaseline()
+      return true
+    } catch (e) {
+      message.error((e as Error).message)
+      return false
+    }
+  }
+
+  useRegisterStepHandle({ save, isDirty: () => JSON.stringify(snapshotOf(ws, cfg)) !== savedRef.current })
+
+  const effectiveLevel = ws.survey?.effective_level || ''
+  const pwd = baseline?.pwd_defaults
+
+  return (
+    <div style={{ maxWidth: 980, margin: '0 auto' }}>
+      {/* ── 基本信息 ── */}
+      <Typography.Title level={5}>基本信息</Typography.Title>
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={{
+          name: ws.project.name,
+          types: ws.project.types ?? (ws.project.type ? [ws.project.type] : []),
+          user_scale: ws.project.user_scale || undefined,
+          is_public: ws.project.is_public,
+          offshore_vendor: ws.project.offshore_vendor ?? false,
+          pm_name: ws.project.pm_name ?? '',
+          dev_lead_name: ws.project.dev_lead_name ?? '',
+          sec_contact_name: ws.project.sec_contact_name ?? '',
+          compliance_targets: ws.project.compliance_targets ?? [],
+        }}
+      >
+        <Row gutter={16}>
+          <Col span={12}>
+            <Form.Item
+              name="name" label="项目名称" rules={[{ required: true, message: '请输入项目名称' }]}
+            >
+              <Input placeholder="如: 个人网银系统" />
+            </Form.Item>
+          </Col>
+          <Col span={6}>
+            <Form.Item name="user_scale" label="用户规模" rules={[{ required: true, message: '请选择' }]}>
+              <Select options={optionsOf(enums, 'user_scales')} placeholder="选择规模" />
+            </Form.Item>
+          </Col>
+          <Col span={6}>
+            <Form.Item name="code" label="项目编码(自动生成)">
+              <Input disabled />
+            </Form.Item>
+          </Col>
+        </Row>
+        <Form.Item
+          name="types" label="项目类型(可多选)" rules={[{ required: true, message: '请至少选择一种类型' }]}
+          extra="一个系统可能同时包含多种形态, 如 App + 后台管理"
+        >
+          <Select mode="multiple" options={optionsOf(enums, 'project_types')} placeholder="选择全部适用类型" />
+        </Form.Item>
+        <Row gutter={16}>
+          <Col span={8}>
+            <Form.Item name="pm_name" label="项目经理">
+              <Input placeholder="选填" />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="dev_lead_name" label="开发负责人">
+              <Input placeholder="选填" />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="sec_contact_name" label="安全对接人">
+              <Input placeholder="选填" />
+            </Form.Item>
+          </Col>
+        </Row>
+        <Row gutter={16}>
+          <Col span={6}>
+            <Form.Item name="is_public" label="是否涉及公网访问" valuePropName="checked">
+              <Switch checkedChildren="是" unCheckedChildren="否" />
+            </Form.Item>
+          </Col>
+          <Col span={6}>
+            <Form.Item
+              name="offshore_vendor" label="存在境外外包/供应商" valuePropName="checked"
+              tooltip="勾选后触发《数据出境安全评估申报》监管报送类需求"
+            >
+              <Switch checkedChildren="是" unCheckedChildren="否" />
+            </Form.Item>
+          </Col>
+        </Row>
+        <Form.Item
+          name="compliance_targets" label="合规目标(多选)"
+          extra="勾选后按目标生成对应合规要求; 等级保护按最终定级出具测评与备案要求"
+        >
+          <Checkbox.Group
+            options={Object.entries(labelMapOf(enums, 'compliance_targets')).map(([value, label]) => ({
+              value, label,
+            }))}
+          />
+        </Form.Item>
+      </Form>
+
+      {/* ── 外部系统连接 ── */}
+      <Typography.Title level={5} style={{ marginTop: 8 }}>外部系统连接</Typography.Title>
+      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+        与本项目交互的外部系统(如: 支付网关、短信平台、行内核心系统)。有交互即触发边界安全要求,
+        涉敏感数据会追加数据交互管控要求; 没有可以留空。
+      </Typography.Text>
+      <Space style={{ marginBottom: 8 }}>
+        <Button size="small" icon={<PlusOutlined />}
+          onClick={() => { setExtEditIndex(-1); setExtEditing({ ...EMPTY_EXT }) }}>
+          新增外部系统
+        </Button>
+        <Typography.Text type="secondary">共 {extRows.length} 个</Typography.Text>
+      </Space>
+      <Table<ExternalSystemRow>
+        rowKey={(_, i) => String(i)}
+        dataSource={extRows}
+        pagination={false}
+        size="small"
+        columns={[
+          { title: '系统名称', dataIndex: 'name' },
+          { title: '对接内容/用途', dataIndex: 'purpose' },
+          { title: '数据方向', dataIndex: 'direction', width: 150,
+            render: (v) => labelMapOf(enums, 'external_system_directions')[v] ?? v },
+          { title: '涉敏感数据', dataIndex: 'involves_sensitive', width: 110,
+            render: (v: boolean) => (v ? <Tag color="red">是</Tag> : '否') },
+          {
+            title: '操作', width: 110,
+            render: (_v, _r, index) => (
+              <Space>
+                <Button size="small" icon={<EditOutlined />}
+                  onClick={() => { setExtEditIndex(index); setExtEditing({ ...extRows[index] }) }} />
+                <Popconfirm title="删除该外部系统?" onConfirm={() => setExtRows(extRows.filter((_, i) => i !== index))}>
+                  <Button size="small" danger icon={<DeleteOutlined />} />
+                </Popconfirm>
+              </Space>
+            ),
+          },
+        ]}
+      />
+
+      {/* ── 等保定级 ── */}
+      <Typography.Title level={5} style={{ marginTop: 20 }}>
+        <GlossaryTip term="grading">等保定级</GlossaryTip>
+      </Typography.Title>
+      <Alert
+        type={effectiveLevel ? 'success' : 'warning'}
+        showIcon
+        message={effectiveLevel
+          ? `当前生效定级: 等保${effectiveLevel}${ws.survey?.suggested_level && ws.survey.final_level ? '(人工修正)' : ws.survey?.suggested_level ? '(系统建议)' : '(直接指定)'}`
+          : '尚未定级: 回答下方问卷自动计算, 或直接指定等级'}
+        description={ws.survey?.suggested_reason || '定级决定密码策略、加密与审计要求的基线档位'}
+      />
+      <div style={{ marginTop: 12, padding: '12px 16px', border: '1px dashed #d9d9d9', borderRadius: 6 }}>
+        <Space size={24} align="center" wrap>
+          <span>
+            直接指定等级:
+            <Select
+              allowClear style={{ width: 160, marginLeft: 8 }}
+              placeholder="不走问卷时直接选择"
+              value={finalLevel}
+              options={LEVEL_OPTIONS.map((l) => ({ value: l, label: `等保${l}` }))}
+              onChange={(v) => setFinalLevel(v)}
+            />
+          </span>
+          {finalLevel && (
+            <Input
+              style={{ width: 360 }} placeholder="定级说明(可选, 如: 试点范围有限)"
+              value={note} onChange={(e) => setNote(e.target.value)}
+            />
+          )}
+        </Space>
+      </div>
+      {questions && questions.length > 0 && (
+        <Collapse
+          style={{ marginTop: 12 }}
+          items={[{
+            key: 'survey',
+            label: `定级问卷(${Object.keys(answers).length}/${questions.length} 题已答, 答完自动计算建议等级)`,
+            children: (
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                {questions.map((q, idx) => (
+                  <Alert
+                    key={q.id}
+                    type={answers[q.id] ? 'info' : 'warning'}
+                    message={<b>{idx + 1}. {q.title}</b>}
+                    description={(
+                      <>
+                        <Radio.Group
+                          value={answers[q.id]}
+                          onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
+                          options={q.options.map((o) => ({ value: o.id, label: `${o.label}(+${o.score} 分)` }))}
+                        />
+                        {answers[q.id] && (
+                          <Typography.Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
+                            判定依据: {q.options.find((o) => o.id === answers[q.id])?.basis}
+                          </Typography.Text>
+                        )}
+                      </>
+                    )}
+                  />
+                ))}
+                <Typography.Text type="secondary">
+                  说明: 答完问卷后点「保存并下一步」, 系统按题库打分给出建议定级;
+                  直接指定等级与问卷可任选其一。
+                </Typography.Text>
+              </Space>
+            ),
+          }]}
+        />
+      )}
+
+      {/* ── 定级后的基线要求(即时反馈) ── */}
+      {baseline && baseline.requirements.length > 0 && (
+        <Card
+          size="small"
+          style={{ marginTop: 16 }}
+          title={`按当前定级与合规目标, 生成时将包含 ${baseline.requirements.length} 条基线要求(预览)`}
+        >
+          <Space direction="vertical" size={4} style={{ width: '100%' }}>
+            {baseline.requirements.map((r) => (
+              <div key={r.req_id} style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                <Tag style={{ flexShrink: 0 }}>{r.category}</Tag>
+                <Typography.Text>{r.title}</Typography.Text>
+              </div>
+            ))}
+          </Space>
+        </Card>
+      )}
+
+      {/* ── 认证与密码策略(默认基线, 可展开覆盖) ── */}
+      <Card
+        size="small"
+        style={{ marginTop: 16 }}
+        title="认证方式与密码策略"
+        extra={pwd ? (
+          <Typography.Text type="secondary">
+            基线: 最小长度 {pwd.pwd_min_length} · 复杂度 {pwd.pwd_complexity}/4 · 有效期 {pwd.pwd_valid_days} 天
+            (留空即按基线)
+          </Typography.Text>
+        ) : undefined}
+      >
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <div>
+            <Typography.Text type="secondary">认证方式(多选): </Typography.Text>
+            <Checkbox.Group
+              value={cfg.auth_methods}
+              options={optionsOf(enums, 'auth_methods')}
+              onChange={(vals) => setCfg({ ...cfg, auth_methods: vals as string[] })}
+            />
+          </div>
+          <Collapse
+            items={[{
+              key: 'policy',
+              label: '密码与会话策略微调(可选, 默认按定级基线自动取值)',
+              children: (
+                <Space size={20} wrap>
+                  <NumField label="最小长度" value={cfg.pwd_min_length} placeholder={pwd ? `${pwd.pwd_min_length}(默认)` : ''}
+                    min={6} max={64} onChange={(v) => setCfg({ ...cfg, pwd_min_length: v })} />
+                  <NumField label="有效期(天)" value={cfg.pwd_valid_days} placeholder={pwd ? `${pwd.pwd_valid_days}(默认)` : ''}
+                    min={1} max={3650} onChange={(v) => setCfg({ ...cfg, pwd_valid_days: v })} />
+                  <NumField label="错误锁定阈值(次)" value={cfg.lockout_threshold} placeholder={pwd ? `${pwd.lockout_threshold}(默认)` : ''}
+                    min={1} max={100} onChange={(v) => setCfg({ ...cfg, lockout_threshold: v })} />
+                  <NumField label="会话超时(分钟)" value={cfg.session_timeout_min} placeholder={pwd ? `${pwd.session_timeout_min}(默认)` : ''}
+                    min={1} max={1440} onChange={(v) => setCfg({ ...cfg, session_timeout_min: v })} />
+                  <Checkbox checked={cfg.force_2fa}
+                    onChange={(e) => setCfg({ ...cfg, force_2fa: e.target.checked })}>
+                    强制双因素认证(2FA)
+                  </Checkbox>
+                </Space>
+              ),
+            }]}
+          />
+        </Space>
+      </Card>
+
+      {extEditing !== null && (
+        <ExternalSystemModal
+          key={`ext-${extEditIndex}-${extEditing.name}`}
+          value={extEditing}
+          enums={enums}
+          onCancel={() => setExtEditing(null)}
+          onOk={(next) => {
+            const copy = [...extRows]
+            if (extEditIndex >= 0) copy[extEditIndex] = next
+            else copy.push(next)
+            setExtRows(copy)
+            setExtEditing(null)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function ExternalSystemModal({ value, onOk, onCancel, enums }: {
+  value: ExternalSystemRow | null
+  onOk: (row: ExternalSystemRow) => void
+  onCancel: () => void
+  enums: ReturnType<typeof useEnums>
+}) {
+  const [form] = Form.useForm<ExternalSystemRow>()
+  return (
+    <Modal
+      title="外部系统连接" open={value !== null} onCancel={onCancel}
+      onOk={() => form.validateFields().then(onOk).catch(() => { /* 校验失败留在弹窗 */ })}
+      forceRender
+    >
+      <Form form={form} layout="vertical" initialValues={value ?? EMPTY_EXT}>
+        <Form.Item name="name" label="外部系统名称" rules={[{ required: true, message: '请输入名称' }]}>
+          <Input placeholder="如: 行内短信平台" />
+        </Form.Item>
+        <Form.Item name="purpose" label="对接内容/用途">
+          <Input placeholder="如: 发送验证码短信" />
+        </Form.Item>
+        <Form.Item name="direction" label="数据方向" rules={[{ required: true }]}>
+          <Select options={optionsOf(enums, 'external_system_directions')} />
+        </Form.Item>
+        <Form.Item name="involves_sensitive" label="是否传输敏感数据" valuePropName="checked">
+          <Checkbox>传输个人敏感信息/金融账户等敏感数据</Checkbox>
+        </Form.Item>
+      </Form>
+    </Modal>
+  )
+}
+
+function NumField({ label, value, onChange, placeholder, min, max }: {
+  label: string
+  value: number | null | undefined
+  onChange: (v: number | null) => void
+  placeholder?: string
+  min?: number
+  max?: number
+}) {
+  return (
+    <Space direction="vertical" size={0}>
+      <Typography.Text type="secondary">{label}</Typography.Text>
+      <InputNumber
+        style={{ width: 150 }}
+        value={value ?? undefined}
+        placeholder={placeholder}
+        min={min}
+        max={max}
+        onChange={(v) => onChange(typeof v === 'number' ? v : null)}
+      />
+    </Space>
+  )
+}

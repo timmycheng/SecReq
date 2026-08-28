@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-"""生成主流程编排(供未来 POST /api/projects/{id}/generate 与脚本复用):
+"""生成主流程编排(POST /api/projects/{id}/generate 与脚本复用):
 
 加载上下文 → 补齐 purl 并构建 CycloneDX → OSV 漏洞同步(可降级)
-→ 规则引擎生成安全需求落库 → 输出 SBOM JSON + 4 份 Word 文档。
+→ 规则引擎生成安全需求落库 → 输出 SBOM JSON。
 
+Word 文档生成已按走查整改移除: 产物以 Web 形式展示, 前端提供「复制到 Word」。
 漏洞同步放在规则引擎之前执行, 保证 vulnerability 触发器能看到命中的 CVE。
 """
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -28,7 +28,6 @@ class PipelineResult:
     sync: OsvSyncResult | None = None
     vulnerabilities: list = field(default_factory=list)
     bom_path: Path | None = None
-    documents: dict[str, Path] = field(default_factory=dict)
 
 
 def run_full_pipeline(
@@ -44,7 +43,6 @@ def run_full_pipeline(
     skip_osv 为 True 时完全跳过网络查询(离线模式), 漏洞保持库内现状。
     """
     from models import Project
-    from services.docgen import generate_all_documents
 
     if session.get(Project, project_id) is None:
         raise ValueError(f"项目不存在: id={project_id}")
@@ -71,42 +69,10 @@ def run_full_pipeline(
     engine = engine or RuleEngine.load()
     result.requirements = engine.generate_and_save(ctx, session)
 
-    # ④ 文件产出: CycloneDX JSON + 5 份 Word
+    # ④ 文件产出: CycloneDX JSON
     base = Path(out_dir) if out_dir else Path("output") / ctx.project.code
     result.bom_path = write_cyclonedx_file(bom, base / "sbom.cdx.json")
-    from models import ReviewGate
-
-    gates = session.query(ReviewGate).filter_by(project_id=project_id).all()
-    gate_bundles = [
-        {
-            "gate_type": g.gate_type, "status": g.status,
-            "submitter": _user_name(session, g.submitter_id),
-            "reviewer": _user_name(session, g.reviewer_id),
-            "reviewer_opinion": g.reviewer_opinion,
-            "reviewer_conclusion": g.reviewer_conclusion,
-            "final_reviewer": _user_name(session, g.final_reviewer_id),
-            "final_opinion": g.final_opinion,
-            "submitted_at": g.submitted_at, "reviewed_at": g.reviewed_at,
-            "final_reviewed_at": g.final_reviewed_at,
-            "version_hash": g.version_hash,
-        }
-        for g in gates
-    ]
-    result.documents = generate_all_documents(
-        ctx, base, requirements=result.requirements,
-        vulnerabilities=all_vulns, osv_summary=summary_text,
-        generated_at=datetime.now(), gates=gate_bundles,
-    )
     return result
-
-
-def _user_name(session: Session, user_id: int | None) -> str | None:
-    if user_id is None:
-        return None
-    from models import PlatformUser
-
-    user = session.get(PlatformUser, user_id)
-    return user.display_name if user else None
 
 
 def _load_vulnerabilities(session: Session, components) -> list:

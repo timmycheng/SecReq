@@ -17,14 +17,28 @@ from models import DataAsset
 
 # SQLite 需要补齐的存量列: 表名 → [(列名, DDL类型), ...]
 _NEW_COLUMNS: dict[str, list[tuple[str, str]]] = {
+    "platform_users": [
+        ("password_hash", "VARCHAR(256)"),
+    ],
     "data_assets": [
         ("legacy_classification", "VARCHAR(16)"),
         ("c3_tag", "BOOLEAN DEFAULT 0"),
     ],
     "projects": [
         ("offshore_vendor", "BOOLEAN DEFAULT 0"),
+        ("owner_user_id", "INTEGER"),
+        ("types", "JSON"),
+    ],
+    "infra_assets": [
+        ("cpu_cores", "INTEGER"),
+        ("memory_gb", "INTEGER"),
+        ("disk_gb", "INTEGER"),
+        ("os", "VARCHAR(100)"),
+        ("quantity", "INTEGER"),
+        ("purpose", "VARCHAR(300)"),
     ],
     "security_requirements": [
+        ("source_label", "VARCHAR(200)"),
         ("regulatory_ref", "JSON"),
         ("owner", "VARCHAR(50)"),
         ("reg_confirmed", "BOOLEAN DEFAULT 0"),

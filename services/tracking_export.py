@@ -2,7 +2,7 @@
 """Excel 需求跟踪表导出(DESIGN.md 模块5)。
 
 字段口径: req_id、需求描述、优先级、责任方、建议阶段、验收标准、状态(默认open)、备注。
-备注列携带追溯信息(source_entity ← trigger_reason), 满足"需求必须可追溯到输入"约束。
+备注列携带追溯信息(来源中文标签 ← trigger_reason), 满足"需求必须可追溯到输入"约束。
 第二个工作表给出 Jira 外部系统导入(CSV)的字段映射建议。
 """
 from io import BytesIO
@@ -36,7 +36,7 @@ _JIRA_HINTS = [
     ["      优先级 → Priority(Priority Name 需在 Jira 中预置同名值);"],
     ["      建议阶段 → Labels(标签, 如 设计阶段/开发阶段/测试阶段);"],
     ["      状态 → 建议不直接映射 Status, 导入后按团队流程流转;"],
-    ["3. 备注=需求追溯信息: 来源实体类型#ID ← 触发原因。"],
+    ["3. 备注=需求追溯信息: 来源(中文) ← 触发原因。"],
 ]
 
 
@@ -64,7 +64,7 @@ def build_tracking_workbook(requirements: list) -> Workbook:
         key=lambda r: (priority_order.get(r.priority, 9), r.category, r.req_id),
     )
     for idx, req in enumerate(rows, start=2):
-        trace = f"{req.source_entity_type}#{req.source_entity_id} ← {req.trigger_reason}"
+        trace = f"{getattr(req, 'source_label', None) or req.source_entity_type} ← {req.trigger_reason}"
         status_label = C.label(C.REQUIREMENT_STATUS, req.status or "open", "待处理")
         basis = "; ".join(
             f"《{ref.get('file', '')}》{ref.get('clause', '')}"

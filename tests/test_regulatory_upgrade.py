@@ -234,18 +234,6 @@ def test_regulatory_trigger_extra_cases():
     assert any(r.template_id == "SEC-REG-004" for r in reqs)
     session.close()
 
-    # 外包评定: SaaS + 金融
-    session, project = _make_session_with_asset()
-    project.deploy_env = ["saas"]
-    project.industry = "零售金融-个人业务条线"
-    reqs = gen_for(session, project, RuleEngine.load())
-    assert any(r.template_id == "SEC-REG-003" for r in reqs)
-    # 非金融行业不触发
-    project.industry = "政务民生"
-    reqs = gen_for(session, project, RuleEngine.load())
-    assert not any(r.template_id == "SEC-REG-003" for r in reqs)
-    session.close()
-
     # 境外供应商触发出境申报
     session, project = _make_session_with_asset()
     project.offshore_vendor = True

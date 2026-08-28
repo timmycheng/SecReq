@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 
 import shared.constants as C
 from models import (
-    ApiEndpoint, AuthConfig, DataAsset, DataField, DataTable, Feature,
-    GradingSurvey, InfraAsset, PermissionEntry, Project, Resource, Role,
+    ApiEndpoint, AuthConfig, DataAsset, DataField, DataTable, ExternalSystem,
+    Feature, GradingSurvey, InfraAsset, PermissionEntry, Project, Resource, Role,
     SbomComponent, SecurityRequirement, VulnerabilityRecord,
 )
 
@@ -30,6 +30,7 @@ class RequirementContext:
     components: list[SbomComponent] = field(default_factory=list)
     api_endpoints: list[ApiEndpoint] = field(default_factory=list)
     infra_assets: list[InfraAsset] = field(default_factory=list)
+    external_systems: list[ExternalSystem] = field(default_factory=list)
 
     # ── 派生便捷属性 ──────────────────────────────────
 
@@ -88,6 +89,9 @@ class RequirementContext:
             session.query(ApiEndpoint).filter_by(project_id=project_id).all()
         )
         ctx.infra_assets = session.query(InfraAsset).filter_by(project_id=project_id).all()
+        ctx.external_systems = (
+            session.query(ExternalSystem).filter_by(project_id=project_id).all()
+        )
         return ctx
 
     # ── 权限矩阵扫描辅助 ──────────────────────────────
