@@ -81,6 +81,7 @@ export const api = {
     request<ComponentRow[]>(`/api/projects/${id}/components`, {
       method: 'POST', body: JSON.stringify({ components: rows }),
     }),
+  listComponents: (id: number) => request<ComponentRow[]>(`/api/projects/${id}/components`),
   importSbomFile: async (id: number, file: File) => {
     const form = new FormData()
     form.append('file', file)

@@ -1,15 +1,17 @@
 /* Step8 API 接口清单与基础设施资产清单。
    接口的敏感数据关联引用 Step4 数据资产 id(联动规则引擎接口安全维度)。 */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   Button, Checkbox, Form, Input, Modal, Popconfirm, Select, Space, Table,
-  Tag, Typography, message,
+  Tag, Tooltip, Typography, message,
 } from 'antd'
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 
 import { api } from '../../api'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
 import type { ApiEndpointRow, InfraAssetRow } from '../../types'
+import GlossaryTip from '../GlossaryTip'
+import { useRegisterStepHandle } from './stepContext'
 import type { StepProps } from '../WizardPage'
 
 const EMPTY_EP: ApiEndpointRow = {
@@ -20,7 +22,7 @@ const EMPTY_ASSET: InfraAssetRow = {
   asset_type: 'server', name: '', env: 'prod', ip: '', owner: '', holds_sensitive: false,
 }
 
-export default function Step8Inventory({ ws, patch, advance }: StepProps) {
+export default function Step8Inventory({ ws, patch }: StepProps) {
   const enums = useEnums()
   const [endpoints, setEndpoints] = useState<ApiEndpointRow[]>(ws.api_endpoints)
   const [infraAssets, setInfraAssets] = useState<InfraAssetRow[]>(ws.infra_assets)
@@ -28,33 +30,43 @@ export default function Step8Inventory({ ws, patch, advance }: StepProps) {
   const [epEditIndex, setEpEditIndex] = useState(-1)
   const [iaEditing, setIaEditing] = useState<InfraAssetRow | null>(null)
   const [iaEditIndex, setIaEditIndex] = useState(-1)
-  const [saving, setSaving] = useState(false)
+  const savedRef = useRef(JSON.stringify({ endpoints, infraAssets }))
 
   const assetNameById = new Map(ws.data_assets.map((a) => [a.id as number, a.name]))
 
-  const save = async () => {
-    setSaving(true)
+  const save = async (): Promise<boolean> => {
     try {
       const resp = await api.saveInventory(ws.project.id, endpoints, infraAssets)
       patch({ api_endpoints: resp.api_endpoints, infra_assets: resp.infra_assets })
+      savedRef.current = JSON.stringify({ endpoints, infraAssets })
       message.success(`已保存 ${resp.saved?.api_endpoints ?? endpoints.length} 个接口、${resp.saved?.infra_assets ?? infraAssets.length} 个资产`)
-      advance()
+      return true
     } catch (e) {
       message.error((e as Error).message)
-    } finally {
-      setSaving(false)
+      return false
     }
   }
 
+  useRegisterStepHandle({
+    save,
+    isDirty: () => JSON.stringify({ endpoints, infraAssets }) !== savedRef.current,
+  })
+
   return (
-    <div>
+    <div style={{ maxWidth: 1080, margin: '0 auto' }}>
+      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+        本步登记对外接口与部署的基础设施。公网暴露、免认证(
+        <GlossaryTip term="anonymous_api">匿名</GlossaryTip>)的接口会触发专项安全评估需求;
+        关联敏感数据资产的接口会触发报文日志脱敏需求。本步可以没有内容, 直接保存即可。
+      </Typography.Text>
+
       <Space style={{ marginBottom: 8 }}>
         <Typography.Text strong>API 接口清单</Typography.Text>
         <Button size="small" icon={<PlusOutlined />}
           onClick={() => { setEpEditIndex(-1); setEpEditing({ ...EMPTY_EP }) }}>新增接口</Button>
       </Space>
       <Table<ApiEndpointRow>
-        rowKey={(r) => `${r.method} ${r.path}`}
+        rowKey={(_, i) => String(i)}
         dataSource={endpoints}
         pagination={false}
         size="small"
@@ -63,7 +75,11 @@ export default function Step8Inventory({ ws, patch, advance }: StepProps) {
           { title: '路径', dataIndex: 'path', render: (v) => <code>{v}</code> },
           { title: '方法', dataIndex: 'method', width: 80, render: (m) => <Tag color={METHOD_COLOR[m] ?? 'default'}>{m}</Tag> },
           { title: '需认证', dataIndex: 'auth_required', width: 90,
-            render: (v) => (v ? '是' : <Tag color="red">匿名!</Tag>) },
+            render: (v) => (v ? '是' : (
+              <Tooltip title={<GlossaryTip term="anonymous_api" />}>
+                <Tag color="red">匿名!</Tag>
+              </Tooltip>
+            )) },
           { title: '公网暴露', dataIndex: 'public_exposed', width: 90,
             render: (v) => (v ? <Tag color="orange">是</Tag> : '否') },
           { title: '关联敏感数据资产', dataIndex: 'sensitive_asset_ids',
@@ -90,7 +106,7 @@ export default function Step8Inventory({ ws, patch, advance }: StepProps) {
           onClick={() => { setIaEditIndex(-1); setIaEditing({ ...EMPTY_ASSET }) }}>新增资产</Button>
       </Space>
       <Table<InfraAssetRow>
-        rowKey={(r) => r.name}
+        rowKey={(_, i) => String(i)}
         dataSource={infraAssets}
         pagination={false}
         size="small"
@@ -117,10 +133,6 @@ export default function Step8Inventory({ ws, patch, advance }: StepProps) {
           },
         ]}
       />
-
-      <div style={{ marginTop: 20 }}>
-        <Button type="primary" loading={saving} onClick={save}>保存并进入确认页</Button>
-      </div>
 
       {epEditing !== null && (
         <EndpointModal
@@ -171,7 +183,7 @@ function EndpointModal({ value, onOk, onCancel, dataAssets }: {
   return (
     <Modal
       title="API 接口" open={value !== null} onCancel={onCancel}
-      onOk={async () => onOk(await form.validateFields())}
+      onOk={() => form.validateFields().then(onOk).catch(() => { /* 校验失败, 留在弹窗 */ })}
       forceRender
     >
       <Form form={form} layout="vertical" initialValues={value ?? EMPTY_EP}>
@@ -194,14 +206,21 @@ function EndpointModal({ value, onOk, onCancel, dataAssets }: {
             <Checkbox>可从公网访问</Checkbox>
           </Form.Item>
         </Space>
-        <Form.Item name="sensitive_asset_ids" label="请求/响应包含的敏感数据资产(关联 Step4)">
+        <Form.Item
+          name="sensitive_asset_ids"
+          label={dataAssets.length ? '请求/响应包含的敏感数据资产(关联第 4 步)' : '请求/响应包含的敏感数据资产'}
+          extra={dataAssets.length ? undefined : '第 4 步尚未录入数据资产, 可先完成数据字典再回来关联'}
+        >
           <Select
             mode="multiple"
-            placeholder="选择数据资产"
+            placeholder={dataAssets.length ? '选择数据资产' : '无可选资产(第 4 步为空)'}
+            disabled={!dataAssets.length}
             options={dataAssets.map((a) => ({ value: a.id, label: `${a.name}(${a.classification})` }))}
           />
         </Form.Item>
-        <Form.Item name="rate_limit" label="限流配置"><Input placeholder="如 100 QPS/IP" /></Form.Item>
+        <Form.Item name="rate_limit" label="限流配置">
+          <Input placeholder="如 100 QPS/IP" />
+        </Form.Item>
       </Form>
     </Modal>
   )
@@ -217,7 +236,7 @@ function InfraModal({ value, onOk, onCancel, enums }: {
   return (
     <Modal
       title="基础设施资产" open={value !== null} onCancel={onCancel}
-      onOk={async () => onOk(await form.validateFields())}
+      onOk={() => form.validateFields().then(onOk).catch(() => { /* 校验失败, 留在弹窗 */ })}
       forceRender
     >
       <Form form={form} layout="vertical" initialValues={value ?? EMPTY_ASSET}>

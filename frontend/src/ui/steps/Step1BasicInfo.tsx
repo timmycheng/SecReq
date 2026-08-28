@@ -1,22 +1,42 @@
 /* Step1 项目基本信息(含合规目标多选)。 */
 import { useState } from 'react'
-import { Button, Form, Input, Select, Space, Switch, message } from 'antd'
+import { Form, Input, Select, Space, Switch, message } from 'antd'
 
 import { api } from '../../api'
 import { optionsOf, useEnums } from '../../enums'
+import { useRegisterStepHandle } from './stepContext'
 import type { StepProps } from '../WizardPage'
 import type { ProjectInfo } from '../../types'
 
-export default function Step1BasicInfo({ ws, patch, advance }: StepProps) {
+export default function Step1BasicInfo({ ws, patch }: StepProps) {
   const enums = useEnums()
   const [form] = Form.useForm<ProjectInfo>()
-  const [saving, setSaving] = useState(false)
+  const [dirty, setDirty] = useState(false)
+
+  const save = async (): Promise<boolean> => {
+    const values = await form.validateFields().catch(() => null)
+    if (!values) return false
+    try {
+      const detail = await api.patchProject(ws.project.id, values)
+      patch({ project: detail })
+      message.success('项目信息已保存')
+      setDirty(false)
+      return true
+    } catch (e) {
+      message.error((e as Error).message)
+      return false
+    }
+  }
+
+  useRegisterStepHandle({ save, isDirty: () => dirty })
 
   return (
     <Form
       form={form}
       layout="vertical"
-      style={{ maxWidth: 720 }}
+      style={{ maxWidth: 720, margin: '0 auto' }}
+      onValuesChange={() => setDirty(true)}
+      onFinish={() => void save()}
       initialValues={{
         name: ws.project.name,
         code: ws.project.code,
@@ -29,19 +49,6 @@ export default function Step1BasicInfo({ ws, patch, advance }: StepProps) {
         dev_lead_name: ws.project.dev_lead_name ?? '',
         sec_contact_name: ws.project.sec_contact_name ?? '',
         compliance_targets: ws.project.compliance_targets ?? [],
-      }}
-      onFinish={async (values) => {
-        setSaving(true)
-        try {
-          const detail = await api.patchProject(ws.project.id, values)
-          patch({ project: detail })
-          message.success('项目信息已保存')
-          advance()
-        } catch (e) {
-          message.error((e as Error).message)
-        } finally {
-          setSaving(false)
-        }
       }}
     >
       <Space size={16} style={{ display: 'flex' }} align="start">
@@ -86,8 +93,6 @@ export default function Step1BasicInfo({ ws, patch, advance }: StepProps) {
           <Select mode="multiple" options={optionsOf(enums, 'compliance_targets')} placeholder="如: 等保三级、个人信息保护法" />
         </Form.Item>
       </Space>
-
-      <Button type="primary" htmlType="submit" loading={saving}>保存并下一步</Button>
     </Form>
   )
 }

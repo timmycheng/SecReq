@@ -1,6 +1,8 @@
 /* Step6 身份认证与密码策略设计器:
-   按 Step2 定级给出默认基线(服务端 /auth-defaults 同一口径), 允许逐项调整。 */
-import { useEffect, useState } from 'react'
+   按 Step2 定级给出默认基线(服务端 /auth-defaults 同一口径), 允许逐项调整;
+   留空项在生成需求时自动取基线值。 */
+import { useRef, useState } from 'react'
+import { useEffect } from 'react'
 import {
   Alert, Button, Checkbox, InputNumber, Select, Space, Spin, Typography, message,
 } from 'antd'
@@ -8,6 +10,7 @@ import {
 import { api } from '../../api'
 import { optionsOf, useEnums } from '../../enums'
 import type { AuthConfigRow } from '../../types'
+import { useRegisterStepHandle } from './stepContext'
 import type { StepProps } from '../WizardPage'
 
 const DEFAULT_CFG: AuthConfigRow = {
@@ -17,51 +20,52 @@ const DEFAULT_CFG: AuthConfigRow = {
   force_2fa: false, session_timeout_min: null, concurrent_limit: null,
 }
 
-export default function Step6AuthPolicy({ ws, patch, advance }: StepProps) {
+export default function Step6AuthPolicy({ ws, patch }: StepProps) {
   const enums = useEnums()
   const [cfg, setCfg] = useState<AuthConfigRow>(ws.auth_config ?? DEFAULT_CFG)
   const [defaults, setDefaults] = useState<{ grading_level: string; defaults: Record<string, number> } | null>(null)
-  const [saving, setSaving] = useState(false)
+  const savedRef = useRef(JSON.stringify(ws.auth_config ?? DEFAULT_CFG))
 
   useEffect(() => {
     api.getAuthDefaults(ws.project.id).then(setDefaults).catch((e: Error) => message.error(e.message))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const save = async (): Promise<boolean> => {
+    if (!cfg.auth_methods.length) {
+      message.warning('请至少勾选一种认证方式')
+      return false
+    }
+    try {
+      const saved = await api.saveAuthConfig(ws.project.id, cfg)
+      patch({ auth_config: saved })
+      savedRef.current = JSON.stringify(cfg)
+      message.success('认证与密码策略已保存')
+      return true
+    } catch (e) {
+      message.error((e as Error).message)
+      return false
+    }
+  }
+
+  useRegisterStepHandle({ save, isDirty: () => JSON.stringify(cfg) !== savedRef.current })
+
   if (!defaults) return <Spin style={{ display: 'block', margin: '60px auto' }} />
   const d = defaults.defaults
-  const applyDefaults = () => {
+  const clearOverrides = () => {
     setCfg({
       ...cfg,
       pwd_min_length: null, pwd_complexity: null, pwd_valid_days: null,
       lockout_threshold: null, pwd_history_limit: null,
       session_timeout_min: null, concurrent_limit: null,
     })
-    message.success('已恢复为空值(生成时按定级基线自动取默认)')
-  }
-
-  const save = async () => {
-    if (!cfg.auth_methods.length) {
-      message.warning('请至少勾选一种认证方式')
-      return
-    }
-    setSaving(true)
-    try {
-      const saved = await api.saveAuthConfig(ws.project.id, cfg)
-      patch({ auth_config: saved })
-      message.success('认证与密码策略已保存')
-      advance()
-    } catch (e) {
-      message.error((e as Error).message)
-    } finally {
-      setSaving(false)
-    }
+    message.success('已清空手动覆盖, 生成需求时将按定级基线自动取默认值')
   }
 
   const userScaleOver10w = ['100k_to_1m', 'over_1m'].includes(ws.project.user_scale)
 
   return (
-    <div style={{ maxWidth: 820 }}>
+    <div style={{ maxWidth: 820, margin: '0 auto' }}>
       <Alert
         type="info"
         showIcon
@@ -72,7 +76,9 @@ export default function Step6AuthPolicy({ ws, patch, advance }: StepProps) {
               默认基线: 最小长度 {d.pwd_min_length} · 复杂度 {d.pwd_complexity}/4 类 · 有效期 {d.pwd_valid_days} 天 ·
               锁定阈值 {d.lockout_threshold} 次 · 会话超时 {d.session_timeout_min} 分钟
             </span>
-            <span>留空的参数在生成需求时自动取基线值; 点击「恢复默认基线」可清空全部手动覆盖。</span>
+            <span>
+              输入框留空即代表采用基线值(placeholder 中有默认值); 点「清空手动覆盖」可一次性恢复全部默认。
+            </span>
           </Space>
         )}
       />
@@ -129,10 +135,7 @@ export default function Step6AuthPolicy({ ws, patch, advance }: StepProps) {
       </Space>
 
       <div style={{ marginTop: 24 }}>
-        <Space>
-          <Button onClick={applyDefaults}>恢复默认基线</Button>
-          <Button type="primary" loading={saving} onClick={save}>保存并下一步</Button>
-        </Space>
+        <Button onClick={clearOverrides}>清空手动覆盖</Button>
       </div>
     </div>
   )

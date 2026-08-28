@@ -1,6 +1,8 @@
-/* 项目列表: 全部项目卡片/表格, 新建项目入口。 */
+/* 项目列表: 全部项目表格, 新建项目入口; 空状态带首次使用引导。 */
 import { useCallback, useEffect, useState } from 'react'
-import { Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, message } from 'antd'
+import {
+  Button, Card, Empty, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, message,
+} from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 
 import { api } from '../api'
@@ -40,7 +42,7 @@ export default function ProjectListPage() {
         deploy_env: ['private_cloud'],
         compliance_targets: [],
       })
-      message.success('项目已创建, 请完成 8 步信息采集')
+      message.success('项目已创建, 即将进入 8 步向导')
       setOpen(false)
       form.resetFields()
       navigate(`/wizard/${detail.id}`)
@@ -64,6 +66,26 @@ export default function ProjectListPage() {
           loading={loading}
           dataSource={projects}
           pagination={false}
+          locale={{
+            emptyText: (
+              <Empty
+                style={{ padding: '32px 0' }}
+                description={(
+                  <>
+                    <p style={{ fontWeight: 600 }}>还没有项目</p>
+                    <p style={{ color: '#888' }}>
+                      SecReq 通过 8 步向导采集项目信息, 按行内安全知识库自动生成
+                      安全需求、SBOM 漏洞清单与 4 份 Word 文档, 把安全检查前置到设计阶段。
+                    </p>
+                  </>
+                )}
+              >
+                <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>
+                  新建第一个项目
+                </Button>
+              </Empty>
+            ),
+          }}
           expandable={{
             expandedRowRender: (record) => (
               <Space size={[24, 8]} wrap>
@@ -101,8 +123,12 @@ export default function ProjectListPage() {
                   <Popconfirm
                     title="删除项目及其全部数据?"
                     onConfirm={async () => {
-                      await api.deleteProject(record.id).catch((e: Error) => message.error(e.message))
-                      message.success('已删除')
+                      try {
+                        await api.deleteProject(record.id)
+                        message.success('已删除')
+                      } catch (e) {
+                        message.error((e as Error).message)
+                      }
                       reload()
                     }}
                   >
@@ -127,7 +153,7 @@ export default function ProjectListPage() {
           <Form.Item name="name" label="项目名称" rules={[{ required: true }]}>
             <Input placeholder="如: 个人网银系统" />
           </Form.Item>
-          <Form.Item name="code" label="项目编码" rules={[{ required: true }]}>
+          <Form.Item name="code" label="项目编码" rules={[{ required: true }]} extra="创建后不可修改">
             <Input placeholder="如: PRJ-IBANK-2026" />
           </Form.Item>
           <Form.Item name="type" label="项目类型" rules={[{ required: true }]}>
@@ -150,7 +176,7 @@ const COUNT_LABELS: Record<string, string> = {
   data_assets: '数据资产',
   roles: '角色',
   resources: '资源',
-  permission_entries: '授权单元格',
+  permission_entries: '权限授权项',
   components: '组件',
   api_endpoints: '接口',
   infra_assets: '基础设施资产',

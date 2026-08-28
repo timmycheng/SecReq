@@ -2,21 +2,21 @@
    提交后展示系统建议定级与判定理由, 允许人工修正最终定级。 */
 import { useEffect, useState } from 'react'
 import {
-  Alert, Button, Input, Radio, Select, Space, Spin, Typography, message,
+  Alert, Input, Radio, Select, Space, Spin, Typography, message,
 } from 'antd'
 
 import { api } from '../../api'
-import type { GradingQuestion, SurveyAnswer } from '../../types'
+import type { GradingQuestion, SurveyAnswer, SurveyOut } from '../../types'
+import { useRegisterStepHandle } from './stepContext'
 import type { StepProps } from '../WizardPage'
 
 const LEVEL_OPTIONS = ['一级', '二级', '三级']
 
-export default function Step2Survey({ ws, patch, advance }: StepProps) {
+export default function Step2Survey({ ws, patch }: StepProps) {
   const [questions, setQuestions] = useState<GradingQuestion[] | null>(null)
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [finalLevel, setFinalLevel] = useState<string | undefined>(undefined)
   const [note, setNote] = useState('')
-  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     api.gradingQuestions().then(setQuestions).catch((e: Error) => message.error(e.message))
@@ -32,16 +32,23 @@ export default function Step2Survey({ ws, patch, advance }: StepProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  if (!questions) return <Spin />
-
-  const answeredAll = questions.every((q) => answers[q.id])
-
-  const save = async () => {
-    if (!answeredAll) {
-      message.warning('请先完成全部题目作答')
-      return
+  const savedOf = (s: SurveyOut | null) => {
+    const map: Record<string, string> = {}
+    for (const a of s?.answers_json ?? []) map[a.question_id] = a.option_id
+    return {
+      answers: map,
+      finalLevel: s?.final_level ?? undefined,
+      note: s?.manual_adjust_note ?? '',
     }
-    setSaving(true)
+  }
+
+  const save = async (): Promise<boolean> => {
+    if (!questions) return false
+    const unanswered = questions.length - questions.filter((q) => answers[q.id]).length
+    if (unanswered > 0) {
+      message.warning(`还有 ${unanswered} 题未作答, 题目已用橙色标出`)
+      return false
+    }
     try {
       const payload: SurveyAnswer[] =
         Object.entries(answers).map(([question_id, option_id]) => ({ question_id, option_id }))
@@ -50,26 +57,46 @@ export default function Step2Survey({ ws, patch, advance }: StepProps) {
       const fresh = await api.loadWizard(ws.project.id)
       patch({ survey: fresh.survey })
       message.success('问卷已提交')
-      advance()
+      return true
     } catch (e) {
       message.error((e as Error).message)
-    } finally {
-      setSaving(false)
+      return false
     }
   }
 
-  return (
-    <div style={{ maxWidth: 860 }}>
-      <Typography.Paragraph type="secondary">
-        每题选项带分值, 系统按题库加权计算输出建议定级; 定级结果将作为密码策略、加密策略的默认基线。
-      </Typography.Paragraph>
+  useRegisterStepHandle({
+    save,
+    isDirty: () => {
+      if (!questions) return false
+      const saved = savedOf(ws.survey)
+      return questions.some((q) => answers[q.id] !== saved.answers[q.id])
+        || finalLevel !== saved.finalLevel
+        || note !== saved.note
+    },
+  })
 
-      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+  if (!questions) return <Spin />
+
+  const answeredCount = questions.filter((q) => answers[q.id]).length
+  const changed = anyAnswerChanged(questions, answers, ws.survey)
+
+  return (
+    <div style={{ maxWidth: 860, margin: '0 auto' }}>
+      <Space style={{ justifyContent: 'space-between', display: 'flex' }}>
+        <Typography.Text type="secondary">
+          每题选项带分值, 系统按题库加权计算输出建议定级; 定级结果将作为密码策略、加密策略的默认基线。
+        </Typography.Text>
+        <Typography.Text type={answeredCount === questions.length ? 'secondary' : 'warning'}>
+          已答 {answeredCount}/{questions.length} 题
+        </Typography.Text>
+      </Space>
+
+      <Space direction="vertical" size={16} style={{ width: '100%', marginTop: 8 }}>
         {questions.map((q, idx) => (
           <Alert
             key={q.id}
-            type={((ws.survey?.suggested_level && answers[q.id]) ? 'info' : undefined)}
-            message={<b>{idx + 1}. {q.title}</b>}
+            type={answers[q.id] ? 'info' : 'warning'}
+            message={<b>{idx + 1}. {q.title}{!answers[q.id] && <span style={{ fontWeight: 400 }}> (未作答)</span>}</b>}
             description={(
               <>
                 <Radio.Group
@@ -93,12 +120,15 @@ export default function Step2Survey({ ws, patch, advance }: StepProps) {
         ))}
       </Space>
 
-      {ws.survey?.suggested_level && !anyAnswerChanged(questions, answers, ws.survey.answers_json) && (
+      {ws.survey?.suggested_level && (
         <Alert
           style={{ marginTop: 16 }}
-          type="success"
+          type={changed ? 'info' : 'success'}
+          showIcon
           message={`系统建议定级: 等保${ws.survey.suggested_level}（当前生效: ${ws.survey.effective_level || '未定'}）`}
-          description={ws.survey.suggested_reason}
+          description={changed
+            ? `${ws.survey.suggested_reason}（答案已修改, 重新提交后将按新答案计算）`
+            : ws.survey.suggested_reason}
         />
       )}
 
@@ -125,10 +155,6 @@ export default function Step2Survey({ ws, patch, advance }: StepProps) {
           )}
         </Space>
       </div>
-
-      <Button type="primary" loading={saving} onClick={save} style={{ marginTop: 16 }} disabled={!answeredAll}>
-        提交问卷并下一步
-      </Button>
     </div>
   )
 }
@@ -136,11 +162,11 @@ export default function Step2Survey({ ws, patch, advance }: StepProps) {
 function anyAnswerChanged(
   questions: GradingQuestion[],
   current: Record<string, string>,
-  saved: SurveyAnswer[],
+  saved: SurveyOut | null,
 ): boolean {
   if (!saved) return true
   return questions.some((q) => {
-    const prev = saved.find((a) => a.question_id === q.id)?.option_id
+    const prev = saved.answers_json?.find((a) => a.question_id === q.id)?.option_id
     return current[q.id] !== prev
   })
 }

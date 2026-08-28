@@ -1,16 +1,18 @@
 /* Step4 数据字典与数据资产: 资产 → 数据表 → 字段 三级结构。
-   资产分类分级决定加密/脱敏/合规需求触发; 字段名参与脱敏规则正则匹配。 */
-import { useState } from 'react'
+   资产分类分级决定加密/脱敏/合规需求触发; 字段名参与脱敏规则正则匹配。
+   字段编辑为表卡片内的行内编辑区, 避免多层弹窗嵌套。 */
+import { useRef, useState } from 'react'
 import {
   Button, Checkbox, Divider, Form, Input, Modal, Popconfirm, Select, Space,
   Table, Tag, Typography, message,
 } from 'antd'
-import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
+import { DatabaseOutlined, DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 
 import { api } from '../../api'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
-import type { DataAssetRow, DataTableRow } from '../../types'
+import { useRegisterStepHandle } from './stepContext'
 import type { StepProps } from '../WizardPage'
+import type { DataAssetRow, DataFieldRow, DataTableRow } from '../../types'
 
 const EMPTY_ASSET: DataAssetRow = {
   name: '', data_type: 'business_data', classification: '内部',
@@ -18,33 +20,34 @@ const EMPTY_ASSET: DataAssetRow = {
   cross_border_transfer: false, tables: [],
 }
 
-export default function Step4DataAssets({ ws, patch, advance }: StepProps) {
+export default function Step4DataAssets({ ws, patch }: StepProps) {
   const enums = useEnums()
   const [rows, setRows] = useState<DataAssetRow[]>(ws.data_assets)
   const [editing, setEditing] = useState<DataAssetRow | null>(null)
   const [editIndex, setEditIndex] = useState(-1)
-  const [saving, setSaving] = useState(false)
+  const savedRef = useRef(JSON.stringify(rows))
 
   const openAdd = () => { setEditIndex(-1); setEditing({ ...EMPTY_ASSET }) }
   const openEdit = (index: number) => { setEditIndex(index); setEditing(JSON.parse(JSON.stringify(rows[index]))) }
 
-  const save = async () => {
+  const save = async (): Promise<boolean> => {
     if (!rows.length) {
       message.warning('请至少录入一个数据资产')
-      return
+      return false
     }
-    setSaving(true)
     try {
       const saved = await api.saveDataAssets(ws.project.id, rows)
       patch({ data_assets: saved })
+      savedRef.current = JSON.stringify(rows)
       message.success(`已保存 ${saved.length} 个数据资产`)
-      advance()
+      return true
     } catch (e) {
       message.error((e as Error).message)
-    } finally {
-      setSaving(false)
+      return false
     }
   }
+
+  useRegisterStepHandle({ save, isDirty: () => JSON.stringify(rows) !== savedRef.current })
 
   const classificationColors: Record<string, string> = {
     公开: 'green', 内部: 'blue', 敏感: 'orange', 机密: 'red',
@@ -53,16 +56,17 @@ export default function Step4DataAssets({ ws, patch, advance }: StepProps) {
   const storageMap = labelMapOf(enums, 'storage_envs')
 
   return (
-    <div>
+    <div style={{ maxWidth: 1080, margin: '0 auto' }}>
       <Space style={{ marginBottom: 12 }}>
         <Button icon={<PlusOutlined />} onClick={openAdd}>新增数据资产</Button>
         <Typography.Text type="secondary">
-          共 {rows.length} 个资产 · 先建资产(分类/分级), 再在其下维护表与字段
+          本步描述系统处理了哪些数据。共 {rows.length} 个资产 ·
+          先建资产(分类/分级), 再在其下维护表与字段; 分级与敏感个人信息标记决定加密/脱敏/合规需求
         </Typography.Text>
       </Space>
 
       <Table<DataAssetRow>
-        rowKey={(r) => r.name}
+        rowKey={(_, i) => String(i)}
         dataSource={rows}
         pagination={false}
         size="small"
@@ -100,10 +104,6 @@ export default function Step4DataAssets({ ws, patch, advance }: StepProps) {
         ]}
       />
 
-      <Button type="primary" loading={saving} onClick={save} style={{ marginTop: 16 }}>
-        保存并下一步
-      </Button>
-
       {editing !== null && (
         <AssetEditor
           initial={editing}
@@ -121,7 +121,7 @@ export default function Step4DataAssets({ ws, patch, advance }: StepProps) {
   )
 }
 
-/** 资产编辑弹窗: 基本属性 + 嵌套的表/字段三级编辑。 */
+/** 资产编辑弹窗: 基本属性 + 嵌套的表/字段编辑(字段在表卡片内行内编辑)。 */
 function AssetEditor({ initial, onSave, onClose }: {
   initial: DataAssetRow
   onSave: (row: DataAssetRow) => void
@@ -170,7 +170,7 @@ function AssetEditor({ initial, onSave, onClose }: {
         </Space>
       </Form>
 
-      <Divider plain>数据表(二级)</Divider>
+      <Divider plain>数据表(在表卡片内直接增删改字段)</Divider>
       <Button size="small" icon={<PlusOutlined />} onClick={() => setTableModalOpen(true)} style={{ marginBottom: 8 }}>
         新增数据表
       </Button>
@@ -185,7 +185,6 @@ function AssetEditor({ initial, onSave, onClose }: {
 
       {tableModalOpen && (
         <TableEditor
-          initial={null}
           enums={enums}
           onCancel={() => setTableModalOpen(false)}
           onSave={(next) => { setTables([...tables, next]); setTableModalOpen(false) }}
@@ -202,10 +201,11 @@ function CardLikeTable({ table, onDelete, onReplace, enums }: {
   enums: ReturnType<typeof useEnums>
 }) {
   const [editingFieldIndex, setEditingFieldIndex] = useState<number | null>(null)
+  const setFields = (fields: DataFieldRow[]) => onReplace({ ...table, fields })
   return (
     <div style={{ border: '1px solid #eee', borderRadius: 6, padding: '8px 12px', marginBottom: 10 }}>
       <Space style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-        <b><DatabaseGlyph /> {table.table_name}</b>
+        <b><DatabaseOutlined style={{ color: '#2f5597' }} /> {table.table_name}</b>
         <Popconfirm title="删除整张表?" onConfirm={onDelete}>
           <Button size="small" danger icon={<DeleteOutlined />} />
         </Popconfirm>
@@ -221,9 +221,9 @@ function CardLikeTable({ table, onDelete, onReplace, enums }: {
         </Space>
       ))}
       <Button size="small" icon={<PlusOutlined />} onClick={() => {
-        onReplace({ ...table, fields: [...table.fields, {
+        setFields([...table.fields, {
           field_name: '', field_type: 'varchar(64)', need_encrypt: false, need_mask: false, mask_rule: null,
-        }] })
+        }])
         setEditingFieldIndex(table.fields.length)
       }}>添加字段</Button>
       {editingFieldIndex !== null && table.fields[editingFieldIndex] && (
@@ -234,11 +234,11 @@ function CardLikeTable({ table, onDelete, onReplace, enums }: {
           onSave={(next) => {
             const fields = [...table.fields]
             fields[editingFieldIndex] = next
-            onReplace({ ...table, fields })
+            setFields(fields)
             setEditingFieldIndex(null)
           }}
           onRemove={() => {
-            onReplace({ ...table, fields: table.fields.filter((_, i) => i !== editingFieldIndex) })
+            setFields(table.fields.filter((_, i) => i !== editingFieldIndex))
             setEditingFieldIndex(null)
           }}
         />
@@ -247,16 +247,13 @@ function CardLikeTable({ table, onDelete, onReplace, enums }: {
   )
 }
 
-function DatabaseGlyph() { return <span>🗄</span> }
-
-function TableEditor({ initial, onSave, onCancel, enums }: {
-  initial: DataTableRow | null
+function TableEditor({ onSave, onCancel, enums }: {
   onSave: (row: DataTableRow) => void
   onCancel: () => void
   enums: ReturnType<typeof useEnums>
 }) {
   void enums
-  const [name, setName] = useState(initial?.table_name ?? '')
+  const [name, setName] = useState('')
   return (
     <Modal
       title="新增数据表" open onCancel={onCancel}
@@ -270,40 +267,31 @@ function TableEditor({ initial, onSave, onCancel, enums }: {
   )
 }
 
+/** 字段行内编辑区(非弹窗): 名称/类型/加密/脱敏 + 脱敏规则建议。 */
 function FieldEditor({ initial, onSave, onCancel, onRemove, enums }: {
-  initial: DataTableRow['fields'][number]
-  onSave: (field: DataTableRow['fields'][number]) => void
+  initial: DataFieldRow
+  onSave: (field: DataFieldRow) => void
   onCancel: () => void
   onRemove: () => void
   enums: ReturnType<typeof useEnums>
 }) {
-  const [draft, setDraft] = useState(initial)
+  const [draft, setDraft] = useState<DataFieldRow>(initial)
   const maskRules = labelMapOf(enums, 'mask_rules')
+  // 历史数据可能存的是规则文案(中文), 只有能对上 code 时才回显下拉
+  const knownRule = draft.mask_rule && draft.mask_rule in maskRules ? draft.mask_rule : undefined
+
+  const commit = () => {
+    if (!draft.field_name.trim()) { message.warning('请输入字段名'); return }
+    // 存中文规则文案, 文档直接可用; 脱敏规则建议的 code → 文案转换在前端完成
+    const ruleText = draft.need_mask
+      ? (knownRule ? maskRules[knownRule] : draft.mask_rule || '保留前3后4, 中间****')
+      : null
+    onSave({ ...draft, mask_rule: ruleText })
+  }
+
   return (
-    <Modal
-      title={`字段: ${initial.field_name || '(新字段)'}`} open onCancel={onCancel}
-      okText="保存字段"
-      onOk={() => {
-        if (!draft.field_name.trim()) { message.warning('请输入字段名'); return }
-        // 存中文规则文案, 文档直接可用; 脱敏规则建议的 code → 文案转换在前端完成
-        const ruleText = draft.need_mask
-          ? ((draft.mask_rule && draft.mask_rule in maskRules) ? maskRules[draft.mask_rule] : draft.mask_rule || '保留前3后4, 中间****')
-          : null
-        onSave({ ...draft, mask_rule: ruleText })
-      }}
-      footer={[
-        <Button key="del" danger onClick={onRemove}>删除字段</Button>,
-        <Button key="cancel" onClick={onCancel}>取消</Button>,
-        <Button key="ok" type="primary" onClick={() => {
-          if (!draft.field_name.trim()) { message.warning('请输入字段名'); return }
-          const ruleText = draft.need_mask
-            ? ((draft.mask_rule && draft.mask_rule in maskRules) ? maskRules[draft.mask_rule] : draft.mask_rule || '保留前3后4, 中间****')
-            : null
-          onSave({ ...draft, mask_rule: ruleText })
-        }}>保存字段</Button>,
-      ]}
-    >
-      <Space direction="vertical" style={{ width: '100%' }}>
+    <div style={{ border: '1px dashed #d9d9d9', borderRadius: 6, padding: '10px 12px', margin: '8px 0', background: '#fafafa' }}>
+      <Space direction="vertical" style={{ width: '100%' }} size={8}>
         <Space>
           <Input
             style={{ width: 220 }} placeholder="字段名, 如 card_number"
@@ -321,17 +309,25 @@ function FieldEditor({ initial, onSave, onCancel, onRemove, enums }: {
             onChange={(e) => setDraft({ ...draft, need_encrypt: e.target.checked })}>加密存储</Checkbox>
           <Checkbox checked={draft.need_mask}
             onChange={(e) => setDraft({ ...draft, need_mask: e.target.checked })}>脱敏展示</Checkbox>
+          {draft.need_mask && (
+            <Select
+              style={{ width: 320 }}
+              placeholder="选择脱敏规则建议"
+              value={knownRule}
+              onChange={(v) => setDraft({ ...draft, mask_rule: v })}
+              options={Object.entries(maskRules).map(([value, label]) => ({ value, label }))}
+            />
+          )}
         </Space>
-        {draft.need_mask && (
-          <Select
-            style={{ width: 320 }}
-            placeholder="选择脱敏规则建议"
-            value={undefined}
-            onChange={(v) => setDraft({ ...draft, mask_rule: v })}
-            options={Object.entries(maskRules).map(([value, label]) => ({ value, label }))}
-          />
+        {draft.need_mask && !knownRule && draft.mask_rule && (
+          <Typography.Text type="secondary">当前规则: {draft.mask_rule}(自定义文案, 可从下拉重新选择建议规则)</Typography.Text>
         )}
+        <Space>
+          <Button size="small" type="primary" onClick={commit}>保存字段</Button>
+          <Button size="small" onClick={onCancel}>取消</Button>
+          <Button size="small" danger onClick={onRemove}>删除字段</Button>
+        </Space>
       </Space>
-    </Modal>
+    </div>
   )
 }

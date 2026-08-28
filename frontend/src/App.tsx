@@ -3,6 +3,7 @@ import zhCN from 'antd/locale/zh_CN'
 
 import { EnumsProvider } from './enums'
 import { useRoute, navigate } from './router'
+import { requestLeave } from './ui/dirtyGuard'
 import ProjectListPage from './ui/ProjectListPage'
 import WizardPage from './ui/WizardPage'
 import ResultPage from './ui/ResultPage'
@@ -16,7 +17,7 @@ function Shell() {
     >
       <AntdApp style={{ minHeight: '100vh', background: '#f5f6fa' }}>
         <div
-          onClick={() => navigate('/')}
+          onClick={() => void requestLeave().then((ok) => ok && navigate('/'))}
           style={{
             background: '#001529', color: '#fff', padding: '14px 28px',
             fontSize: 18, fontWeight: 600, cursor: 'pointer', letterSpacing: 1,

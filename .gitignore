@@ -12,3 +12,6 @@ output_test/
 # Node / 前端
 node_modules/
 dist/
+
+# ZCode 工具产物
+.zcode/

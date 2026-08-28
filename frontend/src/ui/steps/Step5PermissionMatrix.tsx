@@ -1,11 +1,11 @@
 /* Step5 用户权限矩阵: 左侧角色行 × 顶部资源列的交叉表格。
    单元格内勾选操作(create/read/...), 高危操作可挂"需审批"标记;
    critical 资源的免审批高危操作、SoD 冲突与 super_admin 特权账号
-   由规则引擎自动扫描并生成整改需求。 */
-import { useMemo, useState } from 'react'
+   由规则引擎自动扫描并生成整改需求(下方实时预览)。 */
+import { useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import {
-  Button, Checkbox, Input, InputNumber, Popover, Select, Space,
+  Alert, Button, Checkbox, Input, InputNumber, Popover, Select, Space,
   Tag, Typography, message,
 } from 'antd'
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
@@ -14,6 +14,8 @@ import { api } from '../../api'
 import type { MatrixEntryIn } from '../../types'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
 import type { RoleRow, ResourceRow } from '../../types'
+import GlossaryTip from '../GlossaryTip'
+import { useRegisterStepHandle } from './stepContext'
 import type { StepProps } from '../WizardPage'
 
 /** cell[roleIndex][resourceIndex] = { 动作code → 是否需审批 }(键为下标的字符串形态) */
@@ -22,15 +24,18 @@ type CellGrants = Record<string, Record<string, Record<string, boolean>>>
 const EMPTY_ROLE: RoleRow = { name: '', role_type: 'normal', user_count_estimate: 0 }
 const EMPTY_RESOURCE: ResourceRow = { name: '', resource_type: 'data_record', criticality: 'medium' }
 
-export default function Step5PermissionMatrix({ ws, patch, advance }: StepProps) {
+export default function Step5PermissionMatrix({ ws, patch }: StepProps) {
   const enums = useEnums()
   const [roles, setRoles] = useState<RoleRow[]>(ws.roles)
   const [resources, setResources] = useState<ResourceRow[]>(ws.resources)
   const [grants, setGrants] = useState<CellGrants>(() => initGrants(ws))
-  const [saving, setSaving] = useState(false)
+  const savedRef = useRef(JSON.stringify({ roles, resources, grants }))
 
   const actionsMap = labelMapOf(enums, 'permission_actions')
-  const highRisk = new Set((enums['high_risk_actions'] as string[]) ?? [])
+  const highRisk = useMemo(
+    () => new Set((enums['high_risk_actions'] as string[]) ?? []),
+    [enums],
+  )
 
   const updateGrant = (ri: number, ci: number, action: string, checked: boolean) => {
     setGrants((prev) => {
@@ -61,7 +66,9 @@ export default function Step5PermissionMatrix({ ws, patch, advance }: StepProps)
   const warnings = useMemo(() => {
     const list: string[] = []
     for (const r of roles) {
-      if (r.role_type === 'super_admin') list.push(`存在超级管理员角色「${r.name}」, 将生成最小权限原则与特权账号审计需求`)
+      if (r.role_type === 'super_admin') {
+        list.push(`超级管理员「${r.name}」权限不受矩阵约束, 将生成最小权限原则与特权账号审计需求`)
+      }
     }
     for (const [riStr, row] of Object.entries(grants)) {
       for (const [ciStr, cell] of Object.entries(row)) {
@@ -70,13 +77,13 @@ export default function Step5PermissionMatrix({ ws, patch, advance }: StepProps)
         const roleName = roles[Number(riStr)]?.name ?? '?'
         const risky = Object.keys(cell).filter((a) => highRisk.has(a) && !cell[a])
         if (res.criticality === 'critical' && risky.length) {
-          list.push(`${roleName} 对关键资源「${res.name}」执行 ${risky.map((a) => actionsMap[a]).join('/')} 未挂审批流, 将触发高优先级整改需求`)
+          list.push(`角色「${roleName}」对关键资源「${res.name}」的 ${risky.map((a) => actionsMap[a]).join('/')} 操作未勾选「需审批」, 单人即可生效 — 将触发高优先级整改需求`)
         }
         const conflictPairs: [string, string][] = [['create', 'approve'], ['update', 'approve'], ['config_change', 'approve']]
         for (const [a, b] of conflictPairs) {
           if ((['high', 'critical'] as string[]).includes(res.criticality)
               && cell[a] !== undefined && cell[b] !== undefined) {
-            list.push(`${roleName} 在「${res.name}」上同时拥有 ${actionsMap[a]} 与 ${actionsMap[b]}, 存在职责分离(SoD)冲突`)
+            list.push(`角色「${roleName}」在「${res.name}」上同时拥有「${actionsMap[a]}」和「${actionsMap[b]}」权限, 存在职责分离(SoD)冲突, 将触发整改需求`)
           }
         }
       }
@@ -84,10 +91,10 @@ export default function Step5PermissionMatrix({ ws, patch, advance }: StepProps)
     return [...new Set(list)]
   }, [grants, roles, resources, actionsMap, highRisk])
 
-  const save = async () => {
+  const save = async (): Promise<boolean> => {
     if (!roles.length || !resources.length) {
       message.warning('请至少维护一个角色和一个资源')
-      return
+      return false
     }
     const entries: MatrixEntryIn[] = []
     for (const [riStr, row] of Object.entries(grants)) {
@@ -97,7 +104,6 @@ export default function Step5PermissionMatrix({ ws, patch, advance }: StepProps)
         }
       }
     }
-    setSaving(true)
     try {
       const saved = await api.saveMatrix(ws.project.id, roles, resources, entries)
       patch({
@@ -105,17 +111,26 @@ export default function Step5PermissionMatrix({ ws, patch, advance }: StepProps)
         resources: saved.resources,
         permission_entries: saved.entries as never,
       })
+      savedRef.current = JSON.stringify({ roles, resources, grants })
       message.success(`矩阵已保存: ${saved.saved.roles} 角色 × ${saved.saved.resources} 资源, ${saved.saved.entries} 条授权`)
-      advance()
+      return true
     } catch (e) {
       message.error((e as Error).message)
-    } finally {
-      setSaving(false)
+      return false
     }
   }
 
+  useRegisterStepHandle({
+    save,
+    isDirty: () => JSON.stringify({ roles, resources, grants }) !== savedRef.current,
+  })
+
   return (
-    <div style={{ overflowX: 'auto' }}>
+    <div style={{ overflowX: 'auto', maxWidth: 1200, margin: '0 auto' }}>
+      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+        本步定义「谁能对什么资源做什么」。先维护角色与资源, 再在交叉表格中逐格勾选授权;
+        生成时规则引擎会自动扫描免审批违规、SoD 冲突与特权账号。
+      </Typography.Text>
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
         {/* ── 角色维护 ── */}
         <div>
@@ -127,7 +142,7 @@ export default function Step5PermissionMatrix({ ws, patch, advance }: StepProps)
             newRow={() => ({ ...EMPTY_ROLE })}
             columns={(row, setRow, removeBtn) => (
               <>
-                <Input size="small" style={{ width: 160 }} value={row.name} placeholder="角色名"
+                <Input size="small" style={{ width: 160 }} value={row.name} placeholder="角色名, 如 运营管理员"
                   onChange={(e) => setRow({ ...row, name: e.target.value })} />
                 <Select size="small" style={{ width: 130 }} value={row.role_type}
                   options={optionsOf(enums, 'role_types')}
@@ -147,7 +162,7 @@ export default function Step5PermissionMatrix({ ws, patch, advance }: StepProps)
             newRow={() => ({ ...EMPTY_RESOURCE })}
             columns={(row, setRow, removeBtn) => (
               <>
-                <Input size="small" style={{ width: 200 }} value={row.name} placeholder="资源名"
+                <Input size="small" style={{ width: 200 }} value={row.name} placeholder="资源名, 如 交易流水记录"
                   onChange={(e) => setRow({ ...row, name: e.target.value })} />
                 <Select size="small" style={{ width: 140 }} value={row.resource_type}
                   options={optionsOf(enums, 'resource_types')}
@@ -163,8 +178,11 @@ export default function Step5PermissionMatrix({ ws, patch, advance }: StepProps)
 
         {/* ── 交叉表格 ── */}
         <div>
-          <Typography.Text strong>权限矩阵(点击单元格勾选操作, * 表示该操作需审批)</Typography.Text>
-          <table className="matrix-table" style={{ borderCollapse: 'collapse', marginTop: 8, minWidth: 700 }}>
+          <Space size={16} wrap style={{ marginBottom: 4 }}>
+            <Typography.Text strong>权限矩阵</Typography.Text>
+            <Typography.Text type="secondary">点击单元格勾选操作 · 带 * 表示该操作需审批 · 红色「高危」Tag 表示关键资源上免审批将触发整改</Typography.Text>
+          </Space>
+          <table className="matrix-table" style={{ borderCollapse: 'collapse', minWidth: 700 }}>
             <thead>
               <tr>
                 <th style={cellStyle('#2f5597', '#fff')}>角色 \ 资源</th>
@@ -203,7 +221,7 @@ export default function Step5PermissionMatrix({ ws, patch, advance }: StepProps)
                           onToggleApproval={(a, needs) => updateApproval(ri, ci, a, needs)}
                         >
                           {granted.length === 0
-                            ? <span style={{ color: '#bbb' }}>＋ 授权</span>
+                            ? <span style={{ color: '#bbb' }}>＋ 点击授权</span>
                             : granted.map((a) => `${actionsMap[a] ?? a}${cell[a] ? '*' : ''}`).join('、')}
                         </MatrixCellPopover>
                       </td>
@@ -213,21 +231,27 @@ export default function Step5PermissionMatrix({ ws, patch, advance }: StepProps)
               ))}
             </tbody>
           </table>
-          <Typography.Text type="secondary">
-            共 {roles.length} 角色 × {resources.length} 资源 · 已登记授权 {totalEntries} 格次 · 「需审批」以 * 标注
+          <Typography.Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+            共 {roles.length} 角色 × {resources.length} 资源 · 已登记授权 {totalEntries} 格次
           </Typography.Text>
         </div>
 
         {warnings.length > 0 && (
-          <div style={{ background: '#fff7e6', border: '1px solid #ffd591', borderRadius: 6, padding: '8px 12px' }}>
-            <Typography.Text strong type="warning">实时风险提示(规则引擎会据此生成需求):</Typography.Text>
-            <ul style={{ margin: '4px 0 0', paddingLeft: 20 }}>
-              {warnings.map((w, i) => <li key={i}><Typography.Text type="warning">{w}</Typography.Text></li>)}
-            </ul>
-          </div>
+          <Alert
+            type="warning"
+            showIcon
+            message={(
+              <GlossaryTip term="approval">
+                实时风险提示(<GlossaryTip term="sod">SoD</GlossaryTip>/免审批) — 规则引擎会据此生成需求:
+              </GlossaryTip>
+            )}
+            description={(
+              <ul style={{ margin: '4px 0 0', paddingLeft: 20 }}>
+                {warnings.map((w, i) => <li key={i}>{w}</li>)}
+              </ul>
+            )}
+          />
         )}
-
-        <Button type="primary" loading={saving} onClick={save}>保存矩阵并下一步</Button>
       </Space>
     </div>
   )

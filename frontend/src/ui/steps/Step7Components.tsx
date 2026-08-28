@@ -1,8 +1,9 @@
 /* Step7 软件/框架清单(SBOM 来源): 手工录入(常用组件自动补全) +
-   上传 CycloneDX/SPDX 文件批量导入; 生成时自动匹配 OSV 漏洞。 */
-import { useState } from 'react'
+   上传 CycloneDX/SPDX 文件批量导入; 生成时自动匹配 OSV 漏洞。
+   本步允许为空(生成时跳过漏洞扫描), 降低不熟悉 SBOM 用户的学习成本。 */
+import { useRef, useState } from 'react'
 import {
-  Button, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag,
+  Alert, Button, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag,
   Typography, Upload, message,
 } from 'antd'
 import { DeleteOutlined, EditOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons'
@@ -10,6 +11,8 @@ import { DeleteOutlined, EditOutlined, PlusOutlined, UploadOutlined } from '@ant
 import { api } from '../../api'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
 import type { ComponentRow } from '../../types'
+import GlossaryTip from '../GlossaryTip'
+import { useRegisterStepHandle } from './stepContext'
 import type { StepProps } from '../WizardPage'
 
 /** 内置常见组件库(自动补全候选拼 purl 提示), 覆盖 DESIGN.md 要求的常用 50 组件。 */
@@ -33,60 +36,87 @@ interface DraftRow extends Omit<ComponentRow, 'vulnerabilities'> {}
 
 const EMPTY: DraftRow = { layer: 'backend', name: '', version: '', purl: null, license: null, source_type: 'manual_input' }
 
-export default function Step7Components({ ws, patch, advance }: StepProps) {
+export default function Step7Components({ ws, patch }: StepProps) {
   const enums = useEnums()
   const [rows, setRows] = useState<DraftRow[]>(ws.components.map(({ vulnerabilities: _v, ...rest }) => rest))
   const [editing, setEditing] = useState<DraftRow | null>(null)
   const [editIndex, setEditIndex] = useState(-1)
-  const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const savedRef = useRef(JSON.stringify(rows))
 
   const layerMap = labelMapOf(enums, 'sbom_layers')
 
-  const save = async () => {
-    if (!rows.length) { message.warning('请至少录入一个组件'); return }
-    setSaving(true)
+  const save = async (): Promise<boolean> => {
     try {
       const saved = await api.saveComponents(ws.project.id, rows)
       patch({ components: saved })
-      message.success(`已保存 ${saved.length} 个组件`)
-      advance()
+      savedRef.current = JSON.stringify(rows)
+      message.success(rows.length ? `已保存 ${saved.length} 个组件` : '组件清单已保存(为空, 生成时跳过漏洞扫描)')
+      return true
     } catch (e) {
       message.error((e as Error).message)
-    } finally {
-      setSaving(false)
+      return false
     }
   }
+
+  useRegisterStepHandle({ save, isDirty: () => JSON.stringify(rows) !== savedRef.current })
 
   const doImport = async (file: File) => {
     setUploading(true)
     try {
       const result = await api.importSbomFile(ws.project.id, file)
-      // 导入后重拉组件(导入为追加语义)
-      const fresh = await (await fetch(`/api/projects/${ws.project.id}/components`)).json()
-      setRows((fresh as ComponentRow[]).map(({ vulnerabilities: _v, ...rest }) => rest))
+      // 导入后重拉组件(导入为追加语义, 服务端即时生效)
+      const fresh = await api.listComponents(ws.project.id)
+      const local = fresh.map(({ vulnerabilities: _v, ...rest }) => rest)
+      setRows(local)
       patch({ components: fresh })
+      savedRef.current = JSON.stringify(local)
       message.success(`SBOM 解析(${result.format}): 解析 ${result.total_parsed} 条, 新增 ${result.added}, 跳过重复 ${result.skipped_duplicate}`)
     } catch (e) {
       message.error((e as Error).message)
     } finally {
       setUploading(false)
     }
-    return false // 阻止 antd Upload 默认上传
   }
 
   return (
-    <div>
+    <div style={{ maxWidth: 1080, margin: '0 auto' }}>
+      <Alert
+        style={{ marginBottom: 12 }}
+        type="info"
+        showIcon
+        message="本步登记系统使用的第三方组件(即 SBOM, 软件物料清单), 用于自动发现带已知漏洞的旧版本"
+        description={(
+          <span>
+            有构建工具或安全团队导出的 <GlossaryTip term="sbom">SBOM</GlossaryTip> 文件
+            (<GlossaryTip term="cyclonedx">CycloneDX / SPDX</GlossaryTip> 格式) 可直接上传批量导入;
+            没有文件就点「新增组件」手工录入, 输入组件名会自动补全常用组件。
+            生成阶段将按组件坐标(<GlossaryTip term="purl">purl</GlossaryTip>)自动查询
+            <GlossaryTip term="osv">OSV.dev</GlossaryTip>漏洞库。
+            若项目确无第三方组件, 可直接保存进入下一步(跳过漏洞扫描)。
+          </span>
+        )}
+      />
+
+      {rows.length === 0 && (
+        <Alert
+          style={{ marginBottom: 12 }}
+          type="warning"
+          showIcon
+          message="组件清单为空: 生成时将没有 SBOM 与漏洞清单内容, 也无法触发组件整改需求"
+        />
+      )}
+
       <Space style={{ marginBottom: 12 }} wrap>
         <Button icon={<PlusOutlined />} onClick={() => { setEditIndex(-1); setEditing({ ...EMPTY }) }}>新增组件</Button>
         <Upload accept=".json,.spdx" showUploadList={false} beforeUpload={(file) => { void doImport(file); return false }}>
-          <Button icon={<UploadOutlined />} loading={uploading}>上传 SBOM 文件(CycloneDX / SPDX)</Button>
+          <Button icon={<UploadOutlined />} loading={uploading}>上传 SBOM 文件批量导入</Button>
         </Upload>
-        <Typography.Text type="secondary">共 {rows.length} 条 · 生成阶段将按 purl 自动查询 OSV.dev 漏洞</Typography.Text>
+        <Typography.Text type="secondary">共 {rows.length} 条</Typography.Text>
       </Space>
 
       <Table<DraftRow>
-        rowKey={(r) => `${r.name}@${r.version}`}
+        rowKey={(_, i) => String(i)}
         dataSource={rows}
         pagination={false}
         size="small"
@@ -111,14 +141,9 @@ export default function Step7Components({ ws, patch, advance }: StepProps) {
         ]}
       />
 
-      <Button type="primary" loading={saving} onClick={save} style={{ marginTop: 16 }}>
-        保存并下一步
-      </Button>
-
       <ComponentModal
         key={`${editIndex}-${editing ? editing.name : ''}`}
         value={editing}
-        enumsOptions={{ layers: optionsOf(enums, 'sbom_layers') }}
         onCancel={() => setEditing(null)}
         onOk={(next) => {
           const copy = [...rows]
@@ -136,7 +161,6 @@ function ComponentModal({ value, onOk, onCancel }: {
   value: DraftRow | null
   onOk: (row: DraftRow) => void
   onCancel: () => void
-  enumsOptions: { layers: { value: string; label: string }[] }
 }) {
   const enums = useEnums()
   const [form] = Form.useForm<DraftRow>()
@@ -145,7 +169,7 @@ function ComponentModal({ value, onOk, onCancel }: {
       title="软件/框架组件"
       open={value !== null}
       onCancel={onCancel}
-      onOk={async () => onOk(await form.validateFields())}
+      onOk={() => form.validateFields().then(onOk).catch(() => { /* 校验失败, 留在弹窗 */ })}
       forceRender
     >
       <Form form={form} layout="vertical" initialValues={value ?? EMPTY}>
@@ -158,8 +182,8 @@ function ComponentModal({ value, onOk, onCancel }: {
         <datalist id="known-components">
           {Object.keys(KNOWN_COMPONENTS).map((n) => <option key={n} value={n} />)}
         </datalist>
-        <Form.Item name="version" label="版本号" rules={[{ required: true, message: '版本号用于漏洞匹配, 必填' }]}>
-          <Input placeholder="如 2.14.1(务必准确)" />
+        <Form.Item name="version" label="版本号" rules={[{ required: true, message: '版本号用于漏洞匹配, 必填' }]} extra="版本号务必准确, 它决定漏洞匹配结果">
+          <Input placeholder="如 2.14.1" />
         </Form.Item>
         <Form.Item name="license" label="许可证"><Input placeholder="如 Apache-2.0 / MIT" /></Form.Item>
       </Form>
