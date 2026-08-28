@@ -50,7 +50,7 @@ def extract_candidates(text: str, llm_config: dict | None = None) -> tuple[list[
             return extract_by_llm(text, llm_config), "llm", ""
         except Exception as exc:  # 网络/解析失败一律降级, 不阻塞录入
             return extract_by_rules(text), "rules", f"大模型调用失败已降级为关键词提取: {exc}"
-    return extract_by_rules(text), "rules", "未配置大模型, 使用关键词规则提取"
+    return extract_by_rules(text), "rules", "未配置大模型, 使用关键词规则提取(无标点长文本建议在系统管理配置大模型, 拆分更准确)"
 
 
 def extract_by_llm(text: str, config: dict) -> list[dict]:
@@ -133,38 +133,128 @@ _CATEGORY_KEYWORDS: dict[str, list[str]] = {
     "sms_email": ["短信", "邮件", "验证码"],
 }
 _SENTENCE_SPLIT = re.compile(r"[。；;！!？?\n\r]+")
+_CLAUSE_SPLIT = re.compile(r"[，,、]|以及|同时|并且|然后|接着")
+_CLAUSE_LEN = (4, 60)
 _INTERNET_HINTS = ["互联网", "公网", "线上", "APP", "app", "小程序", "H5", "微信", "移动端", "网上", "手机银行"]
-_SENSITIVE_HINTS = ["身份证", "银行卡", "账户", "手机号", "敏感", "个人信息", "交易密码"]
+_SENSITIVE_HINTS = ["身份证", "银行卡", "账户", "手机号", "敏感", "个人信息", "交易密码", "指纹", "人脸", "生物识别", "密码"]
+
+
+def _hits(text: str) -> list[str]:
+    """命中分类代码(去重, 按声明顺序)。"""
+    return [
+        code for code, words in _CATEGORY_KEYWORDS.items()
+        if any(w in text for w in words)
+    ]
+
+
+def _make_candidate(text: str, categories: list[str]) -> dict:
+    return {
+        "name": text[:50],
+        "module": None,
+        "categories": categories[:5],
+        "involves_payment": any(c in ("payment", "refund") for c in categories),
+        "exposed_to_internet": any(w in text for w in _INTERNET_HINTS),
+        "sensitivity": "sensitive" if any(w in text for w in _SENSITIVE_HINTS) else "internal",
+        "source_quote": text,
+    }
+
+
+def _trim_edge(text: str) -> str:
+    """去掉候选窗口边缘的连接词/泛词, 让功能名更像一个短语。"""
+    leads = ["用户可以", "用户可", "可以", "并支持", "支持", "并提供", "提供", "同时", "以及", "并且", "然后", "并", "及"]
+    changed = True
+    while changed:
+        changed = False
+        for lead in leads:
+            if text.startswith(lead) and len(text) - len(lead) >= 4:
+                text = text[len(lead):]
+                changed = True
+    for tail in ["的功能", "等功能", "功能"]:
+        if text.endswith(tail) and len(text) - len(tail) >= 4:
+            text = text[: -len(tail)]
+            break
+    return text.strip(" 、,，.。:：()（）-—*")
+
+
+def _keyword_windows(sentence: str, before: int = 10, after: int = 25) -> list[dict]:
+    """超长无标点句: 在每个关键词命中点截取邻域。
+
+    相邻关键词间距近时以两者中点为界(避免窗口互相重叠), 间距远时用固定前后缀,
+    保证一串功能描述被切成若干条边界可读的候选。
+    """
+    hits: list[tuple[int, int, str]] = []
+    seen_span: set[tuple[int, str]] = set()
+    for code, words in _CATEGORY_KEYWORDS.items():
+        for word in words:
+            idx = sentence.find(word)
+            if idx >= 0 and (idx, word) not in seen_span:
+                seen_span.add((idx, word))
+                hits.append((idx, idx + len(word), code))
+    hits.sort()
+
+    windows: list[dict] = []
+    for i, (start, end, code) in enumerate(hits):
+        if i == 0:
+            seg_start = max(0, start - before)
+        else:
+            prev_end = hits[i - 1][1]
+            seg_start = (prev_end + start) // 2 if start - prev_end < 20 else max(0, start - before)
+        if i == len(hits) - 1:
+            seg_end = min(len(sentence), end + after)
+        else:
+            nxt_start = hits[i + 1][0]
+            seg_end = (end + nxt_start) // 2 if nxt_start - end < 20 else min(len(sentence), end + after)
+        text = _trim_edge(sentence[seg_start:seg_end])
+        if len(text) >= 4:
+            windows.append({"text": text, "categories": [code]})
+    return windows
 
 
 def extract_by_rules(text: str) -> list[dict]:
-    """关键词规则: 命中分类关键词的句子 → 候选功能点。"""
+    """关键词规则: 句 → 子句 → 关键词窗口 三级拆分。
+
+    - 句子(。；;!?换行分隔)内按 逗号/顿号/连词 切子句, 每个命中关键词的子句独立成候选
+      (一句话多个功能各自一条);
+    - 关键词跨子句(如"批量导出")时整句出一条候选;
+    - 整段无标点的超长文本: 按关键词命中点截取邻域窗口, 每个功能簇一条候选。
+    """
     candidates: list[dict] = []
     seen: set[str] = set()
+
+    def push(text: str, categories: list[str]) -> None:
+        key = text[:40]
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append(_make_candidate(text, categories))
+
     for raw in _SENTENCE_SPLIT.split(text):
         sentence = raw.strip(" 、,，.。:：()（）-—*")
-        if not 4 <= len(sentence) <= 80:
+        if not sentence:
             continue
-        hit_categories = [
-            code for code, words in _CATEGORY_KEYWORDS.items()
-            if any(w in sentence for w in words)
-        ]
-        if not hit_categories:
+        sentence_hits = _hits(sentence)
+        if not sentence_hits:
             continue
-        key = sentence[:40]
-        if key in seen:
-            continue
-        seen.add(key)
-        involves_payment = any(c in ("payment", "refund") for c in hit_categories)
-        candidates.append({
-            "name": sentence[:50],
-            "module": None,
-            "categories": hit_categories[:5],
-            "involves_payment": involves_payment,
-            "exposed_to_internet": any(w in sentence for w in _INTERNET_HINTS),
-            "sensitivity": "sensitive" if any(w in sentence for w in _SENSITIVE_HINTS) else "internal",
-            "source_quote": sentence,
-        })
+
+        # 子句级拆分: 一句话里的多个功能各自成候选
+        clause_found = False
+        for clause in _CLAUSE_SPLIT.split(sentence):
+            clause = clause.strip(" 、,，.。:：()（）-—*")
+            if not _CLAUSE_LEN[0] <= len(clause) <= _CLAUSE_LEN[1]:
+                continue
+            clause_cat = _hits(clause)
+            if clause_cat:
+                clause_found = True
+                push(clause, clause_cat)
+
+        # 关键词跨子句(如"批量导出") → 整句一条; 超长句走关键词窗口
+        if not clause_found:
+            if len(sentence) <= 100:
+                push(sentence, sentence_hits)
+            else:
+                for window in _keyword_windows(sentence):
+                    push(window["text"], window["categories"])
+
         if len(candidates) >= 50:
             break
     return candidates
