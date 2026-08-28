@@ -75,7 +75,8 @@ export default function ProjectListPage() {
                     <p style={{ fontWeight: 600 }}>还没有项目</p>
                     <p style={{ color: '#888' }}>
                       SecReq 通过 8 步向导采集项目信息, 按行内安全知识库自动生成
-                      安全需求、SBOM 漏洞清单与 4 份 Word 文档, 把安全检查前置到设计阶段。
+                      安全需求、SBOM 漏洞清单与 5 份 Word 文档(含《项目安全评审表》), 并提供评审门禁与签核留痕。
+                      推荐顺序: 新建项目 → 填向导 → 生成基线 → 生成后进入「查看产物」页, 按顶部提示下一步即可。
                     </p>
                   </>
                 )}

@@ -10,6 +10,7 @@ from models import (
     ApiEndpoint, AuthConfig, DataAsset, DataField, DataTable, Feature,
     GradingSurvey, InfraAsset, PermissionEntry, Project,
     SbomComponent, SecurityRequirement, VulnerabilityRecord, Resource, Role,
+    ReviewEvidence, ReviewGate,
 )
 
 
@@ -65,6 +66,11 @@ def delete_project_cascade(session: Session, project_id: int) -> None:
     session.query(GradingSurvey).filter_by(project_id=pid).delete(synchronize_session=False)
     session.query(Feature).filter_by(project_id=pid).delete(synchronize_session=False)
     session.query(SecurityRequirement).filter_by(project_id=pid).delete(synchronize_session=False)
+
+    session.query(ReviewEvidence).filter(
+        ReviewEvidence.gate_id.in_(session.query(ReviewGate.id).filter_by(project_id=pid))
+    ).delete(synchronize_session=False)
+    session.query(ReviewGate).filter_by(project_id=pid).delete(synchronize_session=False)
 
     session.query(Project).filter_by(id=pid).delete(synchronize_session=False)
     session.commit()

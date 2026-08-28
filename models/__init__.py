@@ -9,6 +9,7 @@ from models.auth import AuthConfig
 from models.sbom import SbomComponent, VulnerabilityRecord
 from models.inventory import ApiEndpoint, InfraAsset
 from models.requirement import SecurityRequirement
+from models.review import GENESIS_HASH, PlatformUser, ReviewEvidence, ReviewGate
 
 __all__ = [
     "Base",
@@ -30,4 +31,8 @@ __all__ = [
     "ApiEndpoint",
     "InfraAsset",
     "SecurityRequirement",
+    "PlatformUser",
+    "ReviewGate",
+    "ReviewEvidence",
+    "GENESIS_HASH",
 ]

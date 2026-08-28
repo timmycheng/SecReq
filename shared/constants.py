@@ -65,6 +65,69 @@ SENSITIVITY_LEVELS = {
     "confidential": "机密",
 }
 
+# ── 数据分级(JR/T 0197-2020 五级体系, 改造点1) ─────────
+# 数据库 classification 直接存下列 code; 知识库 data_asset 条件按 code 匹配。
+# 顺序: 高 → 低。
+DATA_LEVELS = [
+    "5级_重要数据",
+    "4级_C3鉴别信息",
+    "3级_C2主要信息",
+    "2级_C1次要信息",
+    "1级_公开数据",
+]
+
+# code → 数值等级(5 最高), 供 min_level 条件与门禁校验使用
+DATA_LEVEL_ORDER = {code: 5 - i for i, code in enumerate(DATA_LEVELS)}
+
+# code → 展示名 + 典型数据举例(节选自 JR/T 0197-2020 附录A, 辅助项目经理选择)
+DATA_LEVEL_META = {
+    "5级_重要数据": {
+        "label": "5级(重要数据)",
+        "examples": "影响国家安全或公众权益严重损害的数据, 如: 全行业集中的重要统计数据、"
+                    "达标认定的重要业务系统运行数据、涉及国家安全的金融基础设施数据。",
+    },
+    "4级_C3鉴别信息": {
+        "label": "4级(C3鉴别信息)",
+        "examples": "账户鉴别信息, 如: 登录口令/支付密码、银行卡磁道与CVN2、指纹/人脸等"
+                    "生物特征模板、数字证书私钥。",
+    },
+    "3级_C2主要信息": {
+        "label": "3级(C2主要信息)",
+        "examples": "账户信息与个人身份信息, 如: 银行账号、开户户名、身份证号、手机号、"
+                    "KYC 资料、住址、交易流水。",
+    },
+    "2级_C1次要信息": {
+        "label": "2级(C1次要信息)",
+        "examples": "开放时间、开户时间、内部办公数据、网点信息、产品参数等次敏感信息。",
+    },
+    "1级_公开数据": {
+        "label": "1级(公开数据)",
+        "examples": "对外公开发布的信息, 如: 官网产品介绍、公告、已公示的利率表。",
+    },
+}
+
+# 老 4 级 → 新 5 级迁移映射(改造点1; 配套 scripts/migrate_classification.py)
+LEGACY_CLASSIFICATION_MAP = {
+    "公开": "1级_公开数据",
+    "内部": "2级_C1次要信息",
+    "敏感": "3级_C2主要信息",
+    "机密": "4级_C3鉴别信息",
+}
+
+# C3 标签: 4级及以上且属于鉴别信息(生物识别类等), 驱动传输/缓存/日志三条专属规则
+C3_TAG_RULE_NOTE = "传输/展示环节禁止明文、禁止缓存(含前端CDN)、日志禁记"
+
+
+def level_rank(classification: str | None) -> int:
+    """分级 code → 数值等级; 老 4 级值按迁移映射折算; 未登记返回 0。"""
+    if not classification:
+        return 0
+    if classification in DATA_LEVEL_ORDER:
+        return DATA_LEVEL_ORDER[classification]
+    legacy = LEGACY_CLASSIFICATION_MAP.get(classification)
+    return DATA_LEVEL_ORDER.get(legacy, 0)
+
+
 # ── Step4 数据字典 ────────────────────────────────────
 DATA_ASSET_TYPES = {
     "basic_personal_info": "个人基本信息",
@@ -76,9 +139,6 @@ DATA_ASSET_TYPES = {
     "behavior_log": "行为日志",
     "business_data": "业务数据",
 }
-
-# 数据资产分类分级(知识库 data_asset 条件按此中文值匹配)
-DATA_CLASSIFICATIONS = ["公开", "内部", "敏感", "机密"]
 
 # 资产存储位置(用于 has_log_leakage_risk 判定)
 STORAGE_ENVS = {
@@ -235,6 +295,48 @@ TRIGGER_CATEGORY_LABELS = {
     "api_endpoint": "接口安全",
     "compliance": "合规要求",
     "vulnerability": "第三方组件风险",
+    "regulatory_trigger": "监管报送",
+}
+
+# ── 平台角色与评审门禁(改造点4/5) ───────────────────────
+PLATFORM_ROLES = {
+    "pm": "项目经理",
+    "developer": "开发中心",
+    "security_reviewer": "安全中心评审员",
+    "security_lead": "安全中心负责人",
+    "risk_manager": "风险管理部门",
+    "auditor": "内部审计",
+}
+
+# 可修改向导/生成数据的角色(评审动作不在此列)
+WRITE_WIZARD_ROLES = ["pm", "developer"]
+# 门禁第一步评审角色 / 终审角色(两步签核)
+REVIEWER_ROLES = ["security_reviewer"]
+FINAL_REVIEWER_ROLES = ["security_lead"]
+
+GATE_TYPES = {
+    "initiation": "立项门禁",
+    "requirement": "需求门禁",
+    "design": "设计门禁",
+    "poc": "POC门禁(本期预留)",
+    "launch": "上线门禁(预留)",
+}
+GATE_ENABLED_TYPES = ["initiation", "requirement", "design"]
+
+GATE_STATUSES = {
+    "pending": "待提交",
+    "in_review": "评审中",
+    "passed": "已通过",
+    "rejected": "已否决",
+    "rectifying": "整改中",
+}
+
+REVIEW_ACTIONS = {
+    "submit": "提交评审",
+    "approve": "审核通过",
+    "reject": "否决",
+    "request_change": "退回整改",
+    "sign": "终审签核",
 }
 
 

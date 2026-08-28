@@ -3,8 +3,11 @@
 
 约束: source_entity_id 必填, 需求必须可追溯到输入(DESIGN.md 第七节)。
 template_id 保留知识库模板 id; 同一模板命中多个实例时 req_id 追加序号后缀保证唯一。
+regulatory_ref 为合规出处(JR/T 与监管文件条款), 结构见知识库 regulatory_ref 字段。
 """
-from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
+from datetime import datetime
+
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models.database import Base
@@ -32,5 +35,15 @@ class SecurityRequirement(Base):
     source_entity_id: Mapped[int] = mapped_column(Integer, comment="来源实体主键")
     trigger_reason: Mapped[str] = mapped_column(Text, comment="触发了哪条输入(可回溯)")
     status: Mapped[str] = mapped_column(String(20), default="open", comment="open/in_progress/done/risk_accepted")
+    regulatory_ref: Mapped[list] = mapped_column(
+        JSON, default=list,
+        comment="合规出处[{file, clause, summary, note?}], 取自知识库模板 regulatory_ref",
+    )
+    owner: Mapped[str | None] = mapped_column(String(50), comment="需求责任人(姓名/工号)")
+    reg_confirmed: Mapped[bool] = mapped_column(
+        Boolean, default=False, comment="监管报送类需求是否已由项目经理确认"
+    )
+    confirmed_by: Mapped[str | None] = mapped_column(String(50), comment="确认人")
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, comment="确认时间")
 
     project: Mapped[Project] = relationship(back_populates="requirements")

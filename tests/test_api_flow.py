@@ -233,7 +233,7 @@ def test_full_wizard_flow_and_generate_offline(api):
         assert resp.status_code == 200, resp.text
         summary = resp.json()
         assert summary["requirements_total"] >= preview["total"]
-        assert set(summary["documents"]) == {"grading", "requirement", "design", "sbom_vuln"}
+        assert set(summary["documents"]) == {"grading", "requirement", "design", "sbom_vuln", "review"}
         assert summary["osv_summary"]               # 离线文案
 
         detail = api.get(f"/api/projects/{pid}").json()
@@ -281,7 +281,8 @@ def test_full_wizard_flow_and_generate_offline(api):
                     "components", "api_endpoints", "infra_assets"):
             assert key in state, key
         assert state["survey"]["final_level"] == "二级"
-        assert state["data_assets"][0]["classification"] == "机密"
+        assert state["data_assets"][0]["classification"] == "4级_C3鉴别信息"  # 老"机密"入参自动折算 JR/T 五级
+        assert state["data_assets"][0]["legacy_classification"] is None  # 新录入无迁移留痕
 
         # 项目编辑(PATCH)与删除
         resp = api.patch(f"/api/projects/{pid}", json={"pm_name": "新经理"})

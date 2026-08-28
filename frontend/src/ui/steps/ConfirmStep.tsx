@@ -182,7 +182,7 @@ export default function ConfirmStep({ ws, goto }: StepProps) {
           ? <Spin tip="正在执行规则引擎与文档生成…"><div style={{ height: 60 }} /></Spin>
           : (
             <Button type="primary" size="large" onClick={doGenerate}>
-              生成安全基线(需求 + SBOM + 4 份 Word 文档)
+              生成安全基线(需求 + SBOM + 5 份 Word 文档)
             </Button>
           )}
       </div>

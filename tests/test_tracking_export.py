@@ -27,7 +27,7 @@ def test_headers_match_design_fields():
     wb = te.build_tracking_workbook([_make_req(1)])
     ws = wb["跟踪表"]
     headers = [c.value for c in ws[1]]
-    assert headers == ["req_id", "需求描述", "优先级", "责任方", "建议阶段", "验收标准", "状态", "备注"]
+    assert headers == ["req_id", "需求描述", "优先级", "责任方", "建议阶段", "验收标准", "合规依据", "状态", "备注"]
 
 
 def test_rows_ordered_by_priority_and_trace_in_note():
@@ -43,9 +43,9 @@ def test_rows_ordered_by_priority_and_trace_in_note():
     # 优先级列为中文标签
     assert ws.cell(row=2, column=3).value == "紧急"
     # 状态默认 open → 待处理
-    assert ws.cell(row=2, column=7).value == "待处理"
+    assert ws.cell(row=2, column=8).value == "待处理"
     # 备注列含追溯信息
-    note = ws.cell(row=2, column=8).value
+    note = ws.cell(row=2, column=9).value
     assert "feature#1" in note and "触发" in note
 
 

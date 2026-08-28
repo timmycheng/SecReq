@@ -8,7 +8,12 @@ from models.project import Project
 
 
 class DataAsset(Base):
-    """数据资产(字典一级)。classification 存中文(公开/内部/敏感/机密), 与知识库条件直接匹配。"""
+    """数据资产(字典一级)。
+
+    classification 存 JR/T 0197-2020 五级 code(如 4级_C3鉴别信息), 与知识库条件直接匹配;
+    legacy_classification 保留老四级原值留痕(迁移脚本写入);
+    c3_tag 标记 C3 鉴别信息(生物识别类等), 驱动传输/缓存/日志专属规则。
+    """
 
     __tablename__ = "data_assets"
 
@@ -16,7 +21,13 @@ class DataAsset(Base):
     project_id: Mapped[int] = mapped_column(Integer, ForeignKey("projects.id"), index=True)
     name: Mapped[str] = mapped_column(String(200), comment="资产名称")
     data_type: Mapped[str] = mapped_column(String(50), comment="分类, 见 DATA_ASSET_TYPES")
-    classification: Mapped[str] = mapped_column(String(10), comment="分级: 公开/内部/敏感/机密")
+    classification: Mapped[str] = mapped_column(
+        String(32), comment="分级, 见 DATA_LEVELS(JR/T 0197 五级)"
+    )
+    legacy_classification: Mapped[str | None] = mapped_column(
+        String(16), comment="迁移前老四级原值(公开/内部/敏感/机密), 仅留痕"
+    )
+    c3_tag: Mapped[bool] = mapped_column(Boolean, default=False, comment="C3鉴别信息标签")
     is_pii: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否个人信息")
     is_sensitive_pii: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否敏感个人信息")
     storage_envs: Mapped[list] = mapped_column(

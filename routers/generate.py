@@ -1,23 +1,29 @@
 # -*- coding: utf-8 -*-
 """生成与导出路由。
 
-- POST /generate      全流程编排(漏洞同步→规则引擎→SBOM+4份Word 落盘)
+- POST /generate      全流程编排(漏洞同步→规则引擎→SBOM+5份Word 落盘)
 - POST /requirements/preview  规则引擎干跑, 不落库(确认页显示触发数)
 - GET  /requirements /vulnerabilities /sbom   产物查询
+- POST /requirements/{req_id}/owner|confirm   责任人指派与监管报送确认
 - GET  /export/docx/{doc_type} / export/xlsx 文档下载(按库内最新数据即时重渲染)
 """
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import shared.constants as C
-from models import Project, SbomComponent, SecurityRequirement, VulnerabilityRecord
-from routers.common import get_db, get_project_or_404
+from models import (
+    PlatformUser, Project, ReviewGate, SbomComponent, SecurityRequirement,
+    VulnerabilityRecord,
+)
+from routers.common import (
+    get_db, get_project_or_404, require_write_roles,
+)
 from schemas.requirement import (
     CategoryCount, GenerateSummary, PreviewResult, RequirementOut, VulnerabilityOut,
 )
@@ -30,11 +36,34 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
+_pm_or_dev = Depends(require_write_roles("pm", "developer"))
+
 
 class GenerateRequest(BaseModel):
     """skip_osv=True 时跳过 OSV.dev 网络查询(离线演示)。"""
 
     skip_osv: bool = False
+
+
+class OwnerIn(BaseModel):
+    owner: str
+
+
+class GateBundleOut(BaseModel):
+    """文档评审记录页取数: 全部门禁概要。"""
+
+    gate_type: str
+    status: str
+    submitter: str | None = None
+    reviewer: str | None = None
+    reviewer_opinion: str | None = None
+    reviewer_conclusion: str | None = None
+    final_reviewer: str | None = None
+    final_opinion: str | None = None
+    submitted_at: datetime | None = None
+    reviewed_at: datetime | None = None
+    final_reviewed_at: datetime | None = None
+    version_hash: str | None = None
 
 
 def _category_counts(requirements: list[SecurityRequirement]) -> list[CategoryCount]:
@@ -57,7 +86,7 @@ def _priority_counts(requirements: list) -> dict[str, int]:
     return {p: counts.get(p, 0) for p in ["critical", "high", "medium", "low"]}
 
 
-@router.post("/requirements/preview")
+@router.post("/requirements/preview", dependencies=[_pm_or_dev])
 def preview_requirements(project: Project = Depends(get_project_or_404),
                          db: Session = Depends(get_db)):
     """规则引擎干跑: 返回将触发的需求规模, 不写任何数据。"""
@@ -82,7 +111,7 @@ def preview_requirements(project: Project = Depends(get_project_or_404),
     )
 
 
-@router.post("/generate", response_model=GenerateSummary)
+@router.post("/generate", response_model=GenerateSummary, dependencies=[_pm_or_dev])
 def generate(payload: GenerateRequest | None = None,
              project: Project = Depends(get_project_or_404), db: Session = Depends(get_db)):
     """全量生成。成功后项目状态置为 generated, 文档写入 output/<项目编码>/。"""
@@ -114,6 +143,82 @@ def generate(payload: GenerateRequest | None = None,
         documents=documents,
         bom_file=result.bom_path.name if result.bom_path else None,
     )
+
+
+@router.post("/requirements/{req_id}/owner", response_model=RequirementOut,
+             dependencies=[_pm_or_dev])
+def set_owner(req_id: str, payload: OwnerIn,
+              project: Project = Depends(get_project_or_404),
+              db: Session = Depends(get_db)):
+    """指定需求责任人(门禁校验项: critical 需求必须有责任人)。"""
+    req = db.query(SecurityRequirement).filter_by(
+        project_id=project.id, req_id=req_id,
+    ).first()
+    if req is None:
+        raise HTTPException(status_code=404, detail=f"需求不存在: {req_id}")
+    req.owner = payload.owner.strip()
+    db.commit()
+    return RequirementOut.model_validate(req)
+
+
+@router.post("/requirements/{req_id}/confirm", response_model=RequirementOut,
+             dependencies=[_pm_or_dev])
+def confirm_regulatory(req_id: str, project: Project = Depends(get_project_or_404),
+                       db: Session = Depends(get_db),
+                       user: PlatformUser = Depends(
+                           require_write_roles("pm", "developer"))):
+    """确认监管报送类需求(立项门禁要求全部确认)。"""
+    req = db.query(SecurityRequirement).filter_by(
+        project_id=project.id, req_id=req_id,
+    ).first()
+    if req is None:
+        raise HTTPException(status_code=404, detail=f"需求不存在: {req_id}")
+    if req.category != C.label(C.TRIGGER_CATEGORY_LABELS, "regulatory_trigger"):
+        raise HTTPException(status_code=400, detail="仅监管报送类需求需要确认")
+    req.reg_confirmed = True
+    req.confirmed_by = user.display_name
+    req.confirmed_at = datetime.now()
+    db.commit()
+    return RequirementOut.model_validate(req)
+
+
+@router.get("/gates-bundle", response_model=list[GateBundleOut])
+def gates_bundle(project: Project = Depends(get_project_or_404),
+                 db: Session = Depends(get_db)):
+    """文档评审记录页取数: 全部门禁概要(文档渲染内部也复用此查询)。"""
+    return _gate_bundle(db, project.id)
+
+
+def _gate_bundle(db: Session, project_id: int) -> list[dict]:
+    rows = db.query(ReviewGate).filter_by(project_id=project_id).all()
+    by_type = {g.gate_type: g for g in rows}
+    out = []
+    for gate_type in C.GATE_TYPES:
+        gate = by_type.get(gate_type)
+        if gate is None:
+            continue
+        out.append({
+            "gate_type": gate_type,
+            "status": gate.status,
+            "submitter": _display_name(db, gate.submitter_id),
+            "reviewer": _display_name(db, gate.reviewer_id),
+            "reviewer_opinion": gate.reviewer_opinion,
+            "reviewer_conclusion": gate.reviewer_conclusion,
+            "final_reviewer": _display_name(db, gate.final_reviewer_id),
+            "final_opinion": gate.final_opinion,
+            "submitted_at": gate.submitted_at,
+            "reviewed_at": gate.reviewed_at,
+            "final_reviewed_at": gate.final_reviewed_at,
+            "version_hash": gate.version_hash,
+        })
+    return out
+
+
+def _display_name(db: Session, user_id: int | None) -> str | None:
+    if user_id is None:
+        return None
+    user = db.get(PlatformUser, user_id)
+    return user.display_name if user else None
 
 
 def _sorted_requirements(db: Session, pid: int) -> list:
@@ -180,7 +285,7 @@ def get_sbom(project: Project = Depends(get_project_or_404), db: Session = Depen
 # ── 文档下载 ──────────────────────────────────────────
 
 def _regenerate_documents(db: Session, project: Project) -> dict[str, Path]:
-    """按库内最新数据重渲染 4 份 Word 到 output 目录(OSV 查询不重复发起)。"""
+    """按库内最新数据重渲染 5 份 Word 到 output 目录(OSV 查询不重复发起)。"""
     from rules.context import RequirementContext
     from services.docgen import generate_all_documents
 
@@ -195,6 +300,7 @@ def _regenerate_documents(db: Session, project: Project) -> dict[str, Path]:
     return generate_all_documents(
         ctx, out_dir, requirements=reqs, vulnerabilities=vulns,
         osv_summary=summary, generated_at=datetime.now(),
+        gates=_gate_bundle(db, project.id),
     )
 
 

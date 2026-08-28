@@ -1,6 +1,15 @@
 # -*- coding: utf-8 -*-
 """生成产物: 安全需求 / 漏洞 / 预览与全量生成汇总。"""
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict
+
+
+class RegulatoryRefOut(BaseModel):
+    file: str
+    clause: str = ""
+    summary: str = ""
+    note: str = ""
 
 
 class RequirementOut(BaseModel):
@@ -20,6 +29,11 @@ class RequirementOut(BaseModel):
     source_entity_id: int
     trigger_reason: str
     status: str
+    regulatory_ref: list[RegulatoryRefOut] = []
+    owner: str | None = None
+    reg_confirmed: bool = False
+    confirmed_by: str | None = None
+    confirmed_at: datetime | None = None
 
 
 class VulnerabilityOut(BaseModel):

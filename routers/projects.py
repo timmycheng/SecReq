@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
-"""项目 CRUD 路由(Step1 + 向导状态装载)。"""
+"""项目 CRUD 路由(Step1 + 向导状态装载)。写操作仅项目经理(pm)。"""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 import shared.constants as C
 from models import GradingSurvey, Project  # noqa: F401 (Project 供类型标注)
-from routers.common import get_db, get_project_or_404, wizard_state
+from routers.common import (
+    get_db, get_project_or_404, require_write_roles, wizard_state,
+)
 from schemas.project import (
     ProjectCreate, ProjectDetail, ProjectUpdate, serialize_project,
 )
@@ -13,8 +15,10 @@ from services.project_service import ProjectExistsError, create_project, project
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
+_pm_only = Depends(require_write_roles("pm"))
 
-@router.post("", response_model=ProjectDetail, status_code=201)
+
+@router.post("", response_model=ProjectDetail, status_code=201, dependencies=[_pm_only])
 def create(payload: ProjectCreate, db: Session = Depends(get_db)):
     try:
         project = create_project(db, payload.model_dump())
@@ -52,7 +56,7 @@ def get_one(project: Project = Depends(get_project_or_404), db: Session = Depend
     return detail
 
 
-@router.patch("/{project_id}", response_model=ProjectDetail)
+@router.patch("/{project_id}", response_model=ProjectDetail, dependencies=[_pm_only])
 def patch(payload: ProjectUpdate, project: Project = Depends(get_project_or_404),
           db: Session = Depends(get_db)):
     changes = payload.model_dump(exclude_unset=True)
@@ -62,7 +66,7 @@ def patch(payload: ProjectUpdate, project: Project = Depends(get_project_or_404)
     return ProjectDetail(**serialize_project(project).model_dump())
 
 
-@router.delete("/{project_id}", status_code=204)
+@router.delete("/{project_id}", status_code=204, dependencies=[_pm_only])
 def remove(project: Project = Depends(get_project_or_404), db: Session = Depends(get_db)):
     from services.project_service import delete_project_cascade
     delete_project_cascade(db, project.id)

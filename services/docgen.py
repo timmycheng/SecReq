@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
 """Word 文档生成服务(python-docx)。
 
-DESIGN.md 模块4: 按行内模板生成 4 份中文 Word 文档, 均含封面
+DESIGN.md 模块4(升级版): 按行内模板生成 5 份中文 Word 文档, 均含封面
 (项目名/编码/生成时间/编制人/审核人签字栏):
 
-1. grading     《系统定级建议书》: 问卷答案表→定级结论→判定理由→人工修正栏
-2. requirement 《需求规格说明书-安全需求章节》: 按 ASVS 章节分组的需求表格 + 权限矩阵附录
-3. design      《总体设计说明书-安全设计章节》: 软件版本清单/数据字典/API属性/
-               资产清单/登录与密码策略设计说明/认证方式设计说明
+1. grading     《系统定级建议书》: 问卷答案表→定级结论→判定理由→判定依据→安全中心复核意见
+2. requirement 《需求规格说明书-安全需求章节》: 按"监管报送类/等保条款类/通用安全类"分组的
+               需求表格(含合规依据列) + 权限矩阵附录 + 评审记录页
+3. design      《总体设计说明书-安全设计章节》: 软件版本清单/数据字典(JR/T 五级)/
+               API属性/资产清单/密码策略/认证方式/监管报送事项清单
 4. sbom_vuln   《SBOM及漏洞清单》: SBOM组件表 + 漏洞表(高危标红置顶)
+5. review      《项目安全评审表》: 各门禁状态/需求覆盖统计/漏洞概况/遗留问题(评审会材料)
 
 版式参数(字体字号/标红颜色/表头底纹)从 docs/templates/doc_style.yml 读取,
 由安全中心维护替换, 修改不涉及代码变更。
@@ -282,7 +284,8 @@ def _yesno(flag: bool) -> str:
 # ────────────────────────── 文档一: 系统定级建议书 ──────────────────────────
 
 
-def build_grading_report(ctx: RequirementContext, builder: DocBuilder) -> Path | None:
+def build_grading_report(ctx: RequirementContext, builder: DocBuilder,
+                         gates: list | None = None) -> None:
     project = ctx.project
     survey = ctx.survey
 
@@ -325,23 +328,96 @@ def build_grading_report(ctx: RequirementContext, builder: DocBuilder) -> Path |
     reason = survey.suggested_reason if survey else ""
     builder.para(reason or "（问卷结果未提供判定理由。）")
 
-    builder.heading("五、人工修正栏")
+    builder.heading("五、判定依据")
+    builder.para(
+        "本建议书判定依据引用下列监管文件与标准(原文引用, 条款以现行有效版本为准):",
+    )
+    builder.bullets([
+        "《信息安全技术 网络安全等级保护定级指南》(GB/T 22240-2020)——定级要素与定级流程;",
+        "《金融行业网络安全等级保护实施指引》(JR/T 0071-2020)——金融行业等级保护实施与测评要求;",
+        "《中华人民共和国网络安全法》第21条——国家网络安全等级保护制度;",
+        "《信息安全等级保护管理办法》(公通字〔2007〕43号)第14、15条——三级系统年度测评与公安机关备案;",
+    ])
+
+    builder.heading("六、人工修正栏")
     adjusted = bool(survey and survey.final_level and survey.final_level != survey.suggested_level)
     if adjusted:
         builder.para(f"最终定级（已人工修正）：{survey.final_level}")
         builder.para(f"修正说明：{survey.manual_adjust_note or '无'}")
     else:
-        builder.para("最终定级：______________")
+        builder.para(f"最终定级：{survey.final_level or '______________'}")
         builder.para("修正说明：______________________________________________________")
         builder.para("(本栏由定级复核人员在评审会上填写, 复核结论以人工修正值为准。)")
+
+    builder.heading("七、安全中心复核意见")
+    initiation = _gate_of(gates, "initiation")
+    if initiation and (initiation.get("reviewer_opinion") or initiation.get("final_opinion")):
+        builder.para(f"评审员意见：{initiation.get('reviewer_opinion') or '—'}")
+        builder.para(f"负责人终审意见：{initiation.get('final_opinion') or '—'}")
+        builder.para(
+            f"门禁状态：{C.label(C.GATE_STATUSES, initiation.get('status', 'pending'))}; "
+            f"交付物快照：{initiation.get('version_hash') or '—'}"
+        )
+    else:
+        builder.para("复核结论：□ 同意定级结论    □ 调整为____级")
+        builder.para("复核意见：______________________________________________________")
+        builder.para("安全中心复核人签字：______________    日期：____________")
+    return None
+
+
+def _gate_of(gates: list | None, gate_type: str) -> dict | None:
+    """从门禁快照列表中取指定类型门禁。"""
+    for gate in (gates or []):
+        if gate.get("gate_type") == gate_type:
+            return gate
     return None
 
 
 # ─────────────── 文档二: 需求规格说明书-安全需求章节 ───────────────
 
 
+# 需求文档三组排序(改造点6): 监管报送类 → 等保条款类 → 通用安全类
+DOC_GROUPS = ["监管报送类", "等保条款类", "通用安全类"]
+
+# 等保相关监管文件关键词(判定"等保条款类")
+_DJCP_KEYWORDS = ("等级保护", "等保", "GB/T 22239", "JR/T 0071", "JR/T 0068", "22239")
+
+
+def compliance_basis(req: SecurityRequirement) -> list[str]:
+    """需求 → 合规依据文案列表("《文件》第X条"), 取自 regulatory_ref。"""
+    out = []
+    for ref in (req.regulatory_ref or []):
+        file_name = ref.get("file", "")
+        if not file_name:
+            continue
+        clause = ref.get("clause", "")
+        text = f"《{file_name}》{clause}" if clause else f"《{file_name}》"
+        if ref.get("note"):
+            text += f"({ref['note']})"
+        out.append(text)
+    return out or ["—"]
+
+
+def compliance_group(req: SecurityRequirement) -> str:
+    """三组归属: 监管报送类(regulatory_trigger) / 等保条款类 / 通用安全类。"""
+    if req.category == C.label(C.TRIGGER_CATEGORY_LABELS, "regulatory_trigger"):
+        return DOC_GROUPS[0]
+    basis = "、".join(compliance_basis(req))
+    if any(keyword in basis for keyword in _DJCP_KEYWORDS):
+        return DOC_GROUPS[1]
+    return DOC_GROUPS[2]
+
+
+def group_by_compliance(requirements: list[SecurityRequirement]) -> list[tuple[str, list]]:
+    """按"监管报送类 / 等保条款类 / 通用安全类"三组分组, 组序固定。"""
+    groups: dict[str, list] = {name: [] for name in DOC_GROUPS}
+    for req in requirements:
+        groups.setdefault(compliance_group(req), []).append(req)
+    return [(name, groups[name]) for name in DOC_GROUPS if groups.get(name)]
+
+
 def group_by_asvs(requirements: list[SecurityRequirement]) -> list[tuple[str, list]]:
-    """按 ASVS 章节(V2/V12...)分组; 无章节引用的按业务类目归入末尾分组。"""
+    """(保留)按 ASVS 章节分组, 供其他视图复用; 需求文档正文已改用三组排序。"""
     groups: dict[str, list] = {}
     order: list[str] = []
     for req in requirements:
@@ -377,32 +453,66 @@ def requirement_rows(items: list[SecurityRequirement]) -> tuple[list[list], set]
             req.req_id,
             [req.title, req.description],
             C.label(C.REQUIREMENT_PRIORITY_LABELS, req.priority),
+            compliance_basis(req),
             req.trigger_reason,
             req.acceptance_criteria,
         ])
     return rows, red_cells
 
 
-def build_requirement_spec(ctx: RequirementContext, requirements: list, builder: DocBuilder) -> None:
+def build_requirement_spec(ctx: RequirementContext, requirements: list, builder: DocBuilder,
+                           gates: list | None = None) -> None:
     builder.heading("一、需求概览")
     by_category: dict[str, int] = {}
     for req in requirements:
         by_category[req.category] = by_category.get(req.category, 0) + 1
     stat_lines = [f"{cat}: {count} 条" for cat, count in by_category.items()]
     builder.para(f"本章共生成安全需求 {len(requirements)} 条，分类分布：" + "；".join(stat_lines) + "。")
-    builder.para("全部需求均可追溯到来源输入(source_entity)，触发原因见各行『来源』列。")
+    builder.para("全部需求均可追溯到来源输入(source_entity)，触发原因见各行『来源』列；"
+                 "合规出处见『合规依据』列(条款号以合规部门确认为准)。")
 
-    builder.heading("二、安全需求明细（按 ASVS 章节分组）")
-    for chapter, items in group_by_asvs(requirements):
-        builder.heading(chapter, level=2)
+    builder.heading("二、安全需求明细（监管报送类 / 等保条款类 / 通用安全类）")
+    for group_name, items in group_by_compliance(requirements):
+        builder.heading(f"{group_name}（{len(items)} 条）", level=2)
         rows, red_cells = requirement_rows(items)
         builder.table(
-            ["需求编号", "需求描述", "优先级", "来源", "验收标准"],
+            ["需求编号", "需求描述", "优先级", "合规依据", "来源", "验收标准"],
             rows,
             red_cells=red_cells,
         )
 
     _append_permission_matrix(ctx, builder)
+    _append_review_record(builder, gates)
+
+
+def _append_review_record(builder: DocBuilder, gates: list | None) -> None:
+    """评审记录页(改造点6): 评审节点/评审人/意见/签字栏/日期。"""
+    builder.heading("评审记录")
+    gates = gates or []
+    if not gates:
+        builder.para("本项目尚未进入评审流程, 以下记录由评审会后手工补签。")
+    rows = []
+    for gate in gates:
+        rows.append([
+            C.label(C.GATE_TYPES, gate.get("gate_type", "")),
+            C.label(C.GATE_STATUSES, gate.get("status", "pending")),
+            gate.get("submitter") or "—",
+            gate.get("reviewer") or "",
+            gate.get("reviewer_opinion") or "",
+            (gate.get("final_reviewer") or "") + (f"/{gate.get('final_opinion')}" if gate.get("final_opinion") else ""),
+        ])
+    builder.table(
+        ["评审节点", "状态", "提交人", "评审人", "评审意见", "终审/意见"],
+        rows,
+    )
+    builder.para("签字确认(本人确认以上评审结论真实有效):")
+    builder.para("项目经理签字: ______________    日期: ____________")
+    builder.para("安全中心评审员签字: ______________    日期: ____________")
+    builder.para("安全中心负责人签字: ______________    日期: ____________")
+    builder.para(
+        "注: 平台内电子留痕以「姓名+工号+时间戳+哈希」代替电子签章,"
+        "哈希链校验详见《项目安全评审表》。"
+    )
 
 
 def _append_permission_matrix(ctx: RequirementContext, builder: DocBuilder) -> None:
@@ -441,7 +551,8 @@ def _append_permission_matrix(ctx: RequirementContext, builder: DocBuilder) -> N
 # ─────────────── 文档三: 总体设计说明书-安全设计章节 ───────────────
 
 
-def build_design_baseline(ctx: RequirementContext, builder: DocBuilder) -> None:
+def build_design_baseline(ctx: RequirementContext, requirements: list,
+                          builder: DocBuilder) -> None:
     project = ctx.project
 
     builder.heading("一、软件/框架版本清单")
@@ -462,7 +573,7 @@ def build_design_baseline(ctx: RequirementContext, builder: DocBuilder) -> None:
     else:
         builder.para("暂无软件/框架清单。")
 
-    builder.heading("二、数据字典（资产 → 数据表 → 字段）")
+    builder.heading("二、数据字典（资产 → 数据表 → 字段, JR/T 0197 五级）")
     for asset in ctx.data_assets:
         storage = "、".join(C.label(C.STORAGE_ENVS, e) for e in (asset.storage_envs or []))
         builder.heading(asset.name, level=2)
@@ -470,7 +581,9 @@ def build_design_baseline(ctx: RequirementContext, builder: DocBuilder) -> None:
             ["资产属性", "取值"],
             [
                 ["数据分类", C.label(C.DATA_ASSET_TYPES, asset.data_type)],
-                ["安全分级", asset.classification],
+                ["安全分级(JR/T 0197-2020)", C.DATA_LEVEL_META.get(asset.classification, {}).get("label", asset.classification)],
+                ["C3鉴别信息标签", _yesno(bool(asset.c3_tag))],
+                *( [["迁移前分级留痕", asset.legacy_classification]] if getattr(asset, "legacy_classification", None) else [] ),
                 ["是否个人信息", _yesno(asset.is_pii)],
                 ["是否敏感个人信息", _yesno(asset.is_sensitive_pii)],
                 ["存储位置", storage],
@@ -564,6 +677,29 @@ def build_design_baseline(ctx: RequirementContext, builder: DocBuilder) -> None:
     for code, label_text in chosen:
         note = AUTH_METHOD_DESIGN_NOTES.get(code, "按行内统一安全规范实现。")
         builder.para(f"{label_text}：{note}")
+
+    builder.heading("七、监管报送事项清单")
+    regulatory_category = C.label(C.TRIGGER_CATEGORY_LABELS, "regulatory_trigger")
+    reg_reqs = sorted(
+        (r for r in requirements if r.category == regulatory_category),
+        key=lambda r: r.req_id,
+    )
+    if not reg_reqs:
+        builder.para("本项目未触发监管报送类事项。")
+    else:
+        rows = [
+            [
+                req.req_id,
+                req.title,
+                "、".join(compliance_basis(req)),
+                _yesno(bool(req.reg_confirmed)),
+                req.confirmed_by or "—",
+                req.owner or "—",
+            ]
+            for req in reg_reqs
+        ]
+        builder.table(["编号", "报送事项", "监管依据", "已确认", "确认人", "责任人"], rows)
+        builder.para("注: 报送事项须经项目经理逐条确认后方可通过立项门禁; 条款号以合规部门确认为准。")
 
 
 # ─────────────── 文档四: SBOM 及漏洞清单 ───────────────
@@ -663,14 +799,114 @@ def build_sbom_vuln_report(
         builder.table(["需求编号", "整改需求", "目标组件", "优先级", "要求"], rows)
 
 
+# ─────────────── 文档五: 项目安全评审表 ───────────────
+
+
+def build_review_summary(
+    ctx: RequirementContext,
+    requirements: list,
+    vulnerabilities: list,
+    gates: list | None,
+    builder: DocBuilder,
+) -> None:
+    """评审会会议材料: 门禁状态 + 需求覆盖统计 + 漏洞概况 + 遗留问题。"""
+    project = ctx.project
+
+    builder.heading("一、项目概况与门禁状态")
+    gate_rows = []
+    for gate in (gates or []):
+        gate_rows.append([
+            C.label(C.GATE_TYPES, gate.get("gate_type", "")),
+            C.label(C.GATE_STATUSES, gate.get("status", "pending")),
+            gate.get("submitter") or "—",
+            gate.get("reviewer") or "—",
+            gate.get("final_reviewer") or "—",
+            (gate.get("version_hash") or "—")[:16] + ("…" if gate.get("version_hash") else ""),
+        ])
+    if gate_rows:
+        builder.table(["评审节点", "状态", "提交人", "评审员", "终审人", "交付物快照(前16位)"], gate_rows)
+    else:
+        builder.para("各门禁尚未提交评审。")
+
+    builder.heading("二、需求覆盖统计")
+    by_category: dict[str, int] = {}
+    by_priority: dict[str, int] = {}
+    owner_missing = []
+    for req in requirements:
+        by_category[req.category] = by_category.get(req.category, 0) + 1
+        by_priority[req.priority] = by_priority.get(req.priority, 0) + 1
+        if req.priority == "critical" and not (req.owner or "").strip():
+            owner_missing.append(req.req_id)
+    builder.para(
+        f"共 {len(requirements)} 条安全需求; 按优先级: " + "、".join(
+            f"{C.label(C.REQUIREMENT_PRIORITY_LABELS, p)} {by_priority.get(p, 0)} 条"
+            for p in ("critical", "high", "medium", "low")
+        ) + "。"
+    )
+    builder.table(
+        ["业务类目", "数量"],
+        [[cat, str(count)] for cat, count in sorted(by_category.items())],
+    )
+    if owner_missing:
+        builder.para(f"⚠ 以下 critical 需求未指定责任人: {'、'.join(owner_missing)}", bold=True)
+    else:
+        builder.para("全部 critical 需求均已指定责任人。")
+
+    builder.heading("三、漏洞概况")
+    severity_counts: dict[str, int] = {}
+    for v in vulnerabilities:
+        severity_counts[v.severity] = severity_counts.get(v.severity, 0) + 1
+    builder.para(
+        "漏洞分布: " + "、".join(
+            f"{C.label(C.SEVERITY_LABELS, s)} {severity_counts.get(s, 0)} 个"
+            for s in ("critical", "high", "medium", "low")
+        ) + f"; 合计 {len(vulnerabilities)} 个。"
+    )
+    unfix = [v for v in vulnerabilities if v.severity in ("critical", "high")]
+    if unfix:
+        builder.para(
+            "⚠ 高危及以上漏洞 "
+            + "、".join(f"{v.cve_id}({C.label(C.SEVERITY_LABELS, v.severity)})" for v in unfix[:6])
+            + (" 等" if len(unfix) > 6 else "")
+            + " 需在评审会明确整改时限。", bold=True,
+        )
+
+    builder.heading("四、遗留问题清单")
+    open_reqs = [
+        r for r in requirements
+        if r.status in ("open", "in_progress")
+        and (r.priority in ("critical", "high") or r.category == C.label(C.TRIGGER_CATEGORY_LABELS, "regulatory_trigger"))
+    ]
+    if not open_reqs:
+        builder.para("无高优先级遗留问题。")
+    else:
+        builder.table(
+            ["编号", "遗留问题", "优先级", "责任人", "状态"],
+            [
+                [
+                    r.req_id, r.title,
+                    C.label(C.REQUIREMENT_PRIORITY_LABELS, r.priority),
+                    r.owner or "未指定",
+                    C.label(C.REQUIREMENT_STATUS, r.status),
+                ]
+                for r in sorted(open_reqs, key=lambda x: (PRIORITY_ORDER.get(x.priority, 9), x.req_id))
+            ],
+        )
+    builder.para(
+        "评审结论: □ 通过评审    □ 有条件通过(遗留问题限期整改)    □ 不通过",
+    )
+    builder.para("参会评审委员会签字栏: ____________________    日期: ____________")
+
+
 # ────────────────────────── 对外主入口 ──────────────────────────
 
 
 DOC_BUILDERS = {
-    "grading": ("系统定级建议书", lambda ctx, reqs, vulns, summary, b: build_grading_report(ctx, b)),
-    "requirement": ("需求规格说明书_安全需求章节", lambda ctx, reqs, vulns, summary, b: build_requirement_spec(ctx, reqs, b)),
-    "design": ("总体设计说明书_安全设计章节", lambda ctx, reqs, vulns, summary, b: build_design_baseline(ctx, b)),
-    "sbom_vuln": ("SBOM及漏洞清单", lambda ctx, reqs, vulns, summary, b: build_sbom_vuln_report(ctx, reqs, vulns, summary, b)),
+    "grading": ("系统定级建议书", lambda ctx, reqs, vulns, summary, b, gates: build_grading_report(ctx, b, gates)),
+    "requirement": ("需求规格说明书_安全需求章节", lambda ctx, reqs, vulns, summary, b, gates: build_requirement_spec(ctx, reqs, b, gates)),
+    "design": ("总体设计说明书_安全设计章节", lambda ctx, reqs, vulns, summary, b, gates: build_design_baseline(ctx, reqs, b)),
+    "sbom_vuln": ("SBOM及漏洞清单", lambda ctx, reqs, vulns, summary, b, gates: build_sbom_vuln_report(ctx, reqs, vulns, summary, b)),
+    "review": ("项目安全评审表", lambda ctx, reqs, vulns, summary, b, gates: build_review_summary(ctx, reqs, vulns, gates, b)),
 }
 
 
@@ -681,10 +917,12 @@ def generate_all_documents(
     vulnerabilities: list | None = None,
     osv_summary: str = "未执行",
     generated_at=None,
+    gates: list | None = None,
 ) -> dict[str, Path]:
-    """一次生成 4 份 Word 文档到 out_dir, 返回 {doc_type: 文件路径}。
+    """一次生成 5 份 Word 文档到 out_dir, 返回 {doc_type: 文件路径}。
 
-    requirements 为规则引擎产物(须已实例化); vulnerabilities 为 OSV 同步后的记录列表。
+    requirements 为规则引擎产物(须已实例化); vulnerabilities 为 OSV 同步后的记录列表;
+    gates 为评审门禁快照(无评审数据时相关章节输出待补签栏)。
     """
     from datetime import datetime as _dt
 
@@ -704,7 +942,7 @@ def generate_all_documents(
             generated_at_text=when,
             preparer=signer,
         )
-        builder_fn(ctx, requirements, vulnerabilities or [], osv_summary, builder)
+        builder_fn(ctx, requirements, vulnerabilities or [], osv_summary, builder, gates)
         path = builder.save(out_dir / f"{project.code}_{title}.docx")
         paths[doc_type] = path
         logger.info("已生成 %s", path)

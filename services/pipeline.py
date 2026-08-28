@@ -71,15 +71,42 @@ def run_full_pipeline(
     engine = engine or RuleEngine.load()
     result.requirements = engine.generate_and_save(ctx, session)
 
-    # ④ 文件产出: CycloneDX JSON + 4 份 Word
+    # ④ 文件产出: CycloneDX JSON + 5 份 Word
     base = Path(out_dir) if out_dir else Path("output") / ctx.project.code
     result.bom_path = write_cyclonedx_file(bom, base / "sbom.cdx.json")
+    from models import ReviewGate
+
+    gates = session.query(ReviewGate).filter_by(project_id=project_id).all()
+    gate_bundles = [
+        {
+            "gate_type": g.gate_type, "status": g.status,
+            "submitter": _user_name(session, g.submitter_id),
+            "reviewer": _user_name(session, g.reviewer_id),
+            "reviewer_opinion": g.reviewer_opinion,
+            "reviewer_conclusion": g.reviewer_conclusion,
+            "final_reviewer": _user_name(session, g.final_reviewer_id),
+            "final_opinion": g.final_opinion,
+            "submitted_at": g.submitted_at, "reviewed_at": g.reviewed_at,
+            "final_reviewed_at": g.final_reviewed_at,
+            "version_hash": g.version_hash,
+        }
+        for g in gates
+    ]
     result.documents = generate_all_documents(
         ctx, base, requirements=result.requirements,
         vulnerabilities=all_vulns, osv_summary=summary_text,
-        generated_at=datetime.now(),
+        generated_at=datetime.now(), gates=gate_bundles,
     )
     return result
+
+
+def _user_name(session: Session, user_id: int | None) -> str | None:
+    if user_id is None:
+        return None
+    from models import PlatformUser
+
+    user = session.get(PlatformUser, user_id)
+    return user.display_name if user else None
 
 
 def _load_vulnerabilities(session: Session, components) -> list:

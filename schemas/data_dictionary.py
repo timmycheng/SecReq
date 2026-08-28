@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Step4 数据字典三级结构: 资产 → 表 → 字段。"""
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+import shared.constants as C
 
 
 class DataFieldIn(BaseModel):
@@ -19,12 +21,21 @@ class DataTableIn(BaseModel):
 class DataAssetIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     data_type: str
-    classification: str = "内部"
+    classification: str = "2级_C1次要信息"
+    c3_tag: bool = False
     is_pii: bool = False
     is_sensitive_pii: bool = False
     storage_envs: list[str] = Field(default_factory=list)
     cross_border_transfer: bool = False
     tables: list[DataTableIn] = Field(default_factory=list)
+
+    @field_validator("classification")
+    @classmethod
+    def _check_level(cls, v: str) -> str:
+        if v not in C.DATA_LEVELS and v not in C.LEGACY_CLASSIFICATION_MAP:
+            raise ValueError(f"分级必须是 JR/T 0197 五级之一: {'、'.join(C.DATA_LEVELS)}")
+        # 老 4 级值兼容: 落库前统一折算为新 5 级 code
+        return C.LEGACY_CLASSIFICATION_MAP.get(v, v)
 
 
 class DataAssetListIn(BaseModel):
@@ -55,6 +66,8 @@ class DataAssetOut(BaseModel):
     name: str
     data_type: str
     classification: str
+    legacy_classification: str | None = None
+    c3_tag: bool = False
     is_pii: bool
     is_sensitive_pii: bool
     storage_envs: list[str]

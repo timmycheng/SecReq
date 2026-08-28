@@ -150,9 +150,9 @@ def full_text(document: Document) -> str:
 # ────────────────────────── 断言 ──────────────────────────
 
 
-def test_four_documents_generated(batch2_output):
+def test_five_documents_generated(batch2_output):
     *_, documents = batch2_output
-    assert set(documents) == {"grading", "requirement", "design", "sbom_vuln"}
+    assert set(documents) == {"grading", "requirement", "design", "sbom_vuln", "review"}
     for path in documents.values():
         assert path.exists() and path.stat().st_size > 3_000, f"{path} 过小或缺失"
 
@@ -161,10 +161,11 @@ def test_grading_report_sections_and_level(batch2_output):
     *_, documents = batch2_output
     text = full_text(Document(str(documents["grading"])))
     assert "一、项目基本信息" in text and "二、等保定级问卷答案" in text
-    assert "三、定级结论" in text and "四、判定理由" in text and "五、人工修正栏" in text
+    assert "三、定级结论" in text and "四、判定理由" in text and "六、人工修正栏" in text
+    assert "五、判定依据" in text and "七、安全中心复核意见" in text
     assert "等保三级" in text and "「三级」" in text          # 种子建议定级为三级
     assert "处理敏感个人信息并涉及资金交易" in text            # 判定理由全文带入
-    assert "最终定级：______________" in text                 # 人工修正留白栏
+    assert "最终定级：三级" in text                            # 种子问卷已人工确认(立项门禁前置)
     assert "项目编码：PRJ-IBANK-2026" in text                 # 封面元信息
 
 
@@ -277,7 +278,7 @@ def test_run_full_pipeline_offline_generates_everything(tmp_path):
     import json as _json
     bom = _json.loads(result.bom_path.read_text(encoding="utf-8"))
     assert bom["specVersion"] == "1.5" and len(bom["components"]) == 10
-    assert set(result.documents) == {"grading", "requirement", "design", "sbom_vuln"}
+    assert set(result.documents) == {"grading", "requirement", "design", "sbom_vuln", "review"}
     for path in result.documents.values():
         assert path.exists()
     session.close()

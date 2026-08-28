@@ -59,6 +59,7 @@ class RuleEngine:
             "api_endpoint": self._match_api_endpoints,
             "compliance": self._match_compliance,
             "vulnerability": self._match_vulnerabilities,
+            "regulatory_trigger": self._match_regulatory_triggers,
         }
 
     @classmethod
@@ -86,8 +87,11 @@ class RuleEngine:
                 seen.add(key)
                 collected.append((tpl, match))
 
-        # 稳定排序后分配 req_id 与实例序号
-        collected.sort(key=lambda pair: pair[1].source_entity_id)
+        # 稳定排序后分配 req_id 与实例序号; 监管报送类恒置顶
+        collected.sort(key=lambda pair: (
+            0 if pair[0].trigger_type == "regulatory_trigger" else 1,
+            pair[1].source_entity_id,
+        ))
         counters: dict[str, int] = {}
         requirements: list[SecurityRequirement] = []
         base_placeholders = self._universal_placeholders(ctx)
@@ -113,6 +117,8 @@ class RuleEngine:
                     source_entity_id=match.source_entity_id,
                     trigger_reason=render(tpl.trigger_reason, merged, tpl.id),
                     status="open",
+                    regulatory_ref=[dict(ref) for ref in tpl.regulatory_ref],
+                    reg_confirmed=False,
                 )
             )
         return requirements
@@ -132,6 +138,7 @@ class RuleEngine:
             "project_name": ctx.project.name,
             "project_code": ctx.project.code,
             "grading_text": ctx.grading_text,
+            "grading_level": ctx.grading_level or "未定级",
             "user_scale": ctx.user_scale_text,
             "user_scale_text": ctx.user_scale_text,
             "fix_deadline_days": str(self.fix_deadline_days),
@@ -294,13 +301,34 @@ class RuleEngine:
         return [Match(placeholders, "policy_baseline", source_id)]
 
     def _match_data_assets(self, tpl: Template, ctx: RequirementContext) -> list[Match]:
-        """数据资产规则: 按 condition 键分派, 每条命中的资产独立成需求。"""
+        """数据资产规则: 按 condition 键分派, 每条命中的资产独立成需求。
+
+        分级条件(JR/T 0197 五级):
+        - {level: code}  精确等于该级;
+        - {min_level: code} 数值等级不低于该级(如 4级 条件覆盖 4级与5级);
+        - {c3_tag: true} 命中 C3 鉴别信息标签。
+        """
         condition = tpl.trigger.get("condition") or {}
         matches: list[Match] = []
 
         if "classification" in condition:
             for asset in ctx.data_assets:
                 if asset.classification == condition["classification"]:
+                    matches.append(Match({"asset_name": asset.name}, "data_asset", asset.id))
+
+        elif "level" in condition or "min_level" in condition:
+            threshold = C.level_rank(condition.get("level") or condition.get("min_level"))
+            exact = "level" in condition
+            for asset in ctx.data_assets:
+                rank = C.level_rank(asset.classification)
+                if rank <= 0:
+                    continue
+                if (rank == threshold) if exact else (rank >= threshold):
+                    matches.append(Match({"asset_name": asset.name}, "data_asset", asset.id))
+
+        elif condition.get("c3_tag"):
+            for asset in ctx.data_assets:
+                if asset.c3_tag:
                     matches.append(Match({"asset_name": asset.name}, "data_asset", asset.id))
 
         elif condition.get("is_sensitive_pii"):
@@ -395,6 +423,94 @@ class RuleEngine:
                 ctx.project.id,
             )
         ]
+
+    def _match_regulatory_triggers(self, tpl: Template, ctx: RequirementContext) -> list[Match]:
+        """监管报送触发器(改造点3): 项目输入满足条件即在需求清单置顶生成报送类需求。
+
+        rule_key 枚举:
+        - l5_data_exists        存在 5级(重要数据)资产
+        - cross_border_exists   任一资产跨境传输 或 项目存在境外外包/供应商
+        - saas_finance          部署环境含外采SaaS 且 业务条目属金融
+        - mobile_app_type       项目类型为手机APP/小程序
+        - ai_feature            功能清单含 AI 功能
+        - final_level_l3        有效定级为三级
+        - sensitive_pii_exists  存在敏感个人信息资产(PIA 事前评估)
+        - djcp_l3_filing        三级系统等保测评与公安机关备案
+        """
+        key = tpl.trigger.get("rule_key")
+        pid = ctx.project.id
+
+        if key == "l5_data_exists":
+            assets = [a for a in ctx.data_assets if C.level_rank(a.classification) == 5]
+            if not assets:
+                return []
+            names = "、".join(a.name for a in assets)
+            return [Match({"asset_list": names}, "project", pid)]
+
+        if key == "cross_border_exists":
+            assets = [a for a in ctx.data_assets if a.cross_border_transfer]
+            offshore = bool(getattr(ctx.project, "offshore_vendor", False))
+            if not assets and not offshore:
+                return []
+            detail = []
+            if assets:
+                detail.append(f"跨境数据资产: {('、'.join(a.name for a in assets))}")
+            if offshore:
+                detail.append("项目存在境外外包/境外供应商")
+            return [Match({"cross_border_detail": "; ".join(detail)}, "project", pid)]
+
+        if key == "saas_finance":
+            envs = ctx.project.deploy_env or []
+            industry = ctx.project.industry or ""
+            if "saas" not in envs or not any(word in industry for word in ("金融", "银行", "保险")):
+                return []
+            return [Match({}, "project", pid)]
+
+        if key == "mobile_app_type":
+            if ctx.project.type not in ("mobile_app", "mini_program"):
+                return []
+            return [
+                Match(
+                    {"project_type_label": C.label(C.PROJECT_TYPES, ctx.project.type)},
+                    "project", pid,
+                )
+            ]
+
+        if key == "ai_feature":
+            ai_features = [
+                f for f in ctx.features if f.matches_any_category("ai_feature")
+            ]
+            if not ai_features:
+                return []
+            return [
+                Match(
+                    {"feature_list": "、".join(f.name for f in ai_features)},
+                    "project", pid,
+                )
+            ]
+
+        if key == "final_level_l3":
+            if ctx.grading_level != "三级":
+                return []
+            return [Match({}, "project", pid)]
+
+        if key == "sensitive_pii_exists":
+            assets = [a for a in ctx.data_assets if a.is_sensitive_pii]
+            if not assets:
+                return []
+            return [
+                Match(
+                    {"asset_list": "、".join(a.name for a in assets)},
+                    "project", pid,
+                )
+            ]
+
+        if key == "djcp_l3_filing":
+            if ctx.grading_level != "三级" and "djcp_l3" not in (ctx.project.compliance_targets or []):
+                return []
+            return [Match({}, "project", pid)]
+
+        raise RuleEngineError(f"模板『{tpl.id}』未知监管报送 rule_key={key}")
 
     def _match_vulnerabilities(self, tpl: Template, ctx: RequirementContext) -> list[Match]:
         """SBOM 漏洞联动: 组件存在 high/critical 漏洞时每个组件一条需求。

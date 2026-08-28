@@ -57,6 +57,7 @@ def replace_data_assets(session: Session, project_id: int, items: list[DataAsset
         asset = DataAsset(
             project_id=project_id,
             name=a.name, data_type=a.data_type, classification=a.classification,
+            c3_tag=a.c3_tag,
             is_pii=a.is_pii, is_sensitive_pii=a.is_sensitive_pii,
             storage_envs=a.storage_envs, cross_border_transfer=a.cross_border_transfer,
         )

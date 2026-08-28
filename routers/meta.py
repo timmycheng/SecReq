@@ -44,7 +44,12 @@ def get_constants() -> dict:
     payload.update(
         {
             "grading_levels": list(C.GRADING_LEVELS),
-            "data_classifications": list(C.DATA_CLASSIFICATIONS),
+            "data_levels": list(C.DATA_LEVELS),
+            "data_level_meta": C.DATA_LEVEL_META,
+            "data_level_labels": {code: meta["label"] for code, meta in C.DATA_LEVEL_META.items()},
+            "platform_roles": C.PLATFORM_ROLES,
+            "gate_types": C.GATE_TYPES,
+            "gate_statuses": C.GATE_STATUSES,
             "http_methods": list(C.HTTP_METHODS),
             "high_risk_actions": list(C.HIGH_RISK_ACTIONS),
             "mask_rules": dict(C.MASK_RULES),

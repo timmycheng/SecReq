@@ -4,6 +4,7 @@
 对应 DESIGN.md 交付物第2条:
 12功能 / 6数据资产 / 5角色×8资源权限矩阵(含故意构造的审批缺失与SoD冲突) /
 10技术栈组件(故意包含 log4j 2.14.1 用于第二批漏洞演示) / 4 API接口。
+数据分级采用 JR/T 0197-2020 五级(4级资产不触发L5报送、无外采SaaS不触发外包评定)。
 """
 from sqlalchemy.orm import Session
 
@@ -58,7 +59,8 @@ def seed_demo_project(session: Session, overwrite: bool = True) -> Project:
                 "处理敏感个人信息并涉及资金交易, 服务社会公众, 受破坏后影响全行重点业务, "
                 "依据行内定级指引判定为等保三级。"
             ),
-            final_level=None,  # 未人工修正, 引擎取建议定级
+            final_level="三级",  # 定级复核会已确认, 立项门禁据此放行
+            manual_adjust_note="定级复核会确认采纳系统建议定级",
         )
     )
 
@@ -90,11 +92,14 @@ def seed_demo_project(session: Session, overwrite: bool = True) -> Project:
             )
         )
 
-    # ── Step4 数据字典: 资产 → 表 → 字段(6资产) ───────────
-    def add_asset(name, dtype, classification, pii, s_pii, envs, cross_border, tables):
+    # ── Step4 数据字典: 资产 → 表 → 字段(6资产, JR/T 0197 五级) ──
+    def add_asset(name, dtype, classification, pii, s_pii, envs, cross_border,
+                  tables, c3_tag=False, legacy=None):
         asset = DataAsset(
             project_id=project.id, name=name, data_type=dtype,
-            classification=classification, is_pii=pii, is_sensitive_pii=s_pii,
+            classification=classification, c3_tag=c3_tag,
+            legacy_classification=legacy,
+            is_pii=pii, is_sensitive_pii=s_pii,
             storage_envs=envs, cross_border_transfer=cross_border,
         )
         session.add(asset)
@@ -114,54 +119,61 @@ def seed_demo_project(session: Session, overwrite: bool = True) -> Project:
         return asset
 
     add_asset(
-        "银行账户信息", "financial_account", "机密", True, True, ["db"],
+        "银行账户信息", "financial_account", "4级_C3鉴别信息", True, True, ["db"],
         False,
         [("t_bank_account", [
             ("card_number", "varchar(32)", True, "bank_card"),
             ("account_balance", "decimal(18,2)", False, None),
             ("withdraw_password_hash", "varchar(128)", True, None),
         ])],
+        legacy="机密",
     )
     add_asset(
-        "公民身份信息", "identity_info", "机密", True, True, ["db", "object_storage"],
+        "公民身份信息", "identity_info", "4级_C3鉴别信息", True, True, ["db", "object_storage"],
         False,
         [("t_customer_identity", [
             ("id_card_number", "varchar(18)", True, "id_card"),
             ("real_name", "varchar(64)", False, "name"),
             ("nationality", "varchar(20)", False, None),
         ])],
+        legacy="机密",
     )
     add_asset(
-        "指纹生物特征", "biometric", "机密", True, True, ["db"],
+        "指纹生物特征", "biometric", "4级_C3鉴别信息", True, True, ["db"],
         False,
         [("t_biometric_template", [
             ("fingerprint_feature", "blob", True, None),
             ("liveness_seed", "varchar(64)", True, None),
         ])],
+        c3_tag=True,  # 生物识别类鉴别信息 → 附加 C3 标签(传输/缓存/日志专属规则)
+        legacy="机密",
     )
     add_asset(
-        "客户联系方式", "basic_personal_info", "内部", True, False, ["db", "cache"],
+        "客户联系方式", "basic_personal_info", "2级_C1次要信息", True, False, ["db", "cache"],
         False,
         [("t_customer_contact", [
             ("mobile_number", "varchar(16)", False, "phone_number"),
             ("email_address", "varchar(128)", False, "email"),
         ])],
+        legacy="内部",
     )
     add_asset(
-        "客户行为日志", "behavior_log", "内部", False, False, ["db", "log"],
+        "客户行为日志", "behavior_log", "2级_C1次要信息", False, False, ["db", "log"],
         False,
         [("t_behavior_log", [
             ("device_id", "varchar(64)", False, None),
             ("page_path", "varchar(200)", False, None),
         ])],
+        legacy="内部",
     )
     add_asset(
-        "跨境营销统计报表", "business_data", "敏感", False, False, ["object_storage"],
+        "跨境营销统计报表", "business_data", "3级_C2主要信息", False, False, ["object_storage"],
         True,
         [("t_marketing_oversea_report", [
             ("country_code", "varchar(8)", False, None),
             ("conversion_rate", "decimal(8,4)", False, None),
         ])],
+        legacy="敏感",
     )
 
     # ── Step5 权限矩阵(5角色 × 8资源) ─────────────────────

@@ -56,6 +56,8 @@ def api(tmp_path):
 
     TestClient 在独立线程执行请求, 内存库须用 StaticPool 共享单连接,
     否则每个线程各见一个空库。
+    默认身份为项目经理 pm_wang(存量用例的写操作均以其执行);
+    需要其他身份时用 api_as(api, "sec_chen") 取对应身份的客户端。
     """
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
@@ -64,6 +66,7 @@ def api(tmp_path):
     import main
     from models import init_db
     from routers.common import get_db
+    from services.auth_service import ensure_seed_users
 
     engine = create_engine(
         "sqlite:///:memory:",
@@ -72,6 +75,9 @@ def api(tmp_path):
     )
     init_db(engine)
     TestingSession = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    seed_session = TestingSession()
+    ensure_seed_users(seed_session)
+    seed_session.close()
 
     def _override_get_db():
         db = TestingSession()
@@ -81,6 +87,11 @@ def api(tmp_path):
             db.close()
 
     main.app.dependency_overrides[get_db] = _override_get_db
-    client = TestClient(main.app)
+    client = TestClient(main.app, headers={"X-Auth-User": "pm_wang"})
     yield client
     main.app.dependency_overrides.clear()
+
+
+def api_as(api, username: str):
+    """以指定平台用户身份发起请求的 TestClient(共享同一测试库)。"""
+    return TestClient(api.app, headers={"X-Auth-User": username})

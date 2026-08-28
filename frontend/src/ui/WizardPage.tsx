@@ -234,7 +234,8 @@ export default function WizardPage({ projectId }: { projectId: number }) {
           description={(
             <span>
               按 1→8 步采集项目信息, 每步点「保存并下一步」即可, 也可点击顶部步骤条随时跳转
-              (有未保存修改时会先询问); 最后在第 9 步试算预览并一键生成安全需求、SBOM 与 4 份 Word 文档。
+              (有未保存修改时会先询问); 最后在第 9 步试算预览并一键生成安全需求、SBOM 与 5 份 Word 文档(含评审会用的《项目安全评审表》)。
+              生成后到「安全评审」页按提示提交评审即可, 材料缺什么页面会一键帮你补齐。
               各步骤填什么, 看每步顶部说明与术语旁的 <QuestionCircleOutlined style={{ color: '#999' }} /> 图标。
             </span>
           )}

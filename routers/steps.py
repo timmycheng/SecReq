@@ -13,7 +13,8 @@ from models import (
     InfraAsset, PermissionEntry, Project, Resource, Role, SbomComponent,
 )
 from routers.common import (
-    asset_to_out, component_to_out, get_db, get_project_or_404, survey_to_out,
+    asset_to_out, component_to_out, get_db, get_project_or_404,
+    require_write_roles, survey_to_out,
 )
 from schemas.auth import AuthConfigIn, AuthConfigOut, AuthDefaultsOut
 from schemas.component import ComponentsSaveIn, ComponentOut, SbomImportResult
@@ -29,7 +30,10 @@ from services.step_store import (
     replace_features, replace_inventory, replace_permission_matrix, upsert_auth_config,
 )
 
-router = APIRouter(prefix="/api/projects/{project_id}", tags=["wizard-steps"])
+router = APIRouter(
+    prefix="/api/projects/{project_id}", tags=["wizard-steps"],
+    dependencies=[Depends(require_write_roles("pm", "developer"))],  # 写接口限项目经理/开发中心
+)
 
 
 # ── Step2 定级问卷 ────────────────────────────────────

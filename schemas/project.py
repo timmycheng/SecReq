@@ -15,6 +15,7 @@ class ProjectCreate(BaseModel):
     user_scale: str
     deploy_env: list[str] = Field(default_factory=list)
     is_public: bool = False
+    offshore_vendor: bool = False
     pm_name: str | None = Field(default=None, max_length=50)
     dev_lead_name: str | None = Field(default=None, max_length=50)
     sec_contact_name: str | None = Field(default=None, max_length=50)
@@ -30,6 +31,7 @@ class ProjectUpdate(BaseModel):
     user_scale: str | None = None
     deploy_env: list[str] | None = None
     is_public: bool | None = None
+    offshore_vendor: bool | None = None
     pm_name: str | None = Field(default=None, max_length=50)
     dev_lead_name: str | None = Field(default=None, max_length=50)
     sec_contact_name: str | None = Field(default=None, max_length=50)
@@ -47,6 +49,7 @@ class ProjectOut(BaseModel):
     user_scale: str
     deploy_env: list[str]
     is_public: bool
+    offshore_vendor: bool = False
     pm_name: str | None
     dev_lead_name: str | None
     sec_contact_name: str | None

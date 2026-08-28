@@ -1,6 +1,7 @@
 # ============================================================
-# 安全需求知识库 v1.0
+# 安全需求知识库 v2.0(安全准入管理平台改造)
 # 对齐标准: OWASP ASVS 4.0.3 / 网络安全等级保护2.0 / 个人信息保护法
+#           JR/T 0197-2020 金融数据安全分级 / 金规〔2024〕24号
 # 说明: {{xxx}} 为占位符, 由规则引擎用项目输入的实际值替换
 # 触发器 trigger.type 枚举:
 #   feature_category   功能分类命中
@@ -11,13 +12,189 @@
 #   api_endpoint       API接口属性命中
 #   compliance         合规目标命中
 #   vulnerability      SBOM漏洞命中
+#   regulatory_trigger 监管报送触发器(命中即置顶, 需项目经理确认)
+# regulatory_ref: 每条模板必须给出的监管出处; 具体条款号不确定时
+#   写 "参考《文件名》" 并加 note: 待合规部门确认, 严禁编造条款号。
 # ============================================================
 
 meta:
-  version: "1.0"
+  version: "2.0"
   asvs_version: "4.0.3"
 
 templates:
+
+  # ────────────────────────────────────────────
+  # 〇、监管报送触发类 (SEC-REG, 命中即置顶)
+  # ────────────────────────────────────────────
+
+  - id: SEC-REG-001
+    trigger: {type: regulatory_trigger, rule_key: l5_data_exists}
+    asvs_ref: "V1.1.1"
+    title: 重要数据识别与目录备案
+    priority: critical
+    suggested_phase: design
+    description: >
+      本项目存在5级(重要数据)资产: {{asset_list}}。按《银行保险机构数据安全管理办法》
+      (金规〔2024〕24号)与《数据安全法》第30条要求, 须完成重要数据识别,
+      形成重要数据目录并按要求向监管部门备案, 目录变更时同步更新。
+    acceptance_criteria: >
+      1)重要数据目录已登记上述资产并明确安全责任人; 2)备案回执或报送记录已归档;
+      3)目录变更流程纳入配置管理。
+    trigger_reason: "数据字典中存在5级(重要数据)资产「{{asset_list}}」, 触发重要数据目录备案义务"
+    regulatory_ref:
+      - file: 银行保险机构数据安全管理办法
+        clause: 参考(金规〔2024〕24号)
+        summary: 重要数据识别、目录与备案管理要求
+        note: 待合规部门确认具体条文
+      - file: 中华人民共和国数据安全法
+        clause: 第30条
+        summary: 重要数据处理者定期开展风险评估并报送风险评估报告
+
+  - id: SEC-REG-002
+    trigger: {type: regulatory_trigger, rule_key: cross_border_exists}
+    asvs_ref: "V8.1.4"
+    title: 数据出境安全评估申报
+    priority: critical
+    suggested_phase: design
+    description: >
+      {{cross_border_detail}}。按《数据出境安全评估办法》第四条情形,
+      应当在开展数据出境活动前申报数据出境安全评估; 未通过评估的出境链路一律熔断,
+      已签署标准合同条款或取得认证的须留存备案证明。
+    acceptance_criteria: >
+      1)申报材料或备案证明编号已归档; 2)出境链路在网关/DLP处单独标识并受控;
+      3)法务出具可出境结论后方可开通链路。
+    trigger_reason: "{{cross_border_detail}}, 触发数据出境安全评估申报义务"
+    regulatory_ref:
+      - file: 数据出境安全评估办法
+        clause: 第4条
+        summary: 应当申报数据出境安全评估的情形
+      - file: 中华人民共和国个人信息保护法
+        clause: 第38条
+        summary: 向境外提供个人信息的法定条件
+
+  - id: SEC-REG-003
+    trigger: {type: regulatory_trigger, rule_key: saas_finance}
+    asvs_ref: "V1.1.1"
+    title: 信息科技外包风险分类分级评定
+    priority: high
+    suggested_phase: design
+    description: >
+      本项目(金融条线)部署于外采SaaS环境, 构成信息科技外包情形。按
+      《银行保险机构信息科技外包风险监管办法》要求开展外包风险分类分级评定,
+      重要外包须报备并纳入年度外包风险评估, 合同中明确数据安全与审计条款。
+    acceptance_criteria: >
+      1)外包风险分级评定表已完成并留存; 2)达到报告标准的外包事项已向监管部门报告;
+      3)SaaS服务商合同含数据归属、安全责任与审计权条款。
+    trigger_reason: "部署环境含外采SaaS且业务条目属金融, 触发信息科技外包风险评定"
+    regulatory_ref:
+      - file: 银行保险机构信息科技外包风险监管办法
+        clause: 参考
+        summary: 信息科技外包风险分类分级与报告要求
+        note: 待合规部门确认具体条文
+
+  - id: SEC-REG-004
+    trigger: {type: regulatory_trigger, rule_key: mobile_app_type}
+    asvs_ref: "V1.1.1"
+    title: 移动应用程序台账登记
+    priority: high
+    suggested_phase: design
+    description: >
+      本项目形态为{{project_type_label}}。按《关于加强银行业保险业移动互联网应用程序管理的通知》
+      要求, 移动应用程序须纳入行内台账统一登记管理(含名称、版本、分发渠道、责任部门),
+      版本变更与下架同步维护, 并接受移动互联网应用程序安全检测。
+    acceptance_criteria: >
+      1)App/小程序信息已在行内台账登记; 2)各分发渠道信息与台账一致;
+      3)上线前完成移动应用安全检测并留存报告。
+    trigger_reason: "项目类型为{{project_type_label}}, 触发移动应用程序台账登记义务"
+    regulatory_ref:
+      - file: 关于加强银行业保险业移动互联网应用程序管理的通知
+        clause: 参考
+        summary: 移动互联网应用程序台账登记与全生命周期管理要求
+        note: 待合规部门确认具体条文
+
+  - id: SEC-REG-005
+    trigger: {type: regulatory_trigger, rule_key: ai_feature}
+    asvs_ref: "V1.2.4"
+    title: 金融科技创新监管工具申报评估
+    priority: high
+    suggested_phase: design
+    description: >
+      项目包含AI功能「{{feature_list}}」。按JR/T 0199-2020《金融科技创新安全通用规范》
+      及金融科技创新监管工具要求, 应用创新类金融科技服务须完成自评估并按规定申报,
+      评估材料涵盖算法安全、数据使用与用户权益保护。
+    acceptance_criteria: >
+      1)创新应用自评估报告已完成; 2)按属地监管要求完成申报或备案;
+      3)AI功能输出留痕可审计, 用户告知与拒绝机制可用。
+    trigger_reason: "功能清单含AI功能「{{feature_list}}」, 触发金融科技创新监管申报评估"
+    regulatory_ref:
+      - file: 金融科技创新安全通用规范
+        clause: 参考(JR/T 0199-2020)
+        summary: 金融科技创新应用的安全通用要求与申报评估
+        note: 待合规部门确认具体条文
+
+  - id: SEC-REG-006
+    trigger: {type: regulatory_trigger, rule_key: final_level_l3}
+    asvs_ref: "V1.1.1"
+    title: 重要信息系统投产变更报告
+    priority: high
+    suggested_phase: design
+    description: >
+      本项目定级为{{grading_text}}, 属重要信息系统范畴。按金融监管总局信息科技监管要求,
+      重要信息系统的投产、重大变更须提前向监管部门报告(投产时间窗、回退方案、
+      应急预案随报告一并提交)。
+    acceptance_criteria: >
+      1)投产/变更报告已按监管报送时限提交; 2)回退与应急预案随附并演练;
+      3)报送回执归档。
+    trigger_reason: "最终定级为{{grading_text}}, 触发重要信息系统投产变更报告义务"
+    regulatory_ref:
+      - file: 金融监管总局信息科技监管要求
+        clause: 参考
+        summary: 重要信息系统投产与重大变更报告要求
+        note: 待合规部门确认具体文号与条文
+
+  - id: SEC-REG-007
+    trigger: {type: regulatory_trigger, rule_key: sensitive_pii_exists}
+    asvs_ref: "V8.1.1"
+    title: 个人信息保护影响评估(PIA)报告
+    priority: high
+    suggested_phase: design
+    description: >
+      本项目处理敏感个人信息(资产: {{asset_list}})。按《个人信息保护法》第55条,
+      处理敏感个人信息应当事前进行个人信息保护影响评估, 评估报告与处理情况记录
+      至少保存三年; 评估未通过不得开展处理活动。
+    acceptance_criteria: >
+      1)PIA报告覆盖上述资产的处理目的、方式、安全措施与权益影响;
+      2)评估结论已签发并归档; 3)处理活动变更时重新评估。
+    trigger_reason: "数据字典存在敏感个人信息资产「{{asset_list}}」, 触发事前PIA义务"
+    regulatory_ref:
+      - file: 中华人民共和国个人信息保护法
+        clause: 第55条
+        summary: 应当事前进行个人信息保护影响评估的情形
+      - file: 中华人民共和国个人信息保护法
+        clause: 第56条
+        summary: 个人信息保护影响评估内容与留存要求(至少三年)
+
+  - id: SEC-REG-008
+    trigger: {type: regulatory_trigger, rule_key: djcp_l3_filing}
+    asvs_ref: "V1.1.1"
+    title: 等级保护测评与公安机关备案
+    priority: high
+    suggested_phase: design
+    description: >
+      本项目为等保{{grading_level}}系统。按《信息安全等级保护管理办法》
+      (公通字〔2007〕43号)第十四条、第十五条, 第三级信息系统应当每年至少进行一次
+      等级测评, 并在安全保护等级确定后30日内向县级以上公安机关备案。
+    acceptance_criteria: >
+      1)备案证明已取得并归档; 2)年度等保测评计划已排期, 测评机构具备资质;
+      3)测评高风险项整改闭环后方可投产。
+    trigger_reason: "定级为等保{{grading_level}}(或合规目标含等保三级), 触发测评与备案义务"
+    regulatory_ref:
+      - file: 信息安全等级保护管理办法
+        clause: 第14条、第15条
+        summary: 第三级系统年度测评与公安机关备案义务(公通字〔2007〕43号)
+      - file: 中华人民共和国网络安全法
+        clause: 第21条
+        summary: 国家网络安全等级保护制度
 
   # ────────────────────────────────────────────
   # 一、功能触发类 (V5/V11/V12/V13)
@@ -36,6 +213,14 @@ templates:
       1)上传非白名单格式文件被拒绝且返回明确错误; 2)将恶意文件改名为白名单后缀上传,
       服务端可通过内容检测拦截; 3)拒绝响应不回显服务器路径。
     trigger_reason: "输入的功能清单中存在文件上传功能「{{feature_name}}」"
+    regulatory_ref:
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 入侵防范与恶意代码防范要求
+      - file: 网上银行系统信息安全通用规范
+        clause: 参考(JR/T 0068-2020)
+        summary: 客户端与交易安全控制
+        note: 待合规部门确认具体条文
 
   - id: SEC-V12-002
     trigger: {type: feature_category, condition: {category: file_upload}}
@@ -49,6 +234,10 @@ templates:
     acceptance_criteria: >
       超限上传被服务端拒绝(非前端校验); 限额数值与设计方案一致并写入设计文档。
     trigger_reason: "输入的功能清单中存在文件上传功能「{{feature_name}}」"
+    regulatory_ref:
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 资源控制与拒绝服务防护
 
   - id: SEC-V12-003
     trigger: {type: feature_category, condition: {category: file_upload}}
@@ -62,6 +251,10 @@ templates:
     acceptance_criteria: >
       直接以URL访问上传目录返回403/404; 上传HTML/SVG后访问不渲染脚本; nginx等网关无配置解析上传目录脚本。
     trigger_reason: "输入的功能清单中存在文件上传功能「{{feature_name}}」"
+    regulatory_ref:
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 访问控制与入侵防范
 
   - id: SEC-V12-004
     trigger: {type: feature_category, condition: {category: file_upload}}
@@ -75,6 +268,14 @@ templates:
     acceptance_criteria: >
       EICAR测试样本上传后进入隔离区无法被他人获取; 扫描状态对上传者可见。
     trigger_reason: "输入的功能清单中存在文件上传功能「{{feature_name}}」"
+    regulatory_ref:
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 恶意代码防范管理
+      - file: 商业银行信息科技风险管理指引
+        clause: 参考(银监发〔2009〕19号)
+        summary: 信息科技风险控制与运行安全要求
+        note: 待合规部门确认具体条文
 
   - id: SEC-V5-101
     trigger: {type: feature_category, condition: {category: file_download}}
@@ -88,6 +289,14 @@ templates:
     acceptance_criteria: >
       传入 ../../etc/passwd 类参数无法读出系统文件; A租户/他人资源ID下载被拒绝并记审计日志。
     trigger_reason: "输入的功能清单中存在文件下载功能「{{feature_name}}」"
+    regulatory_ref:
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 访问控制要求
+      - file: 网上银行系统信息安全通用规范
+        clause: 参考(JR/T 0068-2020)
+        summary: 业务交易安全控制
+        note: 待合规部门确认具体条文
 
   - id: SEC-V11-201
     trigger: {type: feature_category, condition: {category: payment}}
@@ -101,6 +310,14 @@ templates:
     acceptance_criteria: >
       同一报文1秒内并发提交10次, 仅产生1笔订单/扣款; 日志中出现明确的幂等命中记录。
     trigger_reason: "输入的功能清单中存在支付交易功能「{{feature_name}}」"
+    regulatory_ref:
+      - file: 商业银行信息科技风险管理指引
+        clause: 参考(银监发〔2009〕19号)
+        summary: 电子银行与交易完整性风险控制
+        note: 待合规部门确认具体条文
+      - file: 金融行业网络安全等级保护实施指引
+        clause: 参考(JR/T 0071-2020)
+        summary: 金融等保建设与业务连续性要求
 
   - id: SEC-V5-102
     trigger: {type: feature_category, condition: {category: payment}}
@@ -114,6 +331,14 @@ templates:
     acceptance_criteria: >
       渗透测试修改金额字段(如0.01元购)交易失败; 报文关键字段参与签名防篡改。
     trigger_reason: "输入的功能清单中存在支付交易功能「{{feature_name}}」"
+    regulatory_ref:
+      - file: 商业银行信息科技风险管理指引
+        clause: 参考(银监发〔2009〕19号)
+        summary: 电子银行业务风险控制要求
+        note: 待合规部门确认具体条文
+      - file: 支付卡行业数据安全标准(PCI DSS v4.0)
+        clause: 要求6
+        summary: 支付应用系统安全开发要求
 
   - id: SEC-V11-202
     trigger: {type: feature_category, condition: {category: refund}}
@@ -127,6 +352,11 @@ templates:
     acceptance_criteria: >
       超限退款单据自动冻结待审; 更换收款人信息的请求被拒并产生告警日志。
     trigger_reason: "输入的功能清单中存在退款功能「{{feature_name}}」"
+    regulatory_ref:
+      - file: 商业银行信息科技风险管理指引
+        clause: 参考(银监发〔2009〕19号)
+        summary: 业务操作风险与审批控制
+        note: 待合规部门确认具体条文
 
   - id: SEC-V4-301
     trigger: {type: feature_category, condition: {category: export_data}}
@@ -140,6 +370,13 @@ templates:
     acceptance_criteria: >
       未授权角色看不到导出入口且直连接口返回403; 任取一条导出记录可在审计平台检索到对应日志。
     trigger_reason: "输入的功能清单中存在数据导出功能「{{feature_name}}」"
+    regulatory_ref:
+      - file: 中华人民共和国网络安全法
+        clause: 第21条
+        summary: 采取监测记录网络运行状态的技术措施, 留存网络日志不少于六个月
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 安全审计要求
 
   - id: SEC-V8-401
     trigger: {type: feature_category, condition: {category: export_data}}
@@ -153,6 +390,14 @@ templates:
     acceptance_criteria: >
       导出的Excel抽查PII字段全部打码; 申请明文导出流程存在审批节点。
     trigger_reason: "输入的功能清单中存在数据导出功能「{{feature_name}}」"
+    regulatory_ref:
+      - file: 个人金融信息保护技术规范
+        clause: 参考(JR/T 0171-2020)
+        summary: 个人金融信息展示与委托处理的脱敏要求
+        note: 待合规部门确认具体条文
+      - file: 中华人民共和国个人信息保护法
+        clause: 第51条
+        summary: 采取相应的加密、去标识化等安全技术措施
 
   - id: SEC-V5-103
     trigger: {type: feature_category, condition: {category: comment_ugc}}
@@ -166,6 +411,10 @@ templates:
     acceptance_criteria: >
       提交<script>alert(1)</script>后查看页不弹窗; 图片src=javascript:的payload被清除。
     trigger_reason: "输入的功能清单中存在评论/UGC功能「{{feature_name}}」"
+    regulatory_ref:
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 入侵防范与数据完整性要求
 
   - id: SEC-V13-501
     trigger: {type: feature_category, condition: {category: api_open}}
@@ -179,6 +428,14 @@ templates:
     acceptance_criteria: >
       重放同一抓包请求第二次被拒绝; 私钥仅存放于服务端密钥管理系统。
     trigger_reason: "输入的功能清单中存在开放API「{{feature_name}}」"
+    regulatory_ref:
+      - file: 网上银行系统信息安全通用规范
+        clause: 参考(JR/T 0068-2020)
+        summary: 开放接口通信完整性与抗抵赖要求
+        note: 待合规部门确认具体条文
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 通信传输完整性保密性
 
   - id: SEC-V13-502
     trigger: {type: feature_category, condition: {category: third_auth}}
@@ -192,6 +449,13 @@ templates:
     acceptance_criteria: >
       篡改回调地址到恶意域名的请求被拒绝; state校验失败的登录中断并记录日志。
     trigger_reason: "输入的功能清单中存在第三方登录功能「{{feature_name}}」"
+    regulatory_ref:
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 身份鉴别与访问控制
+      - file: 中华人民共和国个人信息保护法
+        clause: 第23条
+        summary: 向其他处理者提供个人信息的单独告知与授权
 
   - id: SEC-V2-001
     trigger: {type: feature_category, condition: {category: sms_email}}
@@ -205,6 +469,11 @@ templates:
     acceptance_criteria: >
       连续点击发送出现冷却倒计时; 使用脚本绕过前端仍会被服务端计数拦截。
     trigger_reason: "输入的功能清单中存在短信邮件功能「{{feature_name}}」, 存在被利用进行短信轰炸的风险"
+    regulatory_ref:
+      - file: 网上银行系统信息安全通用规范
+        clause: 参考(JR/T 0068-2020)
+        summary: 短信验证码安全控制
+        note: 待合规部门确认具体条文
 
   - id: SEC-V7-001
     trigger: {type: feature_category, condition: {category: audit_log}}
@@ -218,6 +487,13 @@ templates:
     acceptance_criteria: >
       以应用运行身份删除或改写日志文件失败; 等保定级测评项"审计记录保护"满足。
     trigger_reason: "输入的功能清单中声明了审计日志功能「{{feature_name}}」"
+    regulatory_ref:
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 安全审计(审计记录保护)
+      - file: 中华人民共和国网络安全法
+        clause: 第21条
+        summary: 网络日志留存不少于六个月
 
   - id: SEC-V5-104
     trigger: {type: feature_category, condition: {category: search}}
@@ -231,6 +507,10 @@ templates:
     acceptance_criteria: >
       注入测试payload ' or 1=1 -- 在搜索框全部失效; 代码评审确认无f-string/format拼SQL点。
     trigger_reason: "输入的功能清单中存在搜索功能「{{feature_name}}」, 用户输入直达数据检索链路"
+    regulatory_ref:
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 数据完整性与恶意代码/攻击防范
 
   - id: SEC-V8-402
     trigger: {type: feature_category, condition: {category: message_push}}
@@ -244,6 +524,11 @@ templates:
     acceptance_criteria: >
       随机抽样推送消息无完整卡号/完整证件号明文出现。
     trigger_reason: "输入的功能清单中存在消息推送功能「{{feature_name}}」"
+    regulatory_ref:
+      - file: 个人金融信息保护技术规范
+        clause: 参考(JR/T 0171-2020)
+        summary: 个人金融信息展示脱敏要求
+        note: 待合规部门确认具体条文
 
   - id: SEC-V11-203
     trigger: {type: feature_category, condition: {category: ai_feature}}
@@ -258,6 +543,14 @@ templates:
     acceptance_criteria: >
       构造诱导性Prompt无法绕过角色边界执行未授权动作; 出境评估结论已归档。
     trigger_reason: "输入的功能清单中存在AI功能「{{feature_name}}」, 属于新增高风险面"
+    regulatory_ref:
+      - file: 金融科技创新安全通用规范
+        clause: 参考(JR/T 0199-2020)
+        summary: 金融科技创新应用数据安全与创新风险管理
+        note: 待合规部门确认具体条文
+      - file: 中华人民共和国个人信息保护法
+        clause: 第38条
+        summary: 向境外提供个人信息的法定条件
 
   - id: SEC-V2-007
     trigger: {type: feature_category, condition: {category: auth_login}}
@@ -271,6 +564,11 @@ templates:
     acceptance_criteria: >
       已登录用户发起改绑手机号被要求重新验证; 会话保证级别不足时跳转认证页而非直接执行。
     trigger_reason: "输入的功能清单中存在登录认证功能「{{feature_name}}」"
+    regulatory_ref:
+      - file: 网上银行系统信息安全通用规范
+        clause: 参考(JR/T 0068-2020)
+        summary: 双因素认证与敏感交易认证强度要求
+        note: 待合规部门确认具体条文
 
   - id: SEC-V2-008
     trigger: {type: feature_category, condition: {category: password_mgmt}}
@@ -284,6 +582,11 @@ templates:
     acceptance_criteria: >
       原口令错误时修改请求被拒绝; 枚举找回接口无法区分已注册与未注册手机号; 改密成功后旧会话失效。
     trigger_reason: "输入的功能清单中存在密码管理功能「{{feature_name}}」"
+    regulatory_ref:
+      - file: 网上银行系统信息安全通用规范
+        clause: 参考(JR/T 0068-2020)
+        summary: 口令管理与身份鉴别要求
+        note: 待合规部门确认具体条文
 
   - id: SEC-V4-305
     trigger: {type: feature_category, condition: {category: admin_console}}
@@ -297,6 +600,10 @@ templates:
     acceptance_criteria: >
       公网访问管理入口返回404或403; 堡垒机审计纳管全部管理员会话; Swagger等调试端点生产环境关闭。
     trigger_reason: "输入的功能清单中存在管理后台「{{feature_name}}」"
+    regulatory_ref:
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 网络架构与边界访问控制
 
   - id: SEC-V4-306
     trigger: {type: feature_category, condition: {category: order}}
@@ -310,6 +617,10 @@ templates:
     acceptance_criteria: >
       以他人订单号发起查询返回403并记审计日志; 压测遍历连续订单号无越权数据返回。
     trigger_reason: "输入的功能清单中存在订单类功能「{{feature_name}}」"
+    regulatory_ref:
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 访问控制(主体-客体归属校验)
 
   # ────────────────────────────────────────────
   # 二、权限矩阵分析类 (V4)
@@ -328,6 +639,14 @@ templates:
     acceptance_criteria: >
       每一条列出的操作在设计说明书中有对应的审批节点定义; 直连API执行该操作时先创建审批单而非立即生效。
     trigger_reason: "权限矩阵分析检出上述操作定义为高危却允许单人即时生效"
+    regulatory_ref:
+      - file: 商业银行信息科技风险管理指引
+        clause: 参考(银监发〔2009〕19号)
+        summary: 岗位设置与职责分离、操作审批控制
+        note: 待合规部门确认具体条文
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 访问控制与安全管理机构要求
 
   - id: SEC-V4-003
     trigger: {type: permission_rule, rule_key: sod_conflict}
@@ -341,6 +660,14 @@ templates:
     acceptance_criteria: >
       该角色不再同时具备冲突对两侧的操作权; 若确因小团队无法拆分, 必须在风险披露书中书面说明并补强制双人复核。
     trigger_reason: "SoD规则扫描权限矩阵命中互斥组合"
+    regulatory_ref:
+      - file: 商业银行信息科技风险管理指引
+        clause: 参考(银监发〔2009〕19号)
+        summary: 职责分离与不相容岗位控制
+        note: 待合规部门确认具体条文
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 授权与职权分离要求
 
   - id: SEC-V4-004
     trigger: {type: permission_rule, rule_key: super_admin_exists}
@@ -354,6 +681,14 @@ templates:
     acceptance_criteria: >
       特权账号清单入册并在堡垒机纳管; 紧急通道提权操作留存审批与操作录像。
     trigger_reason: "权限矩阵包含super_admin角色"
+    regulatory_ref:
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 身份鉴别与访问控制(特权用户管理)
+      - file: 商业银行信息科技风险管理指引
+        clause: 参考(银监发〔2009〕19号)
+        summary: 特权账号与操作审计管理
+        note: 待合规部门确认具体条文
 
   - id: SEC-V1-001
     trigger: {type: permission_rule, rule_key: always}
@@ -367,6 +702,13 @@ templates:
     acceptance_criteria: >
       以普通用户token携带他人resource_id发起读写请求均返回403; BAPP端遗漏hidden入口不能获得任何未授权能力。
     trigger_reason: "凡有权限矩阵的项目均适用"
+    regulatory_ref:
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 访问控制(授权主体-客体)
+      - file: 金融行业网络安全等级保护实施指引
+        clause: 参考(JR/T 0071-2020)
+        summary: 金融业等保建设实施要求
 
   # ────────────────────────────────────────────
   # 三、认证与会话类 (V2/V3)
@@ -384,6 +726,15 @@ templates:
     acceptance_criteria: >
       过期验证码与已用过的验证码再次提交均无效; 后端日志中grep不到验证码明文。
     trigger_reason: "身份认证方式勾选了「短信验证码」"
+    regulatory_ref:
+      - file: 网上银行系统信息安全通用规范
+        clause: 参考(JR/T 0068-2020)
+        summary: 短信验证码生命周期安全要求
+        note: 待合规部门确认具体条文
+      - file: 个人金融信息保护技术规范
+        clause: 参考(JR/T 0171-2020)
+        summary: 鉴别信息(C3)存储与展示限制
+        note: 待合规部门确认具体条文
 
   - id: SEC-V2-003
     trigger: {type: auth_method, method: biometric}
@@ -397,6 +748,14 @@ templates:
     acceptance_criteria: >
       打印照片攻击被活体检测拒绝; 服务端与网络日志检索不到生物特征原图。
     trigger_reason: "身份认证方式勾选了「生物识别」"
+    regulatory_ref:
+      - file: 个人金融信息保护技术规范
+        clause: 参考(JR/T 0171-2020)
+        summary: 生物特征属C3鉴别信息, 存储传输展示从严控制
+        note: 待合规部门确认具体条文
+      - file: 中华人民共和国个人信息保护法
+        clause: 第28条
+        summary: 生物识别属敏感个人信息, 处理须充分必要性并采取严格保护措施
 
   - id: SEC-V2-004
     trigger: {type: policy_baseline, rule_key: force_2fa}
@@ -410,6 +769,14 @@ templates:
     acceptance_criteria: >
       管理后台登录除口令外必须二次验证; 单一因素泄漏时攻击者无法登入管理侧。
     trigger_reason: "定级结果与用户规模达到MFA强制线"
+    regulatory_ref:
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 身份鉴别(两种或以上鉴别技术之一为密码技术)
+      - file: 网上银行系统信息安全通用规范
+        clause: 参考(JR/T 0068-2020)
+        summary: 双因素认证要求
+        note: 待合规部门确认具体条文
 
   - id: SEC-V3-001
     trigger: {type: policy_baseline, rule_key: session_timeout}
@@ -423,6 +790,10 @@ templates:
     acceptance_criteria: >
       挂起空闲期后刷新页面被踢回登录页; 改密前的旧token继续请求返回401。
     trigger_reason: "依据当前密码策略与定级默认基线"
+    regulatory_ref:
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 会话管理(登录超时自动退出)
 
   # ────────────────────────────────────────────
   # 四、密码策略类 (V2/V6) —— 参数来自 Step6 密码策略设计器
@@ -441,6 +812,14 @@ templates:
     acceptance_criteria: >
       设置弱口令被实时拒绝; 数据库表查询无明文口令; 改密历史检查生效。
     trigger_reason: "Step6密码策略设计器输出值"
+    regulatory_ref:
+      - file: 网上银行系统信息安全通用规范
+        clause: 参考(JR/T 0068-2020)
+        summary: 口令强度与定期更换要求
+        note: 待合规部门确认具体条文
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 身份鉴别(口令复杂度与更换周期)
 
   - id: SEC-V2-006
     trigger: {type: policy_baseline, rule_key: lockout_threshold}
@@ -454,23 +833,166 @@ templates:
     acceptance_criteria: >
       使用不存在用户和错口令的响应报文一致; 锁定后爆破请求停止接受。
     trigger_reason: "Step6密码策略设计器输出值"
+    regulatory_ref:
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 登录失败处理功能
+      - file: 网上银行系统信息安全通用规范
+        clause: 参考(JR/T 0068-2020)
+        summary: 登录失败锁定策略
+        note: 待合规部门确认具体条文
 
   # ────────────────────────────────────────────
-  # 五、数据资产与数据字典类 (V6/V8)
+  # 五、数据资产与数据字典类 (V6/V8) —— JR/T 0197 五级
   # ────────────────────────────────────────────
 
   - id: SEC-V6-001
-    trigger: {type: data_asset, condition: {classification: 机密}}
+    trigger: {type: data_asset, condition: {min_level: 4级_C3鉴别信息}}
     asvs_ref: "V6.2.1"
-    title: 机密级数据三重防护
+    title: 4级及以上数据三重防护
     priority: critical
     suggested_phase: design
     description: >
-      数据资产「{{asset_name}}」(机密级)落实加密存储(TDE或字段级国密算法)、
+      数据资产「{{asset_name}}」(4级及以上, 含C3鉴别信息)落实加密存储(TDE或字段级国密算法)、
       强制TLS1.2+/国密SSL传输加密、访问全量审计三层防护; 密钥托管行内KMS, 禁止写入代码仓。
     acceptance_criteria: >
       数据库dump文件中该资产字段不可读; 抓包不可见明文; 每次读取可在审计平台查到主体。
-    trigger_reason: "数据字典中定义了机密级资产「{{asset_name}}」"
+    trigger_reason: "数据字典中定义了4级及以上资产「{{asset_name}}」"
+    regulatory_ref:
+      - file: 银行保险机构数据安全管理办法
+        clause: 参考(金规〔2024〕24号)
+        summary: 数据分级防护要求(重要数据与敏感数据从严保护)
+        note: 待合规部门确认具体条文
+      - file: 个人金融信息保护技术规范
+        clause: 参考(JR/T 0171-2020)
+        summary: C3鉴别信息存储保密与访问控制
+        note: 待合规部门确认具体条文
+      - file: 金融数据安全 数据安全分级指南
+        clause: 参考(JR/T 0197-2020)
+        summary: 4级及以上数据的分级防护原则
+        note: 待合规部门确认具体条文
+
+  - id: SEC-DS5-001
+    trigger: {type: data_asset, condition: {level: 5级_重要数据}}
+    asvs_ref: "V1.1.1"
+    title: 重要数据识别报告
+    priority: critical
+    suggested_phase: design
+    description: >
+      资产「{{asset_name}}」达到5级(重要数据)。须单独出具《重要数据识别报告》,
+      说明识别依据(行业重要数据目录、影响国家安全/公众权益分析), 并报安全中心复核后
+      纳入行内重要数据目录。
+    acceptance_criteria: >
+      1)识别报告已归档并经安全中心复核签字; 2)该资产在数据字典中标注重要数据标识;
+      3)随监管目录更新同步复核。
+    trigger_reason: "数据资产「{{asset_name}}」定为5级(重要数据)"
+    regulatory_ref:
+      - file: 中华人民共和国数据安全法
+        clause: 第30条
+        summary: 重要数据处理者风险评估与报告义务
+      - file: 银行保险机构数据安全管理办法
+        clause: 参考(金规〔2024〕24号)
+        summary: 重要数据识别与目录管理
+        note: 待合规部门确认具体条文
+
+  - id: SEC-DS5-002
+    trigger: {type: data_asset, condition: {level: 5级_重要数据}}
+    asvs_ref: "V1.1.1"
+    title: 重要数据年度风险评估
+    priority: high
+    suggested_phase: design
+    description: >
+      资产「{{asset_name}}」为重要数据, 须每年至少开展一次数据安全风险评估,
+      评估处理活动的重要程度、数据泄露/篡改/滥用风险与安全措施有效性,
+      风险评估报告按要求报送并留档三年。
+    acceptance_criteria: >
+      1)年度风险评估报告已签发; 2)中高风险项有整改计划与责任人; 3)报告按监管要求报送。
+    trigger_reason: "数据资产「{{asset_name}}」定为5级(重要数据), 触发年度风险评估义务"
+    regulatory_ref:
+      - file: 中华人民共和国数据安全法
+        clause: 第30条
+        summary: 重要数据处理者应当定期开展风险评估并报送评估报告
+
+  - id: SEC-DS5-003
+    trigger: {type: data_asset, condition: {level: 5级_重要数据}}
+    asvs_ref: "V1.1.1"
+    title: 重要数据目录备案
+    priority: high
+    suggested_phase: design
+    description: >
+      资产「{{asset_name}}」为重要数据, 纳入行内重要数据目录并按要求向监管部门备案,
+      目录条目包含数据名称、类别、处理目的、安全责任人; 目录变更走审批留痕流程。
+    acceptance_criteria: >
+      1)目录条目完整并与数据字典一致; 2)备案记录可查; 3)变更审批留痕。
+    trigger_reason: "数据资产「{{asset_name}}」定为5级(重要数据), 触发目录备案义务"
+    regulatory_ref:
+      - file: 银行保险机构数据安全管理办法
+        clause: 参考(金规〔2024〕24号)
+        summary: 重要数据目录与备案管理
+        note: 待合规部门确认具体条文
+
+  - id: SEC-C3-001
+    trigger: {type: data_asset, condition: {c3_tag: true}}
+    asvs_ref: "V6.1.1"
+    title: C3鉴别信息传输与展示禁止明文
+    priority: critical
+    suggested_phase: design
+    description: >
+      资产「{{asset_name}}」带C3鉴别信息标签。传输环节强制国密/TLS1.2以上加密通道,
+      展示环节禁止回显明文(密码/生物特征不可回显), 前端界面一律以掩码或占位符呈现,
+      接口响应体不得携带C3明文。
+    acceptance_criteria: >
+      1)抓包不可见C3明文; 2)查询接口响应体无明文鉴别信息; 3)页面无明文回显。
+    trigger_reason: "数据资产「{{asset_name}}」标记C3鉴别信息, 传输/展示环节禁止明文"
+    regulatory_ref:
+      - file: 个人金融信息保护技术规范
+        clause: 参考(JR/T 0171-2020)
+        summary: C3鉴别信息传输加密与禁止明文展示
+        note: 待合规部门确认具体条文
+      - file: 中华人民共和国个人信息保护法
+        clause: 第51条
+        summary: 加密、去标识化等安全技术措施
+
+  - id: SEC-C3-002
+    trigger: {type: data_asset, condition: {c3_tag: true}}
+    asvs_ref: "V6.2.1"
+    title: C3鉴别信息禁止缓存(含前端CDN)
+    priority: critical
+    suggested_phase: design
+    description: >
+      资产「{{asset_name}}」带C3鉴别信息标签。禁止在Redis等缓存、前端CDN/边缘节点、
+      浏览器本地存储(含sessionStorage/localStorage)中缓存C3明文或可逆密文;
+      响应头设置 no-store 禁止中间层缓存。
+    acceptance_criteria: >
+      1)缓存键扫描无C3数据; 2)CDN回源日志无C3明文; 3)相关接口响应含 Cache-Control: no-store。
+    trigger_reason: "数据资产「{{asset_name}}」标记C3鉴别信息, 禁止缓存(含前端CDN)"
+    regulatory_ref:
+      - file: 个人金融信息保护技术规范
+        clause: 参考(JR/T 0171-2020)
+        summary: C3鉴别信息缓存与临时存储限制
+        note: 待合规部门确认具体条文
+
+  - id: SEC-C3-003
+    trigger: {type: data_asset, condition: {c3_tag: true}}
+    asvs_ref: "V7.3.1"
+    title: C3鉴别信息日志禁记
+    priority: critical
+    suggested_phase: development
+    description: >
+      资产「{{asset_name}}」带C3鉴别信息标签。全链路日志(应用/网关/APM/链路追踪)
+      禁止记录C3明文或可逆密文; 日志脱敏converter覆盖该资产全部字段,
+      异常堆栈中的报文体同样过滤。
+    acceptance_criteria: >
+      1)构造含C3数据的交易后各日志平台检索无明文; 2)日志脱敏规则统一配置不可绕过。
+    trigger_reason: "数据资产「{{asset_name}}」标记C3鉴别信息, 日志禁记"
+    regulatory_ref:
+      - file: 个人金融信息保护技术规范
+        clause: 参考(JR/T 0171-2020)
+        summary: C3鉴别信息禁止明文记录于日志
+        note: 待合规部门确认具体条文
+      - file: 中华人民共和国网络安全法
+        clause: 第21条
+        summary: 日志留存与防止泄露个人信息的要求
 
   - id: SEC-V8-403
     trigger: {type: data_asset, condition: {is_sensitive_pii: true}}
@@ -484,6 +1006,16 @@ templates:
     acceptance_criteria: >
       UI存在独立弹窗告知目的/方式/范围并可单独拒绝; 表单未填写不阻断无关主流程。
     trigger_reason: "数据资产「{{asset_name}}」标记为敏感PII"
+    regulatory_ref:
+      - file: 中华人民共和国个人信息保护法
+        clause: 第28条、第29条
+        summary: 敏感个人信息处理须特定目的、充分必要并取得单独同意
+      - file: 中华人民共和国个人信息保护法
+        clause: 第23条
+        summary: 向第三方提供个人信息的单独告知与单独同意
+      - file: 中华人民共和国个人信息保护法
+        clause: 第39条
+        summary: 处理前告知事项(含接收方名称、处理目的方式与种类)
 
   - id: SEC-V5-105
     trigger: {type: data_asset, condition: {mask_fields_any_of: [phone_number, id_card, bank_card]}}
@@ -497,6 +1029,14 @@ templates:
     acceptance_criteria: >
       列表页捕获DOM取到的均为掩码值; 点击查看明细产生"查看明文"审计事件。
     trigger_reason: "数据字典命中需脱敏字段类型"
+    regulatory_ref:
+      - file: 个人金融信息保护技术规范
+        clause: 参考(JR/T 0171-2020)
+        summary: C2个人金融信息展示脱敏要求
+        note: 待合规部门确认具体条文
+      - file: 中华人民共和国个人信息保护法
+        clause: 第51条
+        summary: 去标识化等安全技术措施
 
   - id: SEC-V7-002
     trigger: {type: data_asset, condition: {has_log_leakage_risk: true}}
@@ -510,6 +1050,14 @@ templates:
     acceptance_criteria: >
       构造含真实PII的正常交易后, 到日志平台检索不到该号码明文。
     trigger_reason: "数据资产的存储位置多选中包含log"
+    regulatory_ref:
+      - file: 个人金融信息保护技术规范
+        clause: 参考(JR/T 0171-2020)
+        summary: 个人金融信息不得未经脱敏进入日志
+        note: 待合规部门确认具体条文
+      - file: 中华人民共和国个人信息保护法
+        clause: 第51条
+        summary: 安全技术措施防止个人信息泄露篡改
 
   - id: SEC-V8-404
     trigger: {type: data_asset, condition: {cross_border: true}}
@@ -523,6 +1071,13 @@ templates:
     acceptance_criteria: >
       归档申报材料编号与结论; 网络出口对该数据方向实施DLP策略监控。
     trigger_reason: "数据资产「{{asset_name}}」勾选了出境属性"
+    regulatory_ref:
+      - file: 数据出境安全评估办法
+        clause: 第4条
+        summary: 应当申报数据出境安全评估的情形
+      - file: 中华人民共和国个人信息保护法
+        clause: 第38条
+        summary: 向境外提供个人信息的法定条件
 
   # ────────────────────────────────────────────
   # 六、API接口类 (V13)
@@ -540,6 +1095,14 @@ templates:
     acceptance_criteria: >
       以http://方式访问302跳https; burst压测触发网关限流返回429; 禁用单接口做Chaos压测不影响相邻路由可用性。
     trigger_reason: "API清单中「{{api_name}}」勾选公网暴露"
+    regulatory_ref:
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 通信传输与边界防护
+      - file: 网上银行系统信息安全通用规范
+        clause: 参考(JR/T 0068-2020)
+        summary: 网上银行对外服务安全控制
+        note: 待合规部门确认具体条文
 
   - id: SEC-V13-504
     trigger: {type: api_endpoint, condition: {auth_required: false}}
@@ -553,6 +1116,10 @@ templates:
     acceptance_criteria: >
       设计文档存在匿名接口风险评估段落; 脚本1000rps批量调用被拦截图灵识别。
     trigger_reason: "API清单中「{{api_name}}」免认证"
+    regulatory_ref:
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 访问控制与入侵防范
 
   - id: SEC-V8-405
     trigger: {type: api_endpoint, condition: {touches_sensitive_asset: true}}
@@ -566,6 +1133,11 @@ templates:
     acceptance_criteria: >
       网关样本日志、Jaeger tracing页面抽查无PII明文; 日志脱敏规则在中间件层统一配置不可绕过。
     trigger_reason: "API清单将该接口关联至敏感资产"
+    regulatory_ref:
+      - file: 个人金融信息保护技术规范
+        clause: 参考(JR/T 0171-2020)
+        summary: 个人金融信息报文与日志脱敏
+        note: 待合规部门确认具体条文
 
   # ────────────────────────────────────────────
   # 七、合规映射类
@@ -584,6 +1156,13 @@ templates:
     acceptance_criteria: >
       设计书附《等保三级条款映射表》且不留空项; 测评前预评估高风险项全部闭环。
     trigger_reason: "定级问卷最终确认等级为三级"
+    regulatory_ref:
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 等保三级安全技术与管理制度全项要求
+      - file: 中华人民共和国网络安全法
+        clause: 第21条
+        summary: 网络安全等级保护制度与日志留存
 
   - id: SEC-CMP-702
     trigger: {type: compliance, target: pipl}
@@ -597,6 +1176,16 @@ templates:
     acceptance_criteria: >
       官方隐私政策能定位每一处收集场景的说明; 客服工单演练主体权利请求在时限内闭环; PIA报告已完成签发。
     trigger_reason: "合规目标勾选了《个人信息保护法》且项目中存在PII资产"
+    regulatory_ref:
+      - file: 中华人民共和国个人信息保护法
+        clause: 第17条
+        summary: 处理前如实告知义务
+      - file: 中华人民共和国个人信息保护法
+        clause: 第44条至第47条
+        summary: 主体查阅、复制、更正、删除等权利
+      - file: 中华人民共和国个人信息保护法
+        clause: 第55条
+        summary: 事前个人信息保护影响评估
 
   - id: SEC-CMP-703
     trigger: {type: compliance, target: pci_dss}
@@ -610,6 +1199,13 @@ templates:
     acceptance_criteria: >
       渗透测试无法从库表/缓存/日志还原完整卡号; ASV季度扫描分数合格。
     trigger_reason: "合规目标勾选了PCI-DSS"
+    regulatory_ref:
+      - file: 支付卡行业数据安全标准(PCI DSS v4.0)
+        clause: 要求3
+        summary: 保护存储的账户数据(PAN不可读、展示截断)
+      - file: 支付卡行业数据安全标准(PCI DSS v4.0)
+        clause: 要求4
+        summary: 强加密保护经公共网络传输的持卡人数据
 
   # ────────────────────────────────────────────
   # 八、SBOM漏洞联动类 (V14)
@@ -628,3 +1224,14 @@ templates:
     acceptance_criteria: >
       SBOM平台复扫该项清零或有合规的risk_accepted记录; 无法修复的条目出现在上线风险披露书附件中。
     trigger_reason: "OSV/NVD联动查询命中 {{cve_list}}"
+    regulatory_ref:
+      - file: 关于加强商业银行互联网助贷业务管理的通知
+        clause: 参考
+        summary: 合作机构与供应链安全管理的相关要求
+        note: 待合规部门确认具体条文
+      - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
+        clause: 第三级安全通用要求
+        summary: 安全运维管理(漏洞和风险管理)
+      - file: 中华人民共和国网络安全法
+        clause: 第25条
+        summary: 网络安全事件风险应对与补救措施

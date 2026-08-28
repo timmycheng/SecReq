@@ -21,6 +21,7 @@ _COLUMNS = [
     ("责任方", 10, "center"),
     ("建议阶段", 12, "center"),
     ("验收标准", 52, "left"),
+    ("合规依据", 36, "left"),
     ("状态", 10, "center"),
     ("备注", 44, "left"),
 ]
@@ -65,13 +66,20 @@ def build_tracking_workbook(requirements: list) -> Workbook:
     for idx, req in enumerate(rows, start=2):
         trace = f"{req.source_entity_type}#{req.source_entity_id} ← {req.trigger_reason}"
         status_label = C.label(C.REQUIREMENT_STATUS, req.status or "open", "待处理")
+        basis = "; ".join(
+            f"《{ref.get('file', '')}》{ref.get('clause', '')}"
+            if ref.get("clause") else f"《{ref.get('file', '')}》"
+            for ref in (getattr(req, "regulatory_ref", None) or [])
+            if ref.get("file")
+        )
         values = [
             req.req_id,
             f"【{C.label(C.REQUIREMENT_PRIORITY_LABELS, req.priority)}】{req.title}\n{req.description}",
             C.label(C.REQUIREMENT_PRIORITY_LABELS, req.priority),
-            "安全/开发团队",
+            getattr(req, "owner", None) or "安全/开发团队",
             C.label(C.REQUIREMENT_PHASES, req.suggested_phase, req.suggested_phase),
             req.acceptance_criteria,
+            basis or "—",
             status_label,
             trace,
         ]

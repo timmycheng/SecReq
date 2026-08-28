@@ -45,6 +45,7 @@ export default function Step1BasicInfo({ ws, patch }: StepProps) {
         user_scale: ws.project.user_scale,
         deploy_env: ws.project.deploy_env ?? [],
         is_public: ws.project.is_public,
+        offshore_vendor: ws.project.offshore_vendor ?? false,
         pm_name: ws.project.pm_name ?? '',
         dev_lead_name: ws.project.dev_lead_name ?? '',
         sec_contact_name: ws.project.sec_contact_name ?? '',
@@ -87,6 +88,12 @@ export default function Step1BasicInfo({ ws, patch }: StepProps) {
 
       <Space size={16} style={{ display: 'flex' }} align="center">
         <Form.Item name="is_public" label="是否涉及公网访问" valuePropName="checked">
+          <Switch />
+        </Form.Item>
+        <Form.Item
+          name="offshore_vendor" label="存在境外外包/供应商" valuePropName="checked"
+          tooltip="勾选后触发《数据出境安全评估申报》监管报送类需求"
+        >
           <Switch />
         </Form.Item>
         <Form.Item name="compliance_targets" label="合规目标(多选)" style={{ minWidth: 400 }}>

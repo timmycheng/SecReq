@@ -21,6 +21,9 @@ class Project(Base):
     user_scale: Mapped[str] = mapped_column(String(32), comment="用户规模, 见 USER_SCALES")
     deploy_env: Mapped[list] = mapped_column(JSON, default=list, comment="部署环境多选")
     is_public: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否涉及公网访问")
+    offshore_vendor: Mapped[bool] = mapped_column(
+        Boolean, default=False, comment="是否存在境外外包/境外供应商"
+    )
     pm_name: Mapped[str | None] = mapped_column(String(50), comment="项目经理")
     dev_lead_name: Mapped[str | None] = mapped_column(String(50), comment="开发负责人")
     sec_contact_name: Mapped[str | None] = mapped_column(String(50), comment="安全对接人")
@@ -41,6 +44,7 @@ class Project(Base):
     api_endpoints: Mapped[list["ApiEndpoint"]] = relationship(back_populates="project")  # noqa: F821
     infra_assets: Mapped[list["InfraAsset"]] = relationship(back_populates="project")  # noqa: F821
     requirements: Mapped[list["SecurityRequirement"]] = relationship(back_populates="project")
+    review_gates: Mapped[list["ReviewGate"]] = relationship(back_populates="project")  # noqa: F821
 
 
 class GradingSurvey(Base):

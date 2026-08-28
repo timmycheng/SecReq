@@ -4,7 +4,7 @@
 import { useRef, useState } from 'react'
 import {
   Button, Checkbox, Divider, Form, Input, Modal, Popconfirm, Select, Space,
-  Table, Tag, Typography, message,
+  Table, Tag, Tooltip, Typography, message,
 } from 'antd'
 import { DatabaseOutlined, DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 
@@ -15,7 +15,8 @@ import type { StepProps } from '../WizardPage'
 import type { DataAssetRow, DataFieldRow, DataTableRow } from '../../types'
 
 const EMPTY_ASSET: DataAssetRow = {
-  name: '', data_type: 'business_data', classification: '内部',
+  name: '', data_type: 'business_data', classification: '2级_C1次要信息',
+  c3_tag: false,
   is_pii: false, is_sensitive_pii: false, storage_envs: ['db'],
   cross_border_transfer: false, tables: [],
 }
@@ -50,8 +51,10 @@ export default function Step4DataAssets({ ws, patch }: StepProps) {
   useRegisterStepHandle({ save, isDirty: () => JSON.stringify(rows) !== savedRef.current })
 
   const classificationColors: Record<string, string> = {
-    公开: 'green', 内部: 'blue', 敏感: 'orange', 机密: 'red',
+    '5级_重要数据': 'red', '4级_C3鉴别信息': 'volcano', '3级_C2主要信息': 'orange',
+    '2级_C1次要信息': 'blue', '1级_公开数据': 'green',
   }
+  const levelLabels = labelMapOf(enums, 'data_level_labels')
   const assetTypeMap = labelMapOf(enums, 'data_asset_types')
   const storageMap = labelMapOf(enums, 'storage_envs')
 
@@ -74,8 +77,13 @@ export default function Step4DataAssets({ ws, patch }: StepProps) {
           { title: '资产名称', dataIndex: 'name' },
           { title: '分类', dataIndex: 'data_type', render: (v: string) => assetTypeMap[v] ?? v },
           {
-            title: '分级', dataIndex: 'classification',
-            render: (v: string) => <Tag color={classificationColors[v] ?? 'default'}>{v}</Tag>,
+            title: '分级(JR/T 0197)', dataIndex: 'classification',
+            render: (v: string, r) => (
+              <Space size={4} wrap>
+                <Tag color={classificationColors[v] ?? 'default'}>{levelLabels[v] ?? v}</Tag>
+                {r.c3_tag && <Tag color="magenta">C3</Tag>}
+              </Space>
+            ),
           },
           {
             title: '个人信息', dataIndex: 'is_sensitive_pii',
@@ -131,6 +139,9 @@ function AssetEditor({ initial, onSave, onClose }: {
   const [form] = Form.useForm()
   const [tables, setTables] = useState<DataTableRow[]>(initial.tables ?? [])
   const [tableModalOpen, setTableModalOpen] = useState(false)
+  const levelMeta = (enums['data_level_meta'] ?? {}) as Record<string, { label: string; examples: string }>
+  const levelLabels = labelMapOf(enums, 'data_level_labels')
+  const selectedLevel = Form.useWatch('classification', form)
 
   return (
     <Modal
@@ -156,11 +167,41 @@ function AssetEditor({ initial, onSave, onClose }: {
           <Form.Item name="data_type" label="资产分类" rules={[{ required: true }]} style={{ width: 200 }}>
             <Select options={optionsOf(enums, 'data_asset_types')} />
           </Form.Item>
-          <Form.Item name="classification" label="分级" rules={[{ required: true }]} style={{ width: 140 }}>
-            <Select options={(enums['data_classifications'] as string[] ?? []).map((c) => ({ value: c, label: c }))} />
+          <Form.Item
+            name="classification"
+            label={(
+              <Tooltip title="JR/T 0197-2020《金融数据安全 数据安全分级指南》五级体系">
+                分级(?)
+              </Tooltip>
+            )}
+            rules={[{ required: true }]}
+            style={{ width: 320 }}
+            extra={selectedLevel && levelMeta[selectedLevel] ? (
+              <Typography.Text type="secondary" style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>
+                典型数据(JR/T 0197 附录A节选): {levelMeta[selectedLevel].examples}
+              </Typography.Text>
+            ) : undefined}
+          >
+            <Select
+              showSearch
+              optionFilterProp="label"
+              options={(enums['data_levels'] as string[] ?? []).map((code) => ({
+                value: code,
+                label: levelMeta[code]?.label ?? levelLabels[code] ?? code,
+              }))}
+            />
           </Form.Item>
         </Space>
         <Space size={24} wrap>
+          <Form.Item noStyle shouldUpdate={(a, b) => a.classification !== b.classification}>
+            {({ getFieldValue }) => (
+              <Form.Item name="c3_tag" valuePropName="checked" style={{ marginBottom: 0 }}>
+                <Checkbox disabled={!['4级_C3鉴别信息', '5级_重要数据'].includes(getFieldValue('classification'))}>
+                  C3 鉴别信息标签(生物特征/口令类, 触发传输/缓存/日志专属规则)
+                </Checkbox>
+              </Form.Item>
+            )}
+          </Form.Item>
           <Form.Item name="is_pii" label="是否个人信息" valuePropName="checked"><Checkbox /></Form.Item>
           <Form.Item name="is_sensitive_pii" label="是否敏感个人信息" valuePropName="checked"><Checkbox /></Form.Item>
           <Form.Item name="cross_border_transfer" label="是否跨境传输" valuePropName="checked"><Checkbox /></Form.Item>

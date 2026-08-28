@@ -18,11 +18,12 @@ ALLOWED_TRIGGER_TYPES = {
     "api_endpoint",
     "compliance",
     "vulnerability",
+    "regulatory_trigger",
 }
 
 REQUIRED_TEMPLATE_FIELDS = [
     "id", "trigger", "title", "description", "priority",
-    "suggested_phase", "acceptance_criteria", "trigger_reason",
+    "suggested_phase", "acceptance_criteria", "trigger_reason", "regulatory_ref",
 ]
 
 _REQ_ID_PATTERN = re.compile(r"^SEC-[A-Z0-9]+-\d{3}$")
@@ -47,6 +48,7 @@ class Template:
     acceptance_criteria: str
     suggested_phase: str
     trigger_reason: str
+    regulatory_ref: list[dict] = field(default_factory=list)
 
     @property
     def placeholders(self) -> set[str]:
@@ -55,6 +57,11 @@ class Template:
         for text in (self.title, self.description, self.acceptance_criteria, self.trigger_reason):
             names |= set(_PLACEHOLDER_PATTERN.findall(text or ""))
         return names
+
+    @property
+    def regulatory_files(self) -> list[str]:
+        """引用的监管文件名列表(文档合规依据列与完整性校验用)。"""
+        return [str(ref.get("file", "")) for ref in self.regulatory_ref if ref.get("file")]
 
 
 @dataclass
@@ -71,6 +78,29 @@ def _clean(text) -> str:
     if text is None:
         return ""
     return str(text).strip()
+
+
+def _normalize_regulatory_ref(raw) -> list[dict]:
+    """合规出处规范化: 列表内每项保留 file/clause/summary/note 四个字符串键。
+
+    任何缺 file 或结构不合法的条目使整组视为空(触发必填校验报错)。
+    """
+    if not isinstance(raw, list) or not raw:
+        return []
+    normalized: list[dict] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            return []
+        file_name = _clean(entry.get("file"))
+        if not file_name:
+            return []
+        normalized.append({
+            "file": file_name,
+            "clause": _clean(entry.get("clause")),
+            "summary": _clean(entry.get("summary")),
+            "note": _clean(entry.get("note")),
+        })
+    return normalized
 
 
 def load_knowledge_base(path: str | Path | None = None) -> KnowledgeBase:
@@ -119,6 +149,13 @@ def load_knowledge_base(path: str | Path | None = None) -> KnowledgeBase:
             errors.append(f"{label}({tid or '?'}): 缺少必填字段 {missing}")
             continue
 
+        reg_refs = _normalize_regulatory_ref(item.get("regulatory_ref"))
+        if not reg_refs:
+            errors.append(
+                f"{label}({tid}): regulatory_ref 必须是非空列表, 每项含 file(监管文件名)"
+            )
+            continue
+
         kb.templates.append(
             Template(
                 id=tid,
@@ -131,6 +168,7 @@ def load_knowledge_base(path: str | Path | None = None) -> KnowledgeBase:
                 acceptance_criteria=_clean(item.get("acceptance_criteria")),
                 suggested_phase=_clean(item.get("suggested_phase")),
                 trigger_reason=_clean(item.get("trigger_reason")),
+                regulatory_ref=reg_refs,
             )
         )
 

@@ -1,18 +1,38 @@
-/* API 客户端: 统一错误提示; 文档/Excel 下载走原生链接。 */
+/* API 客户端: 统一错误提示; 文档/Excel 下载走原生链接。
+   身份: 登录后的用户名存 localStorage, 每个请求经 X-Auth-User 头携带(RBAC 依据)。 */
 import type {
-  ApiEndpointRow, AuthConfigRow, ComponentRow, DataAssetRow, FeatureRow,
-  GenerateSummary, GradingQuestion, InfraAssetRow, LabelMap, MatrixEntryIn,
-  PreviewResult, ProjectDetail, ProjectInfo, RequirementRow,
-  RoleRow, ResourceRow, SurveyAnswer, VulnerabilityRow, WizardState,
+  ApiEndpointRow, AuthConfigRow, ChainVerify, ComponentRow, DataAssetRow,
+  EvidenceRow, FeatureRow, GateRow, GenerateSummary, GradingQuestion,
+  InfraAssetRow, LabelMap, LoginInfo, MatrixEntryIn, PlatformUserRow,
+  PreviewResult, ProjectDetail, ProjectInfo, RequirementRow, RoleRow,
+  ResourceRow, SurveyAnswer, VulnerabilityRow, WizardState,
 } from './types'
 
 export type { MatrixEntryIn }
 
+export const AUTH_STORAGE_KEY = 'secreq.auth.user'
+
+/** 身份变更事件: 顶栏切换身份后, 各页面据此刷新"现在可以做什么"提示。 */
+export const IDENTITY_EVENT = 'secreq:identity-changed'
+
+export function getStoredUsername(): string | null {
+  return localStorage.getItem(AUTH_STORAGE_KEY)
+}
+
+export function storeUsername(username: string | null) {
+  if (username) localStorage.setItem(AUTH_STORAGE_KEY, username)
+  else localStorage.removeItem(AUTH_STORAGE_KEY)
+  window.dispatchEvent(new Event(IDENTITY_EVENT))
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  })
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...((init?.headers as Record<string, string>) ?? {}),
+  }
+  const user = getStoredUsername()
+  if (user) headers['X-Auth-User'] = user
+  const resp = await fetch(path, { ...init, headers })
   if (!resp.ok) {
     let detail = `HTTP ${resp.status}`
     try {
@@ -27,6 +47,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export interface Constants {
   [key: string]: LabelMap | string[] | number | Record<string, Record<string, number>>
+    | Record<string, { label: string; examples: string }>
 }
 
 export const api = {
@@ -34,6 +55,11 @@ export const api = {
   gradingQuestions: () =>
     request<{ questions: GradingQuestion[] }>('/api/meta/grading-questions')
       .then((r) => r.questions),
+
+  /* ── 平台身份 ── */
+  listUsers: () => request<PlatformUserRow[]>('/api/auth/users'),
+  login: (username: string) =>
+    request<LoginInfo>('/api/auth/login', { method: 'POST', body: JSON.stringify({ username }) }),
 
   listProjects: () => request<ProjectDetail[]>('/api/projects'),
   getProject: (id: number) => request<ProjectDetail>(`/api/projects/${id}`),
@@ -85,8 +111,10 @@ export const api = {
   importSbomFile: async (id: number, file: File) => {
     const form = new FormData()
     form.append('file', file)
+    const user = getStoredUsername()
     const resp = await fetch(`/api/projects/${id}/components/import-sbom`, {
       method: 'POST', body: form,
+      headers: user ? { 'X-Auth-User': user } : undefined,
     })
     if (!resp.ok) {
       const body = await resp.json().catch(() => null)
@@ -111,6 +139,45 @@ export const api = {
 
   listRequirements: (id: number) => request<RequirementRow[]>(`/api/projects/${id}/requirements`),
   listVulnerabilities: (id: number) => request<VulnerabilityRow[]>(`/api/projects/${id}/vulnerabilities`),
+  setRequirementOwner: (id: number, reqId: string, owner: string) =>
+    request<RequirementRow>(`/api/projects/${id}/requirements/${reqId}/owner`, {
+      method: 'POST', body: JSON.stringify({ owner }),
+    }),
+  confirmRegulatory: (id: number, reqId: string) =>
+    request<RequirementRow>(`/api/projects/${id}/requirements/${reqId}/confirm`, { method: 'POST' }),
+
+  /* ── 评审门禁 ── */
+  listGates: (id: number) => request<GateRow[]>(`/api/projects/${id}/gates`),
+  submitGate: (id: number, gateType: string) =>
+    request<GateRow>(`/api/projects/${id}/gates/${gateType}/submit`, { method: 'POST' }),
+  reviewGate: (id: number, gateId: number, action: string, opinion: string) =>
+    request<GateRow>(`/api/projects/${id}/gates/${gateId}/review`, {
+      method: 'POST', body: JSON.stringify({ action, opinion }),
+    }),
+  finalizeGate: (id: number, gateId: number, action: string, opinion: string) =>
+    request<GateRow>(`/api/projects/${id}/gates/${gateId}/final`, {
+      method: 'POST', body: JSON.stringify({ action, opinion }),
+    }),
+  listEvidence: (id: number, gateId: number) =>
+    request<EvidenceRow[]>(`/api/projects/${id}/gates/${gateId}/evidence`),
+  verifyChain: (id: number, gateId: number) =>
+    request<ChainVerify>(`/api/projects/${id}/gates/${gateId}/evidence/verify`),
+}
+
+/** 提交评审被门禁阻断时的 409 响应体(后端固定口径)。 */
+export interface GateBlocked {
+  gate: string
+  status: 'blocked'
+  missing: string[]
+  message?: string
+}
+
+export function parseGateBlocked(err: Error): GateBlocked | null {
+  try {
+    const body = JSON.parse(err.message)
+    if (body && body.status === 'blocked' && Array.isArray(body.missing)) return body
+  } catch { /* 非阻断结构 */ }
+  return null
 }
 
 /** 触发浏览器下载(GET 附件)。 */

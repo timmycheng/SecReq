@@ -11,6 +11,7 @@ export interface ProjectInfo {
   user_scale: string
   deploy_env: string[]
   is_public: boolean
+  offshore_vendor?: boolean
   pm_name?: string | null
   dev_lead_name?: string | null
   sec_contact_name?: string | null
@@ -76,6 +77,8 @@ export interface DataAssetRow {
   name: string
   data_type: string
   classification: string
+  legacy_classification?: string | null
+  c3_tag?: boolean
   is_pii: boolean
   is_sensitive_pii: boolean
   storage_envs: string[]
@@ -203,6 +206,13 @@ export interface GenerateSummary {
   bom_file?: string | null
 }
 
+export interface RegulatoryRefItem {
+  file: string
+  clause?: string
+  summary?: string
+  note?: string
+}
+
 export interface RequirementRow {
   id: number
   req_id: string
@@ -218,6 +228,11 @@ export interface RequirementRow {
   source_entity_id: number
   trigger_reason: string
   status: string
+  regulatory_ref?: RegulatoryRefItem[]
+  owner?: string | null
+  reg_confirmed?: boolean
+  confirmed_by?: string | null
+  confirmed_at?: string | null
 }
 
 export interface VulnerabilityRow {
@@ -229,4 +244,63 @@ export interface VulnerabilityRow {
   affected_range: string | null
   fix_version: string | null
   summary: string | null
+}
+
+/* ── 评审门禁(改造点4/5) ─────────────────────────── */
+
+export interface PlatformUserRow {
+  username: string
+  display_name: string
+  employee_id?: string | null
+  role: string
+}
+
+export interface LoginInfo extends PlatformUserRow {
+  role_label: string
+}
+
+export interface GateCheck {
+  status: 'passed' | 'blocked' | 'not_available'
+  missing: string[]
+}
+
+export interface GateRow {
+  id: number
+  gate_type: string
+  gate_label: string
+  status: string
+  status_label: string
+  latest_verb: string
+  submitted_at?: string | null
+  reviewed_at?: string | null
+  submitter?: string | null
+  reviewer?: string | null
+  reviewer_conclusion?: 'approve' | 'reject' | 'request_change' | null
+  reviewer_opinion?: string | null
+  final_reviewer?: string | null
+  final_opinion?: string | null
+  final_reviewed_at?: string | null
+  version_hash?: string | null
+  check: GateCheck
+  evidence_count: number
+}
+
+export interface EvidenceRow {
+  id: number
+  actor: string
+  actor_role: string
+  action: string
+  action_label: string
+  timestamp: string
+  ip?: string | null
+  comment?: string | null
+  prev_hash: string
+  curr_hash: string
+}
+
+export interface ChainVerify {
+  gate_id: number
+  valid: boolean
+  count: number
+  broken_at?: number | null
 }

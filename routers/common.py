@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-"""路由公共件: 会话依赖 / 项目装载 / ORM→API 模型序列化。"""
-from collections.abc import Generator
+"""路由公共件: 会话依赖 / 项目装载 / RBAC / ORM→API 模型序列化。"""
+from collections.abc import Callable, Generator
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from models import (
     ApiEndpoint, AuthConfig, DataAsset, DataField, DataTable, Feature,
-    GradingSurvey, InfraAsset, PermissionEntry, Project,
+    GradingSurvey, InfraAsset, PermissionEntry, PlatformUser, Project,
     SbomComponent, VulnerabilityRecord, Resource, Role,
 )
 from schemas.component import ComponentOut, ComponentVulnInline
@@ -15,6 +15,12 @@ from schemas.data_dictionary import DataAssetOut, DataFieldOut, DataTableOut
 from schemas.survey import SurveyOut
 
 import shared.constants as C
+
+# 身份经 X-Auth-User 头携带(MVP 无口令, 见 services/auth_service)
+AUTH_HEADER = "X-Auth-User"
+# 开放路径前缀: 不要求身份(健康检查/枚举常量/登录)
+OPEN_API_PREFIXES = ("/api/health", "/api/meta", "/api/auth")
+WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -25,6 +31,56 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
+
+
+def get_current_user(request: Request, db: Session = Depends(get_db)) -> PlatformUser | None:
+    """按 X-Auth-User 头解析平台用户; 未携带或用户不存在返回 None。"""
+    from services.auth_service import get_user
+
+    return get_user(db, request.headers.get(AUTH_HEADER))
+
+
+def auth_guard(
+    request: Request, user: PlatformUser | None = Depends(get_current_user),
+) -> None:
+    """全局 RBAC 拦截(挂载于 app 级依赖):
+
+    - 开放路径(健康/元数据/登录)直接放行;
+    - 其余业务写接口必须携带有效身份, 否则 401;
+    - 审计角色对任何业务接口只读, 写操作一律 403(验收标准第6条)。
+    """
+    path = request.url.path
+    if any(path.startswith(prefix) for prefix in OPEN_API_PREFIXES):
+        return
+    if request.method in WRITE_METHODS:
+        if user is None:
+            raise HTTPException(
+                status_code=401, detail=f"未登录: 请携带 {AUTH_HEADER} 请求头标识身份")
+        if user.role == "auditor":
+            raise HTTPException(
+                status_code=403, detail="内部审计角色只读, 禁止任何写操作")
+
+
+def require_write_roles(*roles: str) -> Callable:
+    """业务写接口的角色白名单依赖(读操作不拦)。"""
+
+    def dependency(
+        request: Request, user: PlatformUser | None = Depends(get_current_user),
+    ) -> PlatformUser:
+        if request.method not in WRITE_METHODS:
+            return user  # type: ignore[return-value]
+        if user is None:
+            raise HTTPException(
+                status_code=401, detail=f"未登录: 请携带 {AUTH_HEADER} 请求头标识身份")
+        if user.role not in roles:
+            role_names = "、".join(C.label(C.PLATFORM_ROLES, r) for r in roles)
+            raise HTTPException(
+                status_code=403,
+                detail=f"当前角色「{C.label(C.PLATFORM_ROLES, user.role)}」无权执行该操作, "
+                       f"仅允许: {role_names}")
+        return user
+
+    return dependency
 
 
 def get_project_or_404(project_id: int, db: Session = Depends(get_db)) -> Project:
@@ -79,6 +135,8 @@ def asset_to_out(asset: DataAsset) -> DataAssetOut:
         name=asset.name,
         data_type=asset.data_type,
         classification=asset.classification,
+        legacy_classification=asset.legacy_classification,
+        c3_tag=bool(asset.c3_tag),
         is_pii=asset.is_pii,
         is_sensitive_pii=asset.is_sensitive_pii,
         storage_envs=asset.storage_envs or [],

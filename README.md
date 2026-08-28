@@ -1,48 +1,122 @@
-# SecReq — 安全需求与设计基线生成工具
+# SecReq — 安全准入管理平台(需求+设计阶段)
 
-面向银行软件项目的项目经理与开发人员: 通过结构化表单收集项目信息,
-按知识库规则引擎自动生成符合行内模板的安全需求与设计文档章节, 实现安全左移。
+面向银行软件项目的**项目经理、开发中心、安全中心评审员/负责人、风险管理、内部审计**:
+通过结构化表单收集项目信息, 按知识库规则引擎自动生成符合行内模板的安全需求与设计文档章节,
+并以**评审门禁与签核留痕**将安全准入嵌入行内项目评审流程。
 
-整体设计见 `DESIGN.md`。当前进度:**三批全部交付**。
-- 第一批: 后端数据模型 + 知识库 YAML + 规则引擎 + pytest 测试;
-- 第二批: SBOM(CycloneDX 1.5)生成、OSV.dev 漏洞查询(24h缓存/失败降级)、
-  4 份 Word 文档生成与全流程编排(`services/pipeline.py`);
-- 第三批: FastAPI 路由与文档/Excel 下载 API + React 8 步向导前端
+整体设计见 `DESIGN.md`。当前进度:**基线工具三批全部交付 + 安全准入平台改造(v2.0)交付**。
+- 基线第一批: 后端数据模型 + 知识库 YAML + 规则引擎 + pytest 测试;
+- 基线第二批: SBOM(CycloneDX 1.5)生成、OSV.dev 漏洞查询(24h缓存/失败降级)、
+  Word 文档生成与全流程编排(`services/pipeline.py`);
+- 基线第三批: FastAPI 路由与文档/Excel 下载 API + React 8 步向导前端
   (权限矩阵交叉表格)+ 定级问卷打分 + SBOM 文件导入 + Jira 跟踪表。
+
+## v2.0 改造点清单(安全准入管理平台)
+
+| # | 改造点 | 落地 |
+| - | ------ | ---- |
+| 1 | 数据分级替换为 JR/T 0197-2020 五级 | `shared/constants.py` `DATA_LEVELS` 五级 + 典型举例(附录A节选); `DataAsset` 新增 `legacy_classification`/`c3_tag`; 存量库迁移见 `scripts/migrate_classification.py`(公开→1级、内部→2级、敏感→3级、机密→4级; 机密且生物识别类且敏感PII → 附加 C3 标签; 原值留痕; 幂等, 启动时自动执行) |
+| 2 | 安全需求新增"合规出处" | `SecurityRequirement.regulatory_ref`(JSON); 知识库全部模板必填 `regulatory_ref`(loader 强校验), 条款号不确定的一律写"参考《文件》+待合规部门确认", **不编造条款号** |
+| 3 | 监管报送触发器 | 新 trigger 类型 `regulatory_trigger` 8 条(SEC-REG-001~008): L5重要数据目录备案 / 出境评估申报(含境外外包) / 外包风险评定(SaaS+金融) / 移动应用台账 / 金融科技申报(AI) / 三级投产变更报告 / 敏感PII的PIA / 三级等保测评备案; 命中即**置顶**生成"监管报送"类需求, 须项目经理逐条确认后立项门禁才放行 |
+| 4 | 评审门禁与留痕 | `ReviewGate` + `ReviewEvidence`(链式SHA256哈希防篡改, 创世64个0); 门禁**硬校验**在接口层: 不满足返回 `409 {"gate","status":"blocked","missing":[...]}`, 不允许"提示后仍可提交"; POC/上线门禁仅建数据结构 |
+| 5 | 6 角色RBAC | `PlatformUser`(pm/developer/security_reviewer/security_lead/risk_manager/auditor); `X-Auth-User` 头携带身份; 审计只读(任何业务 POST 403); pm 不能审自己提交的门禁; 评审员通过后负责人才能终审(两步签核, 且终审人≠第一步评审人) |
+| 6 | 文档模板升级 | 《需求规格说明书》按"监管报送类/等保条款类/通用安全类"三组排序 + **合规依据列** + 评审记录页(签字栏); 《总体设计说明书》数据字典改 JR/T 五级表述 + 新增"监管报送事项清单"章节; 《系统定级建议书》新增"判定依据"(GB/T 22240 / JR/T 0071 / 公通字〔2007〕43号 / 网安法21条)与"安全中心复核意见"栏; **新增第5份文档《项目安全评审表》**(门禁状态/需求覆盖统计/漏洞概况/遗留问题, 评审会材料) |
+
+### 门禁流程
+
+```
+                 ┌────────────────────────────────────────────────────┐
+                 │  pm/developer 填报向导 → 生成安全基线(需求+SBOM+5文档) │
+                 └───────────────────────┬────────────────────────────┘
+                                         ▼
+   ┌───────────┐   提交(硬校验)  ┌─────────────┐  评审员审核   ┌────────────────┐
+   │ pending    ├───────────────►│ in_review   ├─────────────►│ reviewer approve│
+   └───────────┘   不满足则 409  └──────┬──────┘              └───────┬────────┘
+                  {"gate","status":     │ request_change/reject       │ security_lead 终审
+                   "blocked",           ▼                             ▼ (sign/reject)
+                   "missing":[...]}  rectifying / rejected      ┌──────────┐
+                                                     └─────────►│ passed   │
+                                                                └──────────┘
+   每一步动作写 ReviewEvidence: curr_hash = SHA256(prev_hash + 动作字段), 可复算审计
+```
+
+**门禁通过条件(硬校验口径)**
+
+| 门禁 | 通过条件(全部满足) |
+| ---- | ----------------- |
+| 立项 | 问卷已提交且存在有效定级; 监管报送类需求全部经 pm 确认 |
+| 需求 | 安全需求数 ≥ 1; 每条需求 source_entity_id 非空; 无 critical 需求缺责任人 |
+| 设计 | SBOM 已生成; SoD 冲突=0 或已生成整改需求(SEC-V4-003); 数据资产 100% 关联 L1-L5 |
+| POC/上线 | 本期仅保留数据结构, 流程未启用 |
+
+### 平台角色与演示账号
+
+| 账号 | 角色 | 权限 |
+| ---- | ---- | ---- |
+| pm_wang | 项目经理 | 建项目/填报/生成/提交门禁/指定责任人/确认报送事项 |
+| dev_li | 开发中心 | 同 pm 的向导写入(填技术方案), 不能审核 |
+| sec_chen | 安全中心评审员 | 门禁第一步审核(通过/退回/否决), 不能终审自己之外的回避规则同约束 |
+| sec_zhao | 安全中心负责人 | 终审签核(须评审员已通过) |
+| risk_liu | 风险管理部门 | 只读查看 |
+| audit_sun | 内部审计 | 全量只读, 任何业务写接口 403, 可校验哈希链 |
+
+页面上方身份切换即登录(MVP 无口令, 电子签章以"姓名+工号+时间戳+哈希"代替)。
+
+### 存量数据迁移
+
+```bash
+.venv/Scripts/python scripts/migrate_classification.py --dry-run  # 预览
+.venv/Scripts/python scripts/migrate_classification.py            # 执行(幂等)
+```
+
+应用启动时也会自动执行同一迁移(`main.py` lifespan 与脚本共用
+`services/classification_migration.py`, 口径唯一)。
+
+### 演示走查(代替录屏)
+
+```bash
+.venv/Scripts/python scripts/demo_review_flow.py
+# 输出即走查记录: pm 填报 → 门禁409阻断(附missing) → 审计403 → 补齐责任人/确认报送
+# → 评审员审核 → 负责人终审 → 留痕哈希链复算 valid → 导出《项目安全评审表》
+```
 
 ## 目录结构
 
 ```
 SecReq/
 ├─ DESIGN.md              # 需求与设计文档
-├─ main.py                # FastAPI 入口(uvicorn main:app 启动, 兼管前端构建产物托管)
-├─ shared/constants.py    # 前后端共享枚举(经 /api/meta/constants 供数, 前端不硬编码)
-├─ models/                # SQLAlchemy 2.0 数据模型(SQLite 开发, 兼容 PostgreSQL)
+├─ main.py                # FastAPI 入口(启动时自动补列+迁移+种子用户; 兼管前端构建托管)
+├─ shared/constants.py    # 前后端共享枚举(JR/T 五级/平台角色/门禁常量, 经 /api/meta/constants 供数)
+├─ models/                # SQLAlchemy 2.0 模型(含 review.py: ReviewGate/ReviewEvidence/PlatformUser)
 ├─ schemas/               # Pydantic 请求/响应模型(API 契约层)
-├─ routers/               # 路由: projects/steps/generate/meta
+├─ routers/               # projects/steps/generate/meta/review/auth(common.py 含 RBAC 依赖)
 ├─ rules/
-│  ├─ knowledge_base.yml  # 安全需求知识库(44条模板, 数据文件可独立维护)
+│  ├─ knowledge_base.yml  # 安全需求知识库(58条模板, 全部含 regulatory_ref; 数据文件可独立维护)
 │  ├─ grading_questions.yml # 定级问卷题库(分值/判定依据文案, 安全中心维护)
-│  ├─ loader.py           # YAML 加载与完整性校验
+│  ├─ loader.py           # YAML 加载与完整性校验(regulatory_ref 必填)
 │  ├─ context.py          # 规则引擎输入上下文(项目输入数据快照)
 │  ├─ policy.py           # 密码/会话策略生效值计算(引擎与文档共用口径)
-│  └─ engine.py           # 规则引擎: 模板匹配 → 占位符渲染 → SecurityRequirement
+│  └─ engine.py           # 规则引擎: 模板匹配 → 占位符渲染 → SecurityRequirement(报送类置顶)
 ├─ services/
 │  ├─ grading.py          # 问卷加权打分 → 建议定级 + 判定理由
 │  ├─ project_service.py  # 项目 CRUD / 级联删除 / 列表计数装配
 │  ├─ step_store.py       # 向导各步骤整卷保存(整体替换, 幂等)
-│  ├─ seed_data.py        # 种子数据「个人网银系统」+ 需求清单汇总输出
-│  ├─ sbom.py             # CycloneDX 1.5 SBOM 构建(JSON 输出、purl 自动补齐)
-│  ├─ sbom_import.py      # SBOM 文件导入解析(CycloneDX JSON / SPDX JSON / tag-value)
-│  ├─ osv.py              # OSV.dev 查询客户端: 结果规范化/24h缓存/失败降级
-│  ├─ docgen.py           # python-docx 生成 4 份 Word(封面/表格/高危标红)
-│  ├─ tracking_export.py  # openpyxl 需求跟踪表(Jira 导入字段映射说明 Sheet)
-│  └─ pipeline.py         # 全流程编排: 漏洞同步→规则引擎→SBOM+文档落盘
+│  ├─ seed_data.py        # 种子数据「个人网银系统」(JR/T 五级 + C3 标签)
+│  ├─ sbom.py / sbom_import.py / osv.py   # SBOM 构建/导入/OSV 查询
+│  ├─ docgen.py           # python-docx 生成 5 份 Word(合规依据列/评审记录页/安全评审表)
+│  ├─ tracking_export.py  # openpyxl 需求跟踪表(含合规依据列)
+│  ├─ pipeline.py         # 全流程编排: 漏洞同步→规则引擎→SBOM+文档落盘
+│  ├─ auth_service.py     # 平台用户种子/身份解析/签章文案
+│  ├─ gate_service.py     # 门禁硬校验/版本快照SHA256/链式哈希留痕/两步签核状态机
+│  └─ classification_migration.py  # 老4级→五级迁移(脚本与启动共用)
 ├─ docs/templates/doc_style.yml  # 文档版式参数(字体/标红色/底纹), 安全中心可维护替换
-├─ frontend/              # React 18 + TS + AntD 8 步向导(Vite, 见 frontend/README 段落)
-├─ scripts/run_seed_demo.py  # 一键验证: 建库 → 种子 → 漏洞同步 → 生成 → 打印清单
-├─ output/<项目编码>/       # 每次生成的 SBOM JSON 与 4 份 Word 落盘位置
-└─ tests/                 # pytest(105个用例: 规则命中/SBOM/API全流程/导入/导出/文档断言)
+├─ frontend/              # React 18 + TS + AntD(8步向导 + 评审门禁页 + 顶栏身份切换)
+├─ scripts/
+│  ├─ run_seed_demo.py         # 一键验证: 建库 → 种子 → 漏洞同步 → 生成 → 打印清单
+│  ├─ migrate_classification.py # 老四级分级迁移脚本(交付物)
+│  └─ demo_review_flow.py      # 评审流程完整走查(交付物, 代替录屏)
+├─ output/<项目编码>/       # 每次生成的 SBOM JSON 与 5 份 Word 落盘位置
+└─ tests/                 # pytest(131个用例, 含五级联动/报送触发/门禁阻断/RBAC/哈希链验收用例)
 ```
 
 ## 快速开始
@@ -73,7 +147,7 @@ cd frontend && npm run build
 
 产物统一写入 `output/PRJ-IBANK-2026/`: `sbom.cdx.json`(CycloneDX 1.5) 与
 `系统定级建议书 / 需求规格说明书_安全需求章节 / 总体设计说明书_安全设计章节 /
-SBOM及漏洞清单` 四份可直接打开的 Word。
+SBOM及漏洞清单 / 项目安全评审表` 五份可直接打开的 Word。
 
 ## 第一批实现说明
 
@@ -135,7 +209,7 @@ SBOM漏洞联动。每条模板含 req_id(按 ASVS 4.0.3 章节分组)、中文�
 三级")、向导 Step2~Step8 各数据面的整卷保存(整体替换幂等, 权限矩阵 entry 以
 提交体下标定位)、`/generate` 全流程编排(成功后项目状态置 generated)、
 `/requirements/preview` 规则引擎干跑(确认页"已触发 XX 条"不落库)。
-下载接口: `GET /export/docx/{grading|requirement|design|sbom_vuln}` 按库内最新
+下载接口: `GET /export/docx/{grading|requirement|design|sbom_vuln|review}` 按库内最新
 数据即时重渲染 Word; `GET /export/xlsx` 输出 Jira 可导入的需求跟踪表
 (req_id/需求描述/优先级/责任方/建议阶段/验收标准/状态/备注, 第二 Sheet 附字段
 映射说明); `GET /sbom` 实时构建 CycloneDX JSON。枚举唯一来源为
@@ -149,7 +223,8 @@ SBOM漏洞联动。每条模板含 req_id(按 ASVS 4.0.3 章节分组)、中文�
 SBOM 文件上传导入(CycloneDX/SPDX)+ 常用组件自动补全 / 接口清单关联敏感数据资产。
 确认页汇总全部输入并干跑预览触发规模, 一键生成后跳转产物页: 需求清单(类目/
 优先级筛选、紧急行标红、展开看验收标准与触发原因)、漏洞清单(严重度排序)、
-4 份 Word + 跟踪表 Excel + SBOM JSON 下载。
+5 份 Word + 跟踪表 Excel + SBOM JSON 下载; 顶部「评审门禁与签核」进入门禁页
+(硬校验缺失明细/提交/两步签核/留痕哈希链), 顶栏可切换平台身份。
 
 **种子数据实际运行结果片段(GUI)**: 向导确认页显示「已触发 58 条安全需求」
 (功能安全22 / 数据安全11 / 权限7 / 接口7 / 口令策略4 / 合规3 / 组件风险3 /
@@ -172,6 +247,7 @@ SBOM 文件上传导入(CycloneDX/SPDX)+ 常用组件自动补全 / 接口清单
 
 ## 路线图
 
-- 后续可选增强: 需求状态流转界面(跟踪表已含 status 字段)、知识库编辑界面、
-  多用户与审批流、`services/llm_rewriter.py` LLM 润色接入(MVP 预留空实现)。
+- POC/上线门禁流程启用(数据结构已就绪: `gate_type` 枚举与 `ReviewGate` 表)、
+  厂商门户与外部系统对接(OA/4A/SIEM)、电子签章接入(现为"姓名+工号+时间戳+哈希")、
+  需求状态流转界面、知识库编辑界面、LLM 润色接入(均按本期范围外约定暂缓)。
 
