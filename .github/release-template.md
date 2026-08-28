@@ -7,7 +7,7 @@
 # 在线拉取
 docker run -d --name secreq -p 8000:8000 \
   -v secreq-data:/app/data -v secreq-output:/app/output \
-  {{IMAGE}}:{{VERSION}}
+  {{IMAGE}}:{{VERSION_NUM}}
 
 # 离线导入(下载下方附件 secreq-image-*.tar.gz 后)
 docker load -i secreq-image-{{VERSION}}.tar.gz

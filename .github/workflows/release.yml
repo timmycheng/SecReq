@@ -92,8 +92,8 @@ jobs:
             echo "::error::CHANGELOG.md 中未找到 [${VERSION_NUM}] 章节, 请先补充该版本变更再打 tag"
             exit 1
           fi
-          sed -e "s|{{IMAGE}}|${IMAGE}|g" -e "s|{{VERSION}}|${VERSION}|g" \
-            .github/release-template.md > release_deploy.md
+          sed -e "s|{{IMAGE}}|${IMAGE}|g" -e "s|{{VERSION_NUM}}|${VERSION_NUM}|g" \
+            -e "s|{{VERSION}}|${VERSION}|g" .github/release-template.md > release_deploy.md
           cat changelog_section.md release_deploy.md > release_body.md
 
       - name: 登录 GHCR
@@ -107,8 +107,10 @@ jobs:
         env:
           VERSION: ${{ github.ref_name }}
         run: |
-          docker pull "${IMAGE}:${VERSION}"
-          docker save "${IMAGE}:${VERSION}" | gzip > "secreq-image-${VERSION}.tar.gz"
+          # 镜像 tag 为 semver 形态(无 v 前缀): metadata-action 对 vX.Y.Z 生成 X.Y.Z
+          VERSION_NUM="${VERSION#v}"
+          docker pull "${IMAGE}:${VERSION_NUM}"
+          docker save "${IMAGE}:${VERSION_NUM}" | gzip > "secreq-image-${VERSION}.tar.gz"
 
       - name: 创建 GitHub Release
         uses: softprops/action-gh-release@v2
