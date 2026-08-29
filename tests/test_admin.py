@@ -2,10 +2,12 @@
 """系统管理端点(走查整改): 仅安全角色可访问; 知识库/题库写回带校验;
 策略基线可配置; 用户管理与审计留痕。"""
 import shutil
+import uuid
 
 import pytest
 
 from conftest import api_as
+from services.auth_service import SEED_DEFAULT_PASSWORD
 
 
 @pytest.fixture()
@@ -94,12 +96,12 @@ def test_policy_baselines_effect_on_grading_baseline(sec, api):
     assert baseline["pwd_defaults"]["pwd_min_length"] == "12"  # 覆盖值生效
 
 
-def test_user_management_and_audit(sec):
+def test_user_management_and_audit(api, sec):
     # 创建
     resp = sec.post("/api/admin/users", json={
         "username": "dev_new", "display_name": "新开发", "role": "developer"})
     assert resp.status_code == 201
-    assert resp.json()["initial_password"] == "Sec123456"
+    assert resp.json()["initial_password"] == SEED_DEFAULT_PASSWORD
     # 重复创建 409
     assert sec.post("/api/admin/users", json={
         "username": "dev_new", "display_name": "重复", "role": "developer"}).status_code == 409
@@ -107,9 +109,18 @@ def test_user_management_and_audit(sec):
     toggle = sec.post("/api/admin/users/dev_new/toggle-active")
     assert toggle.status_code == 200 and toggle.json()["active"] is False
     assert sec.post("/api/admin/users/dev_new/toggle-active").json()["active"] is True
-    # 重置密码
+    # 重置密码(显式指定随机生成的口令, 测试内不明文写死凭据)
+    explicit_password = "Reset-" + uuid.uuid4().hex[:10]
     assert sec.post("/api/admin/users/dev_new/reset-password",
-                    json={"password": "NewPass12345"}).status_code == 200
+                    json={"password": explicit_password}).status_code == 200
+    # 重置密码(缺省时后端生成随机密码并在响应中返回, 且可直接登录)
+    reset = sec.post("/api/admin/users/dev_new/reset-password", json={})
+    assert reset.status_code == 200
+    generated = reset.json()["password"]
+    assert generated and len(generated) >= 8
+    assert generated != explicit_password
+    login = api.post("/api/auth/login", json={"username": "dev_new", "password": generated})
+    assert login.status_code == 200, login.text
     # 审计日志包含以上动作
     logs = sec.get("/api/admin/audit-logs").json()
     actions = {log["action"] for log in logs}

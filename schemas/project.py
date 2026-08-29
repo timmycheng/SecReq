@@ -34,6 +34,14 @@ class ProjectCreate(BaseModel):
     sec_contact_name: str | None = Field(default=None, max_length=50)
     compliance_targets: list[str] = Field(default_factory=list)
 
+    @field_validator("code")
+    @classmethod
+    def _code_reject_path_chars(cls, v):
+        """编码会用作产物输出目录名, 拒绝路径分隔符与相对路径片段(防穿越)。"""
+        if v and ("/" in v or "\\" in v or ":" in v or ".." in v):
+            raise ValueError("项目编码不能包含路径分隔符或相对路径片段( / \\ : .. )")
+        return v
+
 
 class ProjectUpdate(BaseModel):
     """更新 Step1(全部可选, 未传字段不覆盖)。code 仅用于拦截修改, 不会落库。"""

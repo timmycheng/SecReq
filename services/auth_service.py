@@ -3,10 +3,13 @@
 
 走查整改口径: 账号+密码登录, 角色精简为 开发(developer)/安全(security)。
 - 密码仅存 pbkdf2_hmac 哈希(标准库实现, 无新增依赖);
-- 种子账号默认密码 SEED_DEFAULT_PASSWORD, 首次登录后可在右上角修改;
+- 种子账号初始密码优先取环境变量 SECREQ_SEED_PASSWORD, 未设置时每次启动随机生成并打印到日志,
+  避免源码中出现固定凭据; 首次登录后可在右上角修改;
 - ensure_seed_users 同时负责存量库的角色迁移(旧6角色 → 2角色, 幂等)。
 """
 import hashlib
+import logging
+import os
 import secrets
 
 from sqlalchemy.orm import Session
@@ -14,7 +17,24 @@ from sqlalchemy.orm import Session
 import shared.constants as C
 from models import PlatformUser
 
-SEED_DEFAULT_PASSWORD = "Sec123456"
+logger = logging.getLogger(__name__)
+
+SEED_PASSWORD_ENV = "SECREQ_SEED_PASSWORD"
+
+
+def _initial_seed_password() -> str:
+    """初始密码: 环境变量优先; 未配置时进程内随机生成(仅影响本次新建/补设的账号)。"""
+    from_env = os.environ.get(SEED_PASSWORD_ENV, "").strip()
+    if from_env:
+        return from_env
+    generated = secrets.token_urlsafe(12)
+    logger.warning(
+        "未设置 %s, 本次启动的账号初始密码为随机值: %s (仅对本次新建或补设密码的账号生效, "
+        "生产部署请通过环境变量固定)", SEED_PASSWORD_ENV, generated)
+    return generated
+
+
+SEED_DEFAULT_PASSWORD = _initial_seed_password()
 _PBKDF2_ITERATIONS = 120_000
 
 # 演示用户: 开发 2 人(项目创建/填报), 安全 2 人(全量可见)

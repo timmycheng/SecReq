@@ -30,6 +30,9 @@ REQUIRED_TEMPLATE_FIELDS = [
 
 _REQ_ID_PATTERN = re.compile(r"^SEC-[A-Z0-9]+-\d{3}$")
 _PLACEHOLDER_PATTERN = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+# 任何形如 {{...}} 的片段都必须符合上面的白名单形态, 其余视为非法模板语法
+_ANY_PLACEHOLDER_LIKE = re.compile(r"\{\{.+?\}\}")
+_PLACEHOLDER_TEXT_FIELDS = ("title", "description", "acceptance_criteria", "trigger_reason")
 
 
 class KnowledgeBaseError(Exception):
@@ -37,7 +40,7 @@ class KnowledgeBaseError(Exception):
 
 
 @dataclass
-class Template:
+class RequirementTemplate:
     """单条需求模板的运行时形态(已做字段规范化)。"""
 
     id: str
@@ -70,9 +73,9 @@ class Template:
 @dataclass
 class KnowledgeBase:
     version: str
-    templates: list[Template] = field(default_factory=list)
+    templates: list[RequirementTemplate] = field(default_factory=list)
 
-    def by_trigger(self, trigger_type: str) -> list[Template]:
+    def by_trigger(self, trigger_type: str) -> list[RequirementTemplate]:
         return [t for t in self.templates if t.trigger_type == trigger_type]
 
 
@@ -159,8 +162,19 @@ def load_knowledge_base(path: str | Path | None = None) -> KnowledgeBase:
             )
             continue
 
+        # 占位符白名单语法校验: 文本里出现的 {{...}} 必须都是 {{单词}} 形态,
+        # 与引擎 render 的替换能力严格一致, 防止模板文本携带非白名单的模板语法
+        for field_name in _PLACEHOLDER_TEXT_FIELDS:
+            text = _clean(item.get(field_name))
+            for seg in _ANY_PLACEHOLDER_LIKE.finditer(text):
+                if not _PLACEHOLDER_PATTERN.fullmatch(seg.group(0)):
+                    errors.append(
+                        f"{label}({tid}): {field_name} 含不支持的占位符语法 "
+                        f"{seg.group(0)!r}, 仅支持 {{name}} 单词形态"
+                    )
+
         kb.templates.append(
-            Template(
+            RequirementTemplate(
                 id=tid,
                 trigger_type=trigger["type"],
                 trigger=trigger,

@@ -3,6 +3,8 @@
 
 走查整改: 知识库策略可视化、可配置; 平台自身安全功能(用户管理、审计留痕)到位。
 """
+import secrets
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -222,7 +224,8 @@ def create_user(payload: UserCreateIn, request: Request,
 
 
 class PasswordResetIn(BaseModel):
-    password: str = Field(min_length=8, max_length=128)
+    password: str | None = Field(default=None, min_length=8, max_length=128,
+                                 description="缺省时由后端生成随机密码并在响应中返回")
 
 
 @router.post("/users/{username}/reset-password")
@@ -232,10 +235,11 @@ def reset_password(username: str, payload: PasswordResetIn, request: Request,
     target = db.query(PlatformUser).filter_by(username=username).first()
     if target is None:
         raise HTTPException(status_code=404, detail=f"用户不存在: {username}")
-    target.password_hash = hash_password(payload.password)
+    new_password = payload.password or secrets.token_urlsafe(12)
+    target.password_hash = hash_password(new_password)
     revoke_user_sessions(db, username)
     audit(db, user.username, "user_reset_password", {"target": username}, _client_ip(request))
-    return {"status": "ok"}
+    return {"status": "ok", "password": None if payload.password else new_password}
 
 
 @router.post("/users/{username}/toggle-active")

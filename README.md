@@ -63,7 +63,8 @@ docker load -i secreq-image-v2.1.0.tar.gz
 | dev_li / dev_zhang | 开发 | 新建项目(仅可见自己创建的)、填报向导、生成基线、确认需求 |
 | sec_chen / sec_zhao | 安全 | 查看全部项目、系统管理(知识库/题库/策略/用户/审计/LLM) |
 
-初始密码统一 `Sec123456`(登录后可在右上角修改)。存量库旧角色自动迁移:
+初始密码通过环境变量 `SECREQ_SEED_PASSWORD` 指定, 未设置时每次启动随机生成并打印到服务日志
+(源码不含固定口令; 登录后可在右上角修改)。存量库旧角色自动迁移:
 pm/developer → 开发; security_reviewer/security_lead → 安全; 风管/审计账号停用;
 存量项目自动归入第一个开发账号。
 
@@ -108,6 +109,7 @@ cd frontend && npm run build
 | 变量 | 默认值 | 说明 |
 | ---- | ------ | ---- |
 | `SECREQ_DATABASE_URL` | `sqlite:///<应用目录>/secreq.db` | SQLAlchemy 连接串;容器镜像内默认 `sqlite:////app/data/secreq.db`,也可指向 PostgreSQL 等外部库 |
+| `SECREQ_SEED_PASSWORD` | 未设置时每次启动随机生成 | 种子账号/未指定密码新建账号的初始密码;随机值会打印到服务启动日志(仅对当次新建或补设密码的账号生效)。生产部署建议显式设置并在首登后修改 |
 
 ## 目录结构
 

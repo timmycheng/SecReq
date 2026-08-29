@@ -36,6 +36,16 @@ def _load_raw(path: Path) -> dict:
         return yaml.safe_load(f)
 
 
+def _guard_write_path(path: Path, expected: Path) -> None:
+    """写盘前守卫: 目标必须与预期的知识库/题库常量路径一致。
+
+    防穿越兜底: 即便未来调用链再次引入可变路径, 写入也会被拦截并报错,
+    而不是落写到预期之外的位置。
+    """
+    if Path(path).resolve() != Path(expected).resolve():
+        raise ValueError(f"拒绝写入非预期路径: {path} (期望 {expected})")
+
+
 def _validate_or_restore(path: Path, backup: Path, validator) -> None:
     try:
         validator(path)
@@ -45,8 +55,12 @@ def _validate_or_restore(path: Path, backup: Path, validator) -> None:
 
 
 def update_template(template_id: str, changes: dict) -> dict:
-    """更新单条知识库模板(按 id 定位), 返回更新后的模板。"""
-    path = Path(changes.pop("_path", None) or DEFAULT_KB_PATH)
+    """更新单条知识库模板(按 id 定位), 返回更新后的模板。
+
+    写入目标固定为 DEFAULT_KB_PATH(安全中心管理页唯一可编辑知识库),
+    不接受调用方指定路径, 避免路径被外部输入左右。
+    """
+    path = DEFAULT_KB_PATH
     backup = _backup(path)
     data = _load_raw(path)
     row = next((t for t in data.get("templates", []) if t.get("id") == template_id), None)
@@ -55,23 +69,28 @@ def update_template(template_id: str, changes: dict) -> dict:
     for key, value in changes.items():
         if key in EDITABLE_TEMPLATE_FIELDS:
             row[key] = value
-    with open(path, "w", encoding="utf-8", newline="\n") as f:
-        yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+    _guard_write_path(path, DEFAULT_KB_PATH)
+    path.write_text(
+        yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
+        encoding="utf-8", newline="\n")
     _validate_or_restore(path, backup, load_knowledge_base)
     return row
 
 
 def add_template(template: dict) -> dict:
-    """新增知识库模板(完整字段), 返回新模板。"""
-    path = Path(template.pop("_path", None) or DEFAULT_KB_PATH)
+    """新增知识库模板(完整字段), 返回新模板。写入目标固定为 DEFAULT_KB_PATH。"""
+    path = DEFAULT_KB_PATH
+    template.pop("_path", None)  # 兼容历史调用残留: 该字段不写入 YAML
     data = _load_raw(path)
     ids = {t.get("id") for t in data.get("templates", [])}
     if template.get("id") in ids:
         raise ValueError(f"模板 id 已存在: {template.get('id')}")
     data["templates"].append(template)
     backup = _backup(path)
-    with open(path, "w", encoding="utf-8", newline="\n") as f:
-        yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+    _guard_write_path(path, DEFAULT_KB_PATH)
+    path.write_text(
+        yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
+        encoding="utf-8", newline="\n")
     _validate_or_restore(path, backup, load_knowledge_base)
     return template
 
@@ -108,8 +127,10 @@ def save_question_bank(bank: dict) -> None:
     from services.grading import load_question_bank
 
     backup = _backup(QUESTION_BANK_PATH)
-    with open(QUESTION_BANK_PATH, "w", encoding="utf-8", newline="\n") as f:
-        yaml.safe_dump(bank, f, allow_unicode=True, sort_keys=False)
+    _guard_write_path(QUESTION_BANK_PATH, QUESTION_BANK_PATH)
+    QUESTION_BANK_PATH.write_text(
+        yaml.safe_dump(bank, allow_unicode=True, sort_keys=False),
+        encoding="utf-8", newline="\n")
     try:
         load_question_bank(QUESTION_BANK_PATH)  # 结构校验(缓存键含 mtime, 立即重新加载)
     except Exception as exc:

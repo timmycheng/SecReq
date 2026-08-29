@@ -93,11 +93,12 @@ def build_cyclonedx(project: Project, components: list[SbomComponent]) -> dict:
 
 
 def write_cyclonedx_file(bom: dict, path: str | Path) -> Path:
-    """SBOM JSON 落盘(UTF-8、保留中文可读)。"""
+    """SBOM JSON 落盘(UTF-8、保留中文可读); 输出路径不允许包含相对路径段(防穿越)。"""
     path = Path(path)
+    if ".." in path.parts:
+        raise ValueError(f"输出路径不允许包含相对路径段: {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(bom, f, ensure_ascii=False, indent=2)
+    path.write_text(json.dumps(bom, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
 
 

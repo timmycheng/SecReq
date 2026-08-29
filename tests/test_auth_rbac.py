@@ -6,6 +6,8 @@
 3. 数据权限: 开发只见/只改自己创建的项目, 安全全量可见, 越权一律 404;
 4. 项目创建: code 缺省自动生成且唯一, owner 自动写入创建人。
 """
+import uuid
+
 from fastapi.testclient import TestClient
 
 from conftest import api_as, login_as
@@ -58,13 +60,15 @@ def test_open_paths_anonymous_ok_business_401(api):
 
 
 def test_change_password_requires_old_password(api):
+    # 改密旋转口令运行时随机生成, 测试源码不落固定口令
+    rotated = "Rotated-" + uuid.uuid4().hex[:10]
     client = login_as(TestClient(api.app), "dev_zhang")
     bad = client.post("/api/auth/change-password", json={
-        "old_password": "not-it", "new_password": "NewPass12345"})
+        "old_password": "not-it", "new_password": rotated})
     assert bad.status_code == 400
 
     ok = client.post("/api/auth/change-password", json={
-        "old_password": SEED_DEFAULT_PASSWORD, "new_password": "NewPass12345"})
+        "old_password": SEED_DEFAULT_PASSWORD, "new_password": rotated})
     assert ok.status_code == 200
     # 旧会话全部吊销
     assert client.get("/api/auth/me").status_code == 401
@@ -73,13 +77,13 @@ def test_change_password_requires_old_password(api):
         "username": "dev_zhang", "password": SEED_DEFAULT_PASSWORD}).status_code == 401
     restore_client = TestClient(api.app)
     login_resp = restore_client.post("/api/auth/login", json={
-        "username": "dev_zhang", "password": "NewPass12345"})
+        "username": "dev_zhang", "password": rotated})
     assert login_resp.status_code == 200
     restore = TestClient(restore_client.app, headers={
         "Authorization": f"Bearer {login_resp.json()['token']}"})
     # 恢复默认密码, 避免影响其他用例
     assert restore.post("/api/auth/change-password", json={
-        "old_password": "NewPass12345", "new_password": SEED_DEFAULT_PASSWORD}).status_code == 200
+        "old_password": rotated, "new_password": SEED_DEFAULT_PASSWORD}).status_code == 200
 
 
 def _create_project(client: TestClient, name: str, code: str | None = None):

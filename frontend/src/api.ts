@@ -256,9 +256,9 @@ export const api = {
   adminListUsers: () => request<AdminUserRow[]>('/api/admin/users'),
   adminCreateUser: (data: { username: string; display_name: string; employee_id?: string; role: string; password?: string }) =>
     request<{ status: string; initial_password: string }>('/api/admin/users', { method: 'POST', body: JSON.stringify(data) }),
-  adminResetPassword: (username: string, password: string) =>
-    request<{ status: string }>(`/api/admin/users/${username}/reset-password`, {
-      method: 'POST', body: JSON.stringify({ password }),
+  adminResetPassword: (username: string, password?: string) =>
+    request<{ status: string; password: string | null }>(`/api/admin/users/${username}/reset-password`, {
+      method: 'POST', body: JSON.stringify(password ? { password } : {}),
     }),
   adminToggleUser: (username: string) =>
     request<{ username: string; active: boolean }>(`/api/admin/users/${username}/toggle-active`, { method: 'POST' }),

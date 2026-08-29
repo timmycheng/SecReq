@@ -14,7 +14,7 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
 
 import shared.constants as C
 from models import init_db, make_engine, make_session_factory
-from services.pipeline import run_full_pipeline
+from services.pipeline import project_output_dir, run_full_pipeline
 from services.seed_data import summarize_requirements
 
 
@@ -37,7 +37,7 @@ def main() -> None:
 
     result = run_full_pipeline(
         session, project.id,
-        out_dir=root / "output" / project.code,
+        out_dir=project_output_dir(root / "output", project.code),
         skip_osv=offline,
     )
 

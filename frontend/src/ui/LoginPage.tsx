@@ -51,7 +51,8 @@ export default function LoginPage({ onLogin }: { onLogin: (info: LoginInfo) => v
           </Button>
         </Form>
         <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 14, marginBottom: 0 }}>
-          演示账号: dev_li(开发) / sec_chen(安全), 初始密码 Sec123456, 登录后可在右上角修改。
+          演示账号: dev_li(开发) / sec_chen(安全)。初始密码由部署配置 SECREQ_SEED_PASSWORD 指定,
+          未配置时见服务启动日志, 登录后可在右上角修改。
         </Typography.Paragraph>
       </Card>
     </div>

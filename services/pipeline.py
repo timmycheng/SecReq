@@ -7,6 +7,7 @@
 Word 文档生成已按走查整改移除: 产物以 Web 形式展示, 前端提供「复制到 Word」。
 漏洞同步放在规则引擎之前执行, 保证 vulnerability 触发器能看到命中的 CVE。
 """
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -17,6 +18,15 @@ from rules import RuleEngine
 from rules.context import RequirementContext
 from services.osv import OsvClient, OsvSyncResult, sync_vulnerabilities
 from services.sbom import build_cyclonedx, write_cyclonedx_file
+
+# 项目编码 → 目录名: 去掉路径分隔符/盘符等危险字符(存量库编码可能未经 schema 校验)
+_UNSAFE_DIR_CHARS = re.compile(r"[^0-9A-Za-z\u4e00-\u9fff._-]+")
+
+
+def project_output_dir(base_dir: Path, code: str) -> Path:
+    """项目产物输出目录: base_dir/<清洗后的项目编码>, 编码含危险字符时替换为下划线。"""
+    safe = _UNSAFE_DIR_CHARS.sub("_", code or "").strip("._") or "project"
+    return base_dir / safe
 
 
 @dataclass
@@ -69,8 +79,8 @@ def run_full_pipeline(
     engine = engine or RuleEngine.load()
     result.requirements = engine.generate_and_save(ctx, session)
 
-    # ④ 文件产出: CycloneDX JSON
-    base = Path(out_dir) if out_dir else Path("output") / ctx.project.code
+    # ④ 文件产出: CycloneDX JSON(未指定 out_dir 时按 output/<编码> 落盘, 编码经清洗防穿越)
+    base = Path(out_dir) if out_dir else project_output_dir(Path("output"), ctx.project.code)
     result.bom_path = write_cyclonedx_file(bom, base / "sbom.cdx.json")
     return result
 

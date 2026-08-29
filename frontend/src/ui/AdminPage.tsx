@@ -399,7 +399,7 @@ function UsersTab() {
     <>
       <Space style={{ marginBottom: 12 }}>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>新增用户</Button>
-        <Typography.Text type="secondary">新用户默认密码 Sec123456, 首次登录后可在右上角修改</Typography.Text>
+        <Typography.Text type="secondary">新用户未指定密码时由系统生成随机初始密码, 创建后弹窗展示</Typography.Text>
       </Space>
       <Table<AdminUserRow>
         rowKey="username" dataSource={rows} pagination={false} size="small"
@@ -416,11 +416,11 @@ function UsersTab() {
             render: (_v, r) => (
               <Space>
                 <Popconfirm
-                  title={`重置 ${r.display_name} 的密码为默认 Sec123456?`}
+                  title={`重置 ${r.display_name} 的密码? 将生成随机密码。`}
                   onConfirm={async () => {
                     try {
-                      await api.adminResetPassword(r.username, 'Sec123456')
-                      message.success('已重置为默认密码')
+                      const res = await api.adminResetPassword(r.username)
+                      message.success(`已重置, 新密码 ${res.password ?? '-'}`, 8)
                     } catch (e) { message.error((e as Error).message) }
                   }}
                 >

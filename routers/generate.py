@@ -27,7 +27,7 @@ from services.audit_service import audit
 from schemas.requirement import (
     CategoryCount, GenerateSummary, PreviewResult, RequirementOut, VulnerabilityOut,
 )
-from services.pipeline import _load_vulnerabilities, run_full_pipeline
+from services.pipeline import _load_vulnerabilities, project_output_dir, run_full_pipeline
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["generate-export"])
 
@@ -97,7 +97,7 @@ def generate(payload: GenerateRequest | None = None,
     skip_osv = bool(payload.skip_osv) if payload else False
     try:
         result = run_full_pipeline(
-            db, project.id, out_dir=ROOT_DIR / "output" / project.code,
+            db, project.id, out_dir=project_output_dir(ROOT_DIR / "output", project.code),
             skip_osv=skip_osv,
         )
     except ValueError as exc:            # 项目不存在等

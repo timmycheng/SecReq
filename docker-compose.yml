@@ -7,6 +7,8 @@ services:
       - "8000:8000"
     environment:
       SECREQ_DATABASE_URL: sqlite:////app/data/secreq.db
+      # 种子账号初始密码; 不设置则每次启动随机生成并打印到容器日志(仅对新建/补设密码账号生效)
+      # SECREQ_SEED_PASSWORD: change-me-please
     volumes:
       - secreq-data:/app/data     # SQLite 数据库
       - secreq-output:/app/output # 生成产物(SBOM JSON)

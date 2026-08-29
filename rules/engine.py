@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from models import SecurityRequirement
 from rules.context import RequirementContext
-from rules.loader import KnowledgeBase, Template
+from rules.loader import KnowledgeBase, RequirementTemplate
 
 import shared.constants as C
 
@@ -34,7 +34,11 @@ class Match:
 
 
 def render(text: str, placeholders: dict[str, str], template_id: str) -> str:
-    """替换 {{name}} 占位符; 有缺失值则报错(比静默留白更利于发现知识库缺陷)。"""
+    """替换 {{name}} 占位符; 有缺失值则报错(比静默留白更利于发现知识库缺陷)。
+
+    安全口径: 仅做白名单占位符替换——正则只匹配 {{单词}} 形态, 取值查 placeholders
+    字典并以函数替换字面插入; 不做表达式求值、不走 str.format/Jinja, 不构成模板注入(SSTI)。
+    """
 
     def _sub(m: re.Match) -> str:
         key = m.group(1)
@@ -77,7 +81,7 @@ class RuleEngine:
 
         排序稳定(知识库声明顺序 → 来源实体id), 同模板多实例用 -NN 序号保证 req_id 唯一。
         """
-        collected: list[tuple[Template, Match]] = []
+        collected: list[tuple[RequirementTemplate, Match]] = []
         seen: set[tuple[str, int]] = set()
 
         for tpl in self.kb.templates:
@@ -185,7 +189,7 @@ class RuleEngine:
 
     # ────────────────────────── 各维度判定 ──────────────────────────
 
-    def _match_features(self, tpl: Template, ctx: RequirementContext) -> list[Match]:
+    def _match_features(self, tpl: RequirementTemplate, ctx: RequirementContext) -> list[Match]:
         """功能分类命中: 每个包含目标分类的功能独立一条(关联 feature.id)。"""
         category = (tpl.trigger.get("condition") or {}).get("category")
         matches = []
@@ -203,7 +207,7 @@ class RuleEngine:
                 )
         return matches
 
-    def _match_permissions(self, tpl: Template, ctx: RequirementContext) -> list[Match]:
+    def _match_permissions(self, tpl: RequirementTemplate, ctx: RequirementContext) -> list[Match]:
         """权限矩阵分析: 扫描算法按 trigger.rule_key 选择。"""
         rule_key = tpl.trigger.get("rule_key")
         scan = {
@@ -294,7 +298,7 @@ class RuleEngine:
             if role.role_type == "super_admin"
         ]
 
-    def _match_auth_method(self, tpl: Template, ctx: RequirementContext) -> list[Match]:
+    def _match_auth_method(self, tpl: RequirementTemplate, ctx: RequirementContext) -> list[Match]:
         """认证方式包含判断 → 单条系统级需求。"""
         method = tpl.trigger.get("method")
         methods = ctx.auth_config.auth_methods or [] if ctx.auth_config else []
@@ -313,7 +317,7 @@ class RuleEngine:
         from rules.policy import effective_password_policy
         return effective_password_policy(ctx)
 
-    def _match_policy_baseline(self, tpl: Template, ctx: RequirementContext) -> list[Match]:
+    def _match_policy_baseline(self, tpl: RequirementTemplate, ctx: RequirementContext) -> list[Match]:
         """定级推导的策略基线: 默认恒触发(逐条从 auth_config 取值);
 
         例外: force_2fa 仅在勾选强制双因素、或用户规模>10万、或等保三级时建议。
@@ -339,7 +343,7 @@ class RuleEngine:
 
         return [Match(placeholders, "policy_baseline", source_id)]
 
-    def _match_data_assets(self, tpl: Template, ctx: RequirementContext) -> list[Match]:
+    def _match_data_assets(self, tpl: RequirementTemplate, ctx: RequirementContext) -> list[Match]:
         """数据资产规则: 按 condition 键分派, 每条命中的资产独立成需求。
 
         分级条件(JR/T 0197 五级):
@@ -417,7 +421,7 @@ class RuleEngine:
                     hits.add(kind)
         return hits
 
-    def _match_api_endpoints(self, tpl: Template, ctx: RequirementContext) -> list[Match]:
+    def _match_api_endpoints(self, tpl: RequirementTemplate, ctx: RequirementContext) -> list[Match]:
         """接口属性布尔判定, 每个满足条件的接口一条需求。"""
         condition = tpl.trigger.get("condition") or {}
         matches: list[Match] = []
@@ -449,7 +453,7 @@ class RuleEngine:
                 )
         return matches
 
-    def _match_compliance(self, tpl: Template, ctx: RequirementContext) -> list[Match]:
+    def _match_compliance(self, tpl: RequirementTemplate, ctx: RequirementContext) -> list[Match]:
         """合规目标包含判断: target 在项目合规目标列表中即命中。"""
         target = tpl.trigger.get("target")
         targets = ctx.project.compliance_targets or []
@@ -463,7 +467,7 @@ class RuleEngine:
             )
         ]
 
-    def _match_regulatory_triggers(self, tpl: Template, ctx: RequirementContext) -> list[Match]:
+    def _match_regulatory_triggers(self, tpl: RequirementTemplate, ctx: RequirementContext) -> list[Match]:
         """监管报送触发器(改造点3): 项目输入满足条件即在需求清单置顶生成报送类需求。
 
         rule_key 枚举:
@@ -544,7 +548,7 @@ class RuleEngine:
 
         raise RuleEngineError(f"模板『{tpl.id}』未知监管报送 rule_key={key}")
 
-    def _match_external_systems(self, tpl: Template, ctx: RequirementContext) -> list[Match]:
+    def _match_external_systems(self, tpl: RequirementTemplate, ctx: RequirementContext) -> list[Match]:
         """外部系统交互: 每个对接的外部系统一条需求。
 
         condition:
@@ -566,7 +570,7 @@ class RuleEngine:
                 source_entity_id=system.id,
             )
 
-    def _match_license_risk(self, tpl: Template, ctx: RequirementContext) -> list[Match]:
+    def _match_license_risk(self, tpl: RequirementTemplate, ctx: RequirementContext) -> list[Match]:
         """许可证风险: 组件申报许可证的风险等级达到模板阈值时每个组件一条需求。
 
         condition: {"risk": "high"} 或 {"risk": "medium"}(含 medium 及以上)。
@@ -590,7 +594,7 @@ class RuleEngine:
                 source_entity_id=component.id,
             )
 
-    def _match_vulnerabilities(self, tpl: Template, ctx: RequirementContext) -> list[Match]:
+    def _match_vulnerabilities(self, tpl: RequirementTemplate, ctx: RequirementContext) -> list[Match]:
         """SBOM 漏洞联动: 组件存在 high/critical 漏洞时每个组件一条需求。
 
         OSV 实际查询在 services 层(第二批实现); 本判定仅依赖已落库的 VulnerabilityRecord。

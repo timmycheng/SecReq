@@ -16,7 +16,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     SECREQ_DATABASE_URL=sqlite:////app/data/secreq.db
 
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+# 先升级工具链: 基础镜像自带的 pip/setuptools 版本较旧, 存在已知漏洞通告
+RUN pip install --no-cache-dir --upgrade pip setuptools \
+    && pip install --no-cache-dir -r requirements.txt
 
 COPY main.py ./
 COPY models/ models/
