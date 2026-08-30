@@ -38,9 +38,18 @@ COPY shared/ shared/
 COPY scripts/ scripts/
 COPY --from=frontend /build/dist/ frontend/dist/
 
-# /app/data 存 SQLite 数据库, /app/output 存生成产物, 均建议挂载卷
+# ── 阶段三: 漏洞库基线(可选) ────────────────────────────────────────────────
+# 由 CI 用 oras 拉取基线库后放入构建上下文; 未拉取到时 CI 会放一个空文件占位,
+# 应用识别为"无漏洞库", 漏洞查询标注「无法判定」而非「未发现漏洞」。
+#
+# 内置的是**基线库**而非完整库: 完整库走 docker-compose 挂载覆盖, 日常更新
+# 只替换文件 + 重启容器, 不必重建镜像走内网镜像入库流程(紧急漏洞分钟级生效)。
+COPY vulndb.sqlite* /app/data/
+
+# /app/data 存 SQLite 数据库与漏洞库, /app/output 存生成产物, 均建议挂载卷
 RUN mkdir -p /app/data /app/output
 VOLUME ["/app/data", "/app/output"]
+ENV SECREQ_DATA_DIR=/app/data
 
 EXPOSE 8000
 

@@ -3,11 +3,18 @@
 
 走查整改: 知识库策略可视化、可配置; 平台自身安全功能(用户管理、审计留痕)到位。
 """
+import hashlib
+import json
+import logging
+import os
 import secrets
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 import shared.constants as C
 from models import AuditLog, PlatformUser
@@ -258,6 +265,146 @@ def toggle_active(username: str, request: Request,
     audit(db, user.username, "user_toggle", {"target": username, "active": bool(target.active)},
           _client_ip(request))
     return {"username": username, "active": bool(target.active)}
+
+
+# ── 离线漏洞库(v2.2.0) ─────────────────────────────────
+def _vulndb_snapshot() -> dict:
+    """本地漏洞库概况: 版本/生态/记录数/体积/校验和 + 覆盖缺口。"""
+    from services.cnnvd import stats as cnnvd_stats
+    from services.vulndb import VulnDb
+    from services.vuln_source import describe_sources
+
+    db = VulnDb()
+    base = {
+        "available": False,
+        "path": db.path,
+        "sources": describe_sources(),
+        "cnnvd": cnnvd_stats(),
+    }
+    if not db.exists():
+        return {**base, "reason": f"漏洞库文件不存在: {db.path}"}
+    try:
+        meta = db.meta()
+        imported = db.imported_ecosystems
+        covered = db.covered_ecosystems
+    except Exception as exc:  # 库损坏/不可读时明确报出, 不伪装成"正常"
+        logger.error("读取漏洞库失败(%s): %s", db.path, exc, exc_info=True)
+        return {**base, "reason": f"漏洞库无法读取: {exc}"}
+
+    per_eco: dict[str, int] = {}
+    try:
+        per_eco = json.loads(meta.get("per_ecosystem") or "{}")
+    except ValueError:
+        per_eco = {}
+
+    declared = [e for e in (meta.get("ecosystems") or "").split(",") if e]
+    missing = [
+        {"code": code, "label": label}
+        for code, label in C.VULN_ECOSYSTEMS.items() if code not in imported
+    ]
+    try:
+        size_mb = round(os.path.getsize(db.path) / 1e6, 2)
+    except OSError:
+        size_mb = None
+
+    return {
+        **base,
+        "available": True,
+        "db_version": meta.get("db_version"),
+        "built_at": meta.get("built_at"),
+        "total": int(meta.get("total") or 0),
+        "size_mb": size_mb,
+        "sha256": _read_expected_sha256(db.path),
+        "compressed": meta.get("compressed") == "1",
+        "slim": meta.get("slim") == "1",
+        "declared_ecosystems": [
+            {"code": code, "label": C.VULN_ECOSYSTEMS.get(code, code), "records": per_eco.get(code)}
+            for code in declared
+        ],
+        "imported_ecosystems": sorted(imported),
+        # 真正覆盖 = 声明导入 ∩ 实际入库。OSV 的多生态公告会在一个生态的 zip 里
+        # 夹带其他生态的包坐标(实测 Maven/all.zip 带 92 条 npm), 按"有记录即覆盖"
+        # 会把只导了部分生态的库当成全覆盖 —— 最危险的那种虚假安全感。
+        "covered_ecosystems": sorted(covered),
+        "incidental_ecosystems": sorted(imported - covered),
+        "missing_ecosystems": missing,
+        "upstream": meta.get("upstream"),
+        "gaps": [
+            {
+                "code": "kylin",
+                "label": "银河麒麟",
+                "note": C.KYLIN_PROXY_NOTE,
+                "detail": (
+                    "麒麟不在 OSV 的 39 个生态中, 本平台按 openEuler 同源数据代理匹配。"
+                    "麒麟的独立补丁回合、自有组件(KVE 编号)与架构维度均无法覆盖, "
+                    "结果仅供参考, 最终以麒麟官方安全公告为准"
+                ),
+            },
+            {
+                "code": "k8s",
+                "label": "Kubernetes",
+                "note": "Bitnami 与 Alpine 生态均无 Kubernetes 覆盖",
+                "detail": "需由行内 SCA 或单独数据源补充; 当前一律标注为「未纳入本地漏洞库」",
+            },
+        ],
+    }
+
+
+@router.get("/vuln-db")
+def get_vuln_db(_: PlatformUser = Depends(require_security)):
+    """漏洞库状态(管理端「漏洞库」页)。"""
+    return _vulndb_snapshot()
+
+
+@router.post("/vuln-db/verify")
+def verify_vuln_db(request: Request, db: Session = Depends(get_db),
+                   user: PlatformUser = Depends(require_security)):
+    """重算 SHA256 与构建时记录的校验和比对(摆渡完整性核验), 并留审计。
+
+    大库(数百 MB)重算校验和是秒级操作, 故做成显式触发而非随状态查询执行。
+    """
+    from services.cnnvd import stats as cnnvd_stats
+    from services.vuln_source import vulndb_path
+
+    path = vulndb_path()
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail=f"漏洞库文件不存在: {path}")
+    digest = _sha256_file(path)
+    expected = _read_expected_sha256(path)
+    ok = expected is None or digest == expected
+    detail = {
+        "path": path,
+        "sha256": digest,
+        "expected": expected,
+        "match": ok,
+        "size_mb": round(os.path.getsize(path) / 1e6, 2),
+    }
+    audit(db, user.username, "vulndb_verify", detail, _client_ip(request))
+    if not ok:
+        logger.error("漏洞库校验和不匹配: %s(期望 %s)", digest, expected)
+    return {**detail, "cnnvd": cnnvd_stats()}
+
+
+def _sha256_file(path: str, chunk: int = 1 << 20) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for block in iter(lambda: fh.read(chunk), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _read_expected_sha256(path: str) -> str | None:
+    """读构建时产出的 sidecar 校验文件(<库名>.sha256, sha256sum 兼容格式)。
+
+    校验和不放在库内: 往库里写记录会改变文件本身, 库内记录的校验和写入即失效。
+    """
+    sidecar = Path(path).with_name(Path(path).name + ".sha256")
+    if not sidecar.is_file():
+        return None
+    try:
+        return sidecar.read_text(encoding="utf-8").split()[0].strip().lower() or None
+    except (OSError, IndexError, UnicodeDecodeError):
+        return None
 
 
 # ── 审计日志 ──────────────────────────────────────────

@@ -54,7 +54,7 @@ docker compose up -d
 离线环境可从 GitHub Release 下载对应版本的镜像包后导入:
 
 ```bash
-docker load -i secreq-image-v2.1.3.tar.gz
+docker load -i secreq-image-v2.2.0.tar.gz
 ```
 
 ### 内网部署(无互联网出口)
@@ -64,7 +64,7 @@ docker load -i secreq-image-v2.1.3.tar.gz
 并预留了漏洞库挂载位(v2.2.0 起可用于不重建镜像更新漏洞数据)。
 
 ```bash
-docker load -i secreq-image-v2.1.3.tar.gz
+docker load -i secreq-image-v2.2.0.tar.gz
 cp docker-compose.intranet.yml docker-compose.yml
 cp .env.example .env   # 编辑 .env 设置 SECREQ_SEED_PASSWORD
 docker compose up -d
@@ -72,6 +72,49 @@ docker compose up -d
 
 HTTPS 由前置反向代理终结(容器本身只提供 HTTP), 配置模板见
 `deploy/nginx/secreq.conf`。
+
+### 离线漏洞库(v2.2.0)
+
+平台在内网运行, **组件漏洞匹配完全依赖本地离线漏洞库**, 不访问任何外部服务。
+
+**镜像内置的是基线库, 不是完整库。** 完整库通过挂载覆盖 —— 更新漏洞数据时只替换
+一个文件并重启容器, 不必重建镜像走内网镜像入库流程(遇到 log4j2 级别的紧急漏洞
+分钟级即可生效):
+
+```yaml
+volumes:
+  - ./vulndb/vulndb-20260915.sqlite:/app/data/vulndb.sqlite:ro
+```
+
+在联网区构建漏洞库(产物摆渡进内网, 连同 `.sha256` 一起带):
+
+```bash
+# 默认推荐配置: 语言层(npm/Maven/PyPI/Go/NuGet/crates.io) + Bitnami + Alpine + openEuler
+python scripts/build_vuln_db.py --out vulndb.sqlite
+
+# 自定义生态 / 用已下载的 zip 离线构建 / 只看不写 / 列出全部可用生态
+python scripts/build_vuln_db.py --ecosystems npm,Maven,Bitnami
+python scripts/build_vuln_db.py --source-dir ./osv-zips
+python scripts/build_vuln_db.py --dry-run
+python scripts/build_vuln_db.py --list-ecosystems
+
+# CNNVD 编号映射(可选; 月度 XML 需从 CNNVD 站点登录后下载, 无法自动化)
+python scripts/build_cnnvd_map.py --source-dir ./cnnvd-xml
+```
+
+摆渡完成后可在**系统管理 → 漏洞库**查看库版本、生态覆盖与记录数, 并点
+「校验文件完整性」比对 SHA256(该操作留审计)。
+
+**⚠️ 已知覆盖缺口(务必知悉)**
+
+| 缺口 | 说明 |
+| ---- | ---- |
+| **银河麒麟** | 麒麟不在 OSV 的 39 个生态中。本平台按 **openEuler 同源数据代理匹配**, 结果一律标注「推断, 以麒麟官方安全公告为准」。麒麟的独立补丁回合、自有组件(KVE 编号)与架构维度(aarch64 / loongarch64 / sw_64)**无法覆盖**。补齐的唯一途径是向麒麟索取正式数据源 |
+| Kubernetes | Bitnami 与 Alpine 生态均无覆盖, 需由行内 SCA 或单独数据源补充 |
+| 源码编译 / 自研组件 | 不在任何公开漏洞库覆盖范围, 需人工评估 |
+
+**三种「查不到」在界面上是分开的**, 绝不会合并成「无漏洞」:
+`未纳入本地漏洞库覆盖范围` / `无法判定(需补生态或分发渠道)` / `未发现已知漏洞`。
 
 ### 演示账号
 
@@ -127,6 +170,10 @@ cd frontend && npm run build
 | ---- | ------ | ---- |
 | `SECREQ_DATABASE_URL` | `sqlite:///<应用目录>/secreq.db` | SQLAlchemy 连接串;容器镜像内默认 `sqlite:////app/data/secreq.db`,也可指向 PostgreSQL 等外部库 |
 | `SECREQ_SEED_PASSWORD` | 未设置时每次启动随机生成 | 种子账号/未指定密码新建账号的初始密码;随机值会打印到服务启动日志(仅对当次新建或补设密码的账号生效)。生产部署建议显式设置并在首登后修改 |
+| `SECREQ_VULN_SOURCE` | `local` | 漏洞数据源链(逗号分隔, 前一个不可用时自动降级到后一个并记日志): `local` 本地离线库(内网默认) / `online` OSV.dev 在线(需互联网) / `sca` 行内 SCA(尚未接入, 选中会明确报「未启用」) |
+| `SECREQ_VULNDB_PATH` | `<SECREQ_DATA_DIR>/vulndb.sqlite` | 本地漏洞库路径;镜像内置基线库, 挂载外部库可覆盖 |
+| `SECREQ_CNNVD_PATH` | `<SECREQ_DATA_DIR>/cnnvd_map.sqlite` | CNNVD 编号映射库路径(可选, 缺失不影响漏洞匹配) |
+| `SECREQ_DATA_DIR` | `./data`(容器内 `/app/data`) | 主库 / 漏洞库 / CNNVD 映射库所在目录 |
 
 ## 目录结构
 
@@ -156,7 +203,11 @@ SecReq/
 │  ├─ feature_extract.py  # 粘贴需求段落 → 候选功能点(LLM 优先, 关键词规则降级)
 │  ├─ dictionary_import.py# 数据字典粘贴/上传解析 + 字段自动分级(JR/T 五级/PII/脱敏建议)
 │  ├─ seed_data.py        # 种子数据「个人网银系统」(JR/T 五级 + C3 标签)
-│  ├─ sbom.py / sbom_import.py / osv.py   # SBOM 构建/导入/OSV 查询
+│  ├─ sbom.py / sbom_import.py / osv.py   # SBOM 构建/导入/漏洞查询与规范化
+│  ├─ vuln_source.py      # 数据源协议与工厂(local/online/sca 链式降级)
+│  ├─ vulndb.py           # 本地离线漏洞库查询(内网默认数据源)
+│  ├─ vuln_match/         # 按生态的版本归一化(Bitnami/Alpine/Debian/RHEL/openEuler)
+│  └─ cnnvd.py            # CNNVD 编号映射(展示与导出补合规字段)
 │  ├─ tracking_export.py  # openpyxl 需求跟踪表(含合规依据列)
 │  ├─ pipeline.py         # 全流程编排: 漏洞同步→规则引擎→SBOM JSON 落盘
 │  ├─ session_service.py  # Bearer 会话签发/校验/吊销 + 登录失败锁定
@@ -168,9 +219,11 @@ SecReq/
 ├─ frontend/              # React 19 + TS + AntD(登录页 + dashboard 布局 + 8步向导 + 产物Web页 + 系统管理)
 ├─ scripts/
 │  ├─ run_seed_demo.py         # 一键验证: 建库 → 种子 → 漏洞同步 → 生成 → 打印清单
-│  └─ migrate_classification.py # 老四级分级迁移脚本(交付物)
+│  ├─ migrate_classification.py # 老四级分级迁移脚本(交付物)
+│  ├─ build_vuln_db.py         # 构建本地离线漏洞库(联网区执行, 产物摆渡进内网)
+│  └─ build_cnnvd_map.py       # 构建 CNNVD 编号映射库
 ├─ output/<项目编码>/       # 每次生成的 SBOM JSON 落盘位置
-└─ tests/                 # pytest(135个用例: 认证与数据权限/智能录入/管理端/五级联动/报送触发等)
+└─ tests/                 # pytest(189个用例: 认证与数据权限/智能录入/管理端/五级联动/报送触发等)
 ```
 
 ## 版本与发布

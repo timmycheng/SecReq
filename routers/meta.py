@@ -26,6 +26,11 @@ _ENUMS = {
     "auth_methods": C.AUTH_METHODS,
     "sbom_layers": C.SBOM_LAYERS,
     "sbom_source_types": C.SBOM_SOURCE_TYPES,
+    # v2.2.0 离线漏洞库: 生态 / 分发渠道 / 查询语义(Step7 下拉与结果展示的唯一来源)
+    "vuln_ecosystems": C.VULN_ECOSYSTEMS,
+    "sbom_distros": C.SBOM_DISTROS,
+    "vuln_query_status": C.VULN_QUERY_STATUS,
+    "vuln_query_status_hints": C.VULN_QUERY_STATUS_HINTS,
     "infra_asset_types": C.INFRA_ASSET_TYPES,
     "external_system_directions": C.EXTERNAL_SYSTEM_DIRECTIONS,
     "license_risk": C.LICENSE_RISK,
@@ -57,6 +62,7 @@ def get_constants() -> dict:
             "default_lockout_threshold": C.DEFAULT_LOCKOUT_THRESHOLD,
             "default_session_timeout_min": C.DEFAULT_SESSION_TIMEOUT_MIN,
             "severity_labels": C.SEVERITY_LABELS,
+            "kylin_proxy_note": C.KYLIN_PROXY_NOTE,
         }
     )
     return payload

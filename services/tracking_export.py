@@ -40,8 +40,31 @@ _JIRA_HINTS = [
 ]
 
 
-def build_tracking_workbook(requirements: list) -> Workbook:
-    """requirements 为 SecurityRequirement 记录列表, 返回内存工作簿。"""
+#: 漏洞清单工作表(v2.2.0): 合规通报常要求 CNNVD 编号, 与需求跟踪表一并交付
+_VULN_COLUMNS = [
+    ("等级", 10, "center"),
+    ("CVE", 22, "left"),
+    ("CNNVD", 22, "left"),
+    ("中文等级", 10, "center"),
+    ("组件", 26, "left"),
+    ("受影响范围", 22, "left"),
+    ("修复版本", 14, "left"),
+    ("数据来源", 14, "center"),
+    ("简述", 44, "left"),
+]
+
+_VULN_SOURCE_LABELS = {
+    "osv_local": "本地漏洞库",
+    "osv_online": "OSV.dev 在线",
+    "sca": "行内 SCA",
+}
+
+
+def build_tracking_workbook(requirements: list, vulnerabilities: list | None = None) -> Workbook:
+    """requirements 为 SecurityRequirement 记录列表, 返回内存工作簿。
+
+    vulnerabilities 可选: 传入时追加「漏洞清单」工作表(含 CNNVD 编号与数据来源)。
+    """
     wb = Workbook()
     ws = wb.active
     ws.title = "跟踪表"
@@ -92,6 +115,9 @@ def build_tracking_workbook(requirements: list) -> Workbook:
                 cell.alignment = Alignment(
                     horizontal=align, vertical="top", wrap_text=True)
 
+    if vulnerabilities is not None:
+        _append_vuln_sheet(wb, vulnerabilities)
+
     hints = wb.create_sheet("Jira导入说明")
     hints.column_dimensions["A"].width = 100
     for row_idx, hint_row in enumerate(_JIRA_HINTS, start=1):
@@ -100,8 +126,46 @@ def build_tracking_workbook(requirements: list) -> Workbook:
     return wb
 
 
-def tracking_xlsx_bytes(requirements: list) -> bytes:
+def _append_vuln_sheet(wb: Workbook, vulnerabilities: list) -> None:
+    """追加漏洞清单工作表; 表头样式与跟踪表保持一致。"""
+    ws = wb.create_sheet("漏洞清单")
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor="2F5597")
+    for col, (title, width, _) in enumerate(_VULN_COLUMNS, start=1):
+        cell = ws.cell(row=1, column=col, value=title)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        ws.column_dimensions[get_column_letter(col)].width = width
+    ws.freeze_panes = "A2"
+
+    severity_order = {s: i for i, s in enumerate(["critical", "high", "medium", "low"])}
+    rows = sorted(
+        vulnerabilities,
+        key=lambda v: (severity_order.get(v.severity, 9), getattr(v, "component_name", "") or "", v.cve_id),
+    )
+    for idx, v in enumerate(rows, start=2):
+        version = getattr(v, "component_version", "") or ""
+        comp = f"{getattr(v, 'component_name', '')}@{version}".strip("@")
+        values = [
+            C.label(C.SEVERITY_LABELS, v.severity),
+            v.cve_id,
+            getattr(v, "cnnvd_id", None) or "—",
+            getattr(v, "cn_severity", None) or "—",
+            comp or "—",
+            v.affected_range or "—",
+            v.fix_version or "未发布",
+            _VULN_SOURCE_LABELS.get(getattr(v, "source", "") or "", "本地漏洞库"),
+            v.summary or "",
+        ]
+        for col, value in enumerate(values, start=1):
+            _, _, align = _VULN_COLUMNS[col - 1]
+            ws.cell(row=idx, column=col, value=value).alignment = Alignment(
+                horizontal=align, vertical="top", wrap_text=(align == "left"))
+
+
+def tracking_xlsx_bytes(requirements: list, vulnerabilities: list | None = None) -> bytes:
     """工作簿序列化为字节流(API 直接返回)。"""
     buffer = BytesIO()
-    build_tracking_workbook(requirements).save(buffer)
+    build_tracking_workbook(requirements, vulnerabilities).save(buffer)
     return buffer.getvalue()

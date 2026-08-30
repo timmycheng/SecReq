@@ -6,7 +6,8 @@ import type {
   ExternalSystemRow, FeatureRow, GenerateSummary, GradingQuestion,
   InfraAssetRow, LabelMap, LoginInfo, MatrixEntryIn,
   PreviewResult, ProjectDetail, ProjectInfo, RequirementRow, RoleRow,
-  ResourceRow, SurveyAnswer, VulnerabilityRow, WizardState,
+  ResourceRow, SurveyAnswer, VulnerabilityRow, VulnDbStatus, VulnDbVerifyResult,
+  WizardState,
 } from './types'
 
 export type { MatrixEntryIn }
@@ -263,6 +264,11 @@ export const api = {
   adminToggleUser: (username: string) =>
     request<{ username: string; active: boolean }>(`/api/admin/users/${username}/toggle-active`, { method: 'POST' }),
   listAuditLogs: () => request<AuditLogRow[]>('/api/admin/audit-logs'),
+
+  /* ── 离线漏洞库(v2.2.0) ── */
+  getVulnDb: () => request<VulnDbStatus>('/api/admin/vuln-db'),
+  verifyVulnDb: () =>
+    request<VulnDbVerifyResult>('/api/admin/vuln-db/verify', { method: 'POST' }),
   batchConfirmRequirements: (id: number, reqIds: string[]) =>
     request<{ confirmed: number; missing: string[] }>(`/api/projects/${id}/requirements/batch-confirm`, {
       method: 'POST', body: JSON.stringify({ req_ids: reqIds }),

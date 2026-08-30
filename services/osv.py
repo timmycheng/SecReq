@@ -4,8 +4,13 @@
 DESIGN.md 模块3:
 - 构造 purl 后调用 https://api.osv.dev/v1/query (POST {package:{purl}});
 - 结果规范化为 VulnerabilityRecord 落库(CVE编号/CVSS分数与等级/影响范围/修复版本/简述);
-- 查询结果按组件缓存 24h(SbomComponent.last_osv_query_at), 避免重复请求;
 - 网络失败时降级: 保留既有记录、标记 failed, 不阻塞其他流程。
+
+v2.2.0 变更 —— 取数通道改为可插拔的 VulnSource(见 services/vuln_source.py):
+- 内网默认走 OsvLocalSource(离线漏洞库), 在线通道仅用于开发/演示;
+- 缓存判定从"24h TTL"改为"TTL 且指纹未变": 指纹含漏洞库版本与组件版本,
+  导入新漏洞库或改了组件版本都会立即重算, 不再沿用过期结果;
+- 查询结果带语义(vuln_status), 四种语义不可合并为"无漏洞"。
 
 测试通过注入 httpx.MockTransport 替换网络层(见 tests/test_osv.py)。
 """
@@ -25,6 +30,10 @@ logger = logging.getLogger(__name__)
 OSV_BASE_URL = "https://api.osv.dev"
 CACHE_TTL = timedelta(hours=24)
 
+#: OsvLocalSource 在返回的原始记录上挂的私有键 —— 预筛出的"包含目标版本"的窗口,
+#: 避免 normalize 重新计算时把不相关的窗口也渲染进影响范围。
+MATCHED_WINDOWS_KEY = "_secreq_windows"
+
 # CVSS 分数 → severity 档位(database_specific.severity 缺失时兜底判定)
 CVSS_CRITICAL_MIN = 9.0
 CVSS_HIGH_MIN = 7.0
@@ -40,14 +49,18 @@ class OsvSyncResult:
     """一次漏洞同步的汇总, 供脚本/接口展示。
 
     updated  本次实际重新查询并写入记录的组件名
-    cached   缓存未过期、跳过网络的组件名
-    failed   OSV 查询失败(网络/HTTP错误)的组件名 → 展示"漏洞查询暂不可用"
+    cached   缓存未过期、跳过查询的组件名
+    failed   查询失败的组件名 → 展示"漏洞查询暂不可用"
+    status   各组件的查询语义(见 VULN_QUERY_STATUS), 前端据此区分"未覆盖/无法判定/未发现"
     """
 
     def __init__(self) -> None:
         self.updated: list[str] = []
         self.cached: list[str] = []
         self.failed: list[str] = []
+        self.status: dict[str, str] = {}
+        self.source: str = "osv_local"
+        self.source_label: str = "本地漏洞库"
 
     @property
     def degraded(self) -> bool:
@@ -57,6 +70,14 @@ class OsvSyncResult:
         parts = [f"已更新{len(self.updated)}", f"缓存命中{len(self.cached)}"]
         if self.failed:
             parts.append(f"查询失败{len(self.failed)}({', '.join(self.failed)})")
+        counts: dict[str, int] = {}
+        for name, status in self.status.items():
+            counts[status] = counts.get(status, 0) + 1
+        if counts:
+            parts.append("、".join(
+                f"{C.VULN_QUERY_STATUS.get(s, s)}{n}" for s, n in sorted(counts.items())
+            ))
+        parts.append(f"数据来源: {self.source_label}")
         return "OSV查询: " + ", ".join(parts)
 
 
@@ -100,12 +121,16 @@ class OsvClient:
 
     @staticmethod
     def normalize(
-        vuln: dict, target_purl: str | None = None, target_version: str | None = None
+        vuln: dict, target_purl: str | None = None, target_version: str | None = None,
+        windows: list[dict] | None = None,
     ) -> NormalizedVuln:
         """把 OSV 原始字典转成 VulnerabilityRecord 所需字段。
 
         target_purl/target_version 用于在同一漏洞的多个包坐标中锁定本组件,
         并给出"包含当前版本"窗口对应的修复版本。
+
+        windows 由本地漏洞库传入: 它已筛出包含目标版本的窗口, 直接沿用可避免
+        把同一漏洞下不相关的窗口也渲染进"影响范围"(本地库按包名取候选, 候选量远大于在线查询)。
         """
         cve_id = next(
             (a for a in vuln.get("aliases") or [] if str(a).upper().startswith("CVE-")),
@@ -114,7 +139,8 @@ class OsvClient:
 
         score = _extract_cvss_score(vuln)
         severity = _resolve_severity(vuln, score)
-        windows = _extract_ranges(vuln, target_purl)
+        if windows is None:
+            windows = _extract_ranges(vuln, target_purl)
         fix_version = _pick_fix_version(windows, target_version)
         summary = (vuln.get("summary") or vuln.get("details") or "").strip()
         if len(summary) > SUMMARY_MAX_LEN:
@@ -303,46 +329,113 @@ def _render_range(windows: list[dict]) -> str | None:
     return "；".join(segments)
 
 
+def _query_fingerprint(source_name: str, source_version: str, comp: SbomComponent) -> str:
+    """缓存指纹: 数据源 + 库版本 + 组件坐标。
+
+    含组件版本是刻意的 —— 旧实现只按时间判定, 用户在 24h 内改了版本号
+    仍会沿用旧结果, 属于"看起来查过、实际是错的"。
+    """
+    return "|".join([
+        source_name, source_version, (comp.name or "").lower(),
+        comp.version or "", comp.ecosystem or "", comp.distro or "",
+    ])
+
+
+def component_query(comp: SbomComponent) -> "VulnQuery":  # noqa: F821
+    """组件 → 数据源查询入参(purl 缺失时按生态现场构造)。"""
+    from services.sbom import build_purl  # 局部导入避免循环依赖
+    from services.vuln_source import VulnQuery
+
+    return VulnQuery(
+        name=comp.name,
+        version=comp.version,
+        purl=build_purl(comp) or comp.purl,
+        ecosystem=comp.ecosystem,
+        distro=comp.distro,
+    )
+
+
 def sync_vulnerabilities(
     session: Session,
     components: list[SbomComponent],
     client: OsvClient | None = None,
     force: bool = False,
     now: datetime | None = None,
+    source=None,
 ) -> tuple[list[VulnerabilityRecord], OsvSyncResult]:
-    """对组件清单执行漏洞同步(24h 缓存 + 失败降级), 返回(全部记录, 同步汇总)。
+    """对组件清单执行漏洞同步(指纹缓存 + 失败降级), 返回(全部记录, 同步汇总)。
 
-    - 缓存有效(last_osv_query_at 在 TTL 内)且未 force → 直接沿用已落库记录;
-    - 无 purl 组件跳过(ensure_purl 已在 SBOM 阶段补齐, 此处仅防御);
+    - 数据源: 未显式传入时按 SECREQ_VULN_SOURCE 配置链取第一个可用的;
+      显式传 client(OsvClient)走在线通道 —— 兼容既有调用与测试。
+    - 缓存: 在 TTL 内且指纹未变才复用; 换漏洞库、改组件版本都会立即重算。
     - 单个组件查询失败只记入 failed 并保留旧记录, 不抛出、不阻塞其余组件。
     """
-    from services.sbom import ensure_purl  # 局部导入避免循环依赖
+    from services.vuln_source import VulnSourceUnavailable, get_vuln_source
 
-    own_client = client is None
-    client = client or OsvClient()
     now = now or datetime.now(timezone.utc)
     result = OsvSyncResult()
 
+    if source is None:
+        if client is not None:
+            from services.vulndb import OsvOnlineSource
+            source = OsvOnlineSource(client)
+        else:
+            try:
+                source, skipped = get_vuln_source()
+            except VulnSourceUnavailable as exc:
+                # 无可用数据源: 不静默放过 —— 每个组件都标注 undetermined 并记日志
+                logger.error("漏洞数据源不可用, 本次跳过全部组件: %s", exc)
+                for comp in components:
+                    comp.vuln_status = "undetermined"
+                    comp.vuln_status_note = str(exc)[:300]
+                    result.failed.append(comp.name)
+                session.commit()
+                return [], result
+    result.source = source.name
+    result.source_label = _source_label(source)
+
+    try:
+        source_version = _source_version(source)
+    except Exception as exc:  # 取版本号失败不应阻断同步
+        logger.warning("读取漏洞库版本失败, 按无版本处理: %s", exc)
+        source_version = "unknown"
+
     for comp in components:
+        fingerprint = _query_fingerprint(source.name, source_version, comp)
         fresh_until = (
             comp.last_osv_query_at.replace(tzinfo=timezone.utc)
             if comp.last_osv_query_at else None
         )
-        if not force and fresh_until is not None and now - fresh_until < CACHE_TTL:
+        if (
+            not force
+            and fresh_until is not None
+            and now - fresh_until < CACHE_TTL
+            and comp.osv_query_fingerprint == fingerprint
+        ):
             result.cached.append(comp.name)
+            result.status[comp.name] = comp.vuln_status or "not_found"
             continue
 
-        purl = ensure_purl(comp)
-
-        raw_vulns = client.query_purl(purl)
-        if raw_vulns is None:
-            # 降级: 不清空旧记录, 下次运行重试
+        try:
+            outcome = source.query(component_query(comp))
+        except VulnSourceUnavailable as exc:
+            # 数据源故障: 保留旧记录待重试, 不伪造"无漏洞"
+            logger.error("漏洞查询失败(%s): %s", comp.name, exc)
             result.failed.append(comp.name)
+            comp.vuln_status = "undetermined"
+            comp.vuln_status_note = str(exc)[:300]
             continue
+        except Exception as exc:  # 兜底: 数据源实现异常不得拖垮整个生成流程
+            from services.errors import server_error
+            raise server_error(logger, exc, "漏洞查询失败") from exc
 
-        records = _replace_component_vulns(session, comp, raw_vulns)
+        records = _replace_component_vulns(session, comp, outcome.vulns, source.name)
         comp.last_osv_query_at = now
+        comp.osv_query_fingerprint = fingerprint
+        comp.vuln_status = outcome.status
+        comp.vuln_status_note = (outcome.note or None)
         result.updated.append(comp.name)
+        result.status[comp.name] = outcome.status
         session.add_all(records)
 
     session.commit()
@@ -357,13 +450,54 @@ def sync_vulnerabilities(
     all_records.sort(
         key=lambda v: (C.SEVERITY_ORDER.get(v.severity, 9), v.component_id, v.cve_id)
     )
-    if own_client:
-        client.close()
+    _enrich_cnnvd(all_records)
     return all_records, result
 
 
+def _source_version(source) -> str:
+    """数据源版本号: 本地库取库版本, 在线取日期(每日一变, 等价于 24h 缓存)。"""
+    db = getattr(source, "db", None)
+    if db is not None:
+        return db.version
+    return datetime.now(timezone.utc).strftime("%Y%m%d")
+
+
+def _source_label(source) -> str:
+    """人读的数据来源说明(前端与导出文档展示, 便于合规说明)。"""
+    db = getattr(source, "db", None)
+    if db is not None:
+        try:
+            return f"本地漏洞库 v{db.meta().get('db_version', '未知版本')}"
+        except Exception:  # 库不可读时退化为通用文案
+            return "本地漏洞库"
+    if getattr(source, "name", "") == "osv_online":
+        return "OSV.dev 在线库"
+    return "SCA 平台"
+
+
+def _enrich_cnnvd(records: list[VulnerabilityRecord]) -> None:
+    """给已落库记录补 CNNVD 编号与中文危害等级(库缺失时静默跳过)。"""
+    if not records:
+        return
+    try:
+        from services.cnnvd import lookup
+    except ImportError:  # pragma: no cover - 模块缺失不应阻断
+        return
+    try:
+        mapping = lookup([r.cve_id for r in records if r.cve_id])
+    except Exception as exc:  # 映射库损坏/缺失不影响主流程
+        logger.warning("CNNVD 映射查询失败, 跳过编号补全: %s", exc)
+        return
+    for rec in records:
+        hit = mapping.get(rec.cve_id)
+        if not hit:
+            continue
+        rec.cnnvd_id = hit.get("cnnvd_id")
+        rec.cn_severity = hit.get("cn_severity")
+
+
 def _replace_component_vulns(
-    session: Session, comp: SbomComponent, raw_vulns: list[dict]
+    session: Session, comp: SbomComponent, raw_vulns: list[dict], source_name: str = "osv_local"
 ) -> list[VulnerabilityRecord]:
     """重建该组件的漏洞记录: 清空旧集合(cascade 删除孤儿), 按 cve_id 去重写入。
 
@@ -375,7 +509,11 @@ def _replace_component_vulns(
 
     deduped: dict[str, NormalizedVuln] = {}
     for raw in raw_vulns:
-        nv = OsvClient.normalize(raw, target_purl=comp.purl, target_version=comp.version)
+        vuln = dict(raw)  # 不改动调用方持有的原始字典
+        windows = vuln.pop(MATCHED_WINDOWS_KEY, None)
+        nv = OsvClient.normalize(
+            vuln, target_purl=comp.purl, target_version=comp.version, windows=windows
+        )
         key = nv.cve_id or id(nv)
         existing = deduped.get(key)
         if existing is None or C.SEVERITY_ORDER.get(nv.severity, 9) < C.SEVERITY_ORDER.get(existing.severity, 9):
@@ -390,6 +528,7 @@ def _replace_component_vulns(
             affected_range=nv.affected_range,
             fix_version=nv.fix_version,
             summary=nv.summary,
+            source=source_name,
         )
         for nv in deduped.values()
     ]

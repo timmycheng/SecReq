@@ -134,3 +134,114 @@ def test_llm_config_roundtrip_masks_key(sec):
     cfg = sec.get("/api/admin/llm-config").json()
     assert cfg["configured"] is True
     assert "sk-secret-1234" not in (cfg.get("api_key") or "")
+
+
+# ── 离线漏洞库(v2.2.0) ────────────────────────────────
+
+def test_vuln_db_requires_security_role(api, sec):
+    assert api.get("/api/admin/vuln-db").status_code == 403
+    assert sec.get("/api/admin/vuln-db").status_code == 200
+
+
+def test_vuln_db_reports_missing_library_clearly(sec, monkeypatch, tmp_path):
+    """库缺失时必须报 available=False, 不能伪装成"已覆盖、未发现漏洞"。"""
+    monkeypatch.setenv("SECREQ_VULNDB_PATH", str(tmp_path / "nope.sqlite"))
+    body = sec.get("/api/admin/vuln-db").json()
+    assert body["available"] is False
+    assert body["reason"]
+    # 数据源状态照常上报, 便于运维定位
+    assert {row["code"] for row in body["sources"]} == {"local", "online", "sca"}
+
+
+def test_vuln_db_reports_ecosystems_and_gaps(sec, monkeypatch, vulndb_file):
+    import services.cnnvd as cnnvd
+
+    monkeypatch.setenv("SECREQ_VULNDB_PATH", vulndb_file)
+    monkeypatch.setattr(cnnvd, "stats", lambda path=None: {"available": False, "total": 0})
+    body = sec.get("/api/admin/vuln-db").json()
+
+    assert body["available"] is True
+    assert body["total"] == 4
+    assert set(body["imported_ecosystems"]) == {"bitnami", "alpine", "npm", "maven"}
+    # 覆盖缺口必须明确交代, 不能隐身
+    codes = {gap["code"] for gap in body["gaps"]}
+    assert {"kylin", "k8s"} <= codes
+    kylin = next(g for g in body["gaps"] if g["code"] == "kylin")
+    assert "麒麟官方安全公告" in kylin["note"]
+    # 未导入生态要单列出来, 与"未纳入覆盖"区分开
+    missing = {m["code"] for m in body["missing_ecosystems"]}
+    assert "openeuler" in missing and "pypi" in missing
+
+
+def test_vuln_db_verify_matches_and_is_audited(sec, monkeypatch, vulndb_file):
+    """校验和从 sidecar 文件读取: 写进库里会改变文件本身, 写入即失效。"""
+    import pathlib
+
+    import scripts.build_vuln_db as builder
+
+    monkeypatch.setenv("SECREQ_VULNDB_PATH", vulndb_file)
+    digest = builder.sha256_of(pathlib.Path(vulndb_file))
+    pathlib.Path(vulndb_file + ".sha256").write_text(
+        f"{digest}  {pathlib.Path(vulndb_file).name}\n", encoding="utf-8")
+
+    resp = sec.post("/api/admin/vuln-db/verify")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["sha256"] == digest and body["match"] is True
+
+    logs = sec.get("/api/admin/audit-logs").json()
+    assert any(log["action"] == "vulndb_verify" for log in logs)
+
+
+def test_vuln_db_verify_detects_corruption(sec, monkeypatch, vulndb_file):
+    import pathlib
+
+    monkeypatch.setenv("SECREQ_VULNDB_PATH", vulndb_file)
+    pathlib.Path(vulndb_file + ".sha256").write_text("0" * 64, encoding="utf-8")
+
+    body = sec.post("/api/admin/vuln-db/verify").json()
+    assert body["match"] is False
+    assert body["expected"] == "0" * 64
+    assert pathlib.Path(vulndb_file).is_file()
+
+
+@pytest.fixture()
+def vulndb_file(tmp_path):
+    """产出一个四生态小库供漏洞库页测试使用。"""
+    import json
+    import zipfile
+
+    from scripts.build_vuln_db import build
+
+    sample = {
+        "id": "BIT-redis-2021-31294",
+        "aliases": ["CVE-2021-31294"],
+        "database_specific": {"severity": "CRITICAL"},
+        "affected": [{
+            "package": {"name": "redis", "ecosystem": "Bitnami"},
+            "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "6.2.0"}]}],
+        }],
+    }
+    alp = dict(sample, id="ALPINE-x", affected=[{
+        "package": {"name": "openssl", "ecosystem": "Alpine:v3.4"},
+        "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "1.0.2h-r0"}]}],
+    }])
+    npm = dict(sample, id="GHSA-npm", affected=[{
+        "package": {"name": "lodash", "ecosystem": "npm"},
+        "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "4.17.19"}]}],
+    }])
+    mvn = dict(sample, id="GHSA-mvn", affected=[{
+        "package": {"name": "log4j-core", "ecosystem": "Maven"},
+        "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "2.15.0"}]}],
+    }])
+
+    zips = []
+    for eco, vuln in (("Bitnami", sample), ("Alpine", alp), ("npm", npm), ("Maven", mvn)):
+        path = tmp_path / f"{eco}.zip"
+        with zipfile.ZipFile(path, "w") as zf:
+            zf.writestr(f"{vuln['id']}.json", json.dumps(vuln))
+        zips.append((eco, path))
+
+    out = tmp_path / "vulndb.sqlite"
+    build(zips, out, slim=False, compress=True)
+    return str(out)

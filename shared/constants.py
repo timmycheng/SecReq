@@ -242,6 +242,110 @@ SBOM_SOURCE_TYPES = {
     "sbom_file": "SBOM文件导入",
 }
 
+# ── 漏洞库生态与分发渠道(v2.2.0 离线漏洞库) ──────────────
+# 单一枚举源: 经 /api/meta/constants 下发, 前端不重复定义。
+
+# 生态 code → 中文标签。code 与 OSV 生态名一一对应(便于构建脚本直接拼接下载路径)。
+VULN_ECOSYSTEMS = {
+    "npm": "npm(前端/Node)",
+    "maven": "Maven(Java)",
+    "pypi": "PyPI(Python)",
+    "go": "Go",
+    "nuget": "NuGet(.NET)",
+    "crates": "crates.io(Rust)",
+    "bitnami": "Bitnami(容器中间件)",
+    "alpine": "Alpine(基础库)",
+    "openeuler": "openEuler(信创/麒麟同源)",
+    "redhat": "Red Hat",
+    "rocky": "Rocky Linux",
+    "almalinux": "AlmaLinux",
+    "debian": "Debian",
+    # 明确标注"未纳入覆盖"的生态: 与"本地库没导入"是两回事, 补了库也覆盖不了
+    "other": "其他(未纳入漏洞库覆盖范围)",
+}
+
+# OSV 生态名 → 内部 code(OSV 用 "crates.io" / "Red Hat" 等带空格与点的名字)
+OSV_ECOSYSTEM_ALIASES = {
+    "crates.io": "crates",
+    "Red Hat": "redhat",
+    "Rocky Linux": "rocky",
+    "AlmaLinux": "almalinux",
+    "openEuler": "openeuler",
+}
+
+# 内部生态 code → OSV 生态名(构建脚本下载 all.zip 用)
+ECOSYSTEM_TO_OSV = {
+    "npm": "npm", "maven": "Maven", "pypi": "PyPI", "go": "Go",
+    "nuget": "NuGet", "crates": "crates.io", "bitnami": "Bitnami",
+    "alpine": "Alpine", "openeuler": "openEuler", "redhat": "Red Hat",
+    "rocky": "Rocky Linux", "almalinux": "AlmaLinux", "debian": "Debian",
+}
+
+# 生态 code → 构建 purl 时的 purl type 与可选命名空间
+ECOSYSTEM_PURL_TYPE = {
+    "npm": "npm", "maven": "maven", "pypi": "pypi", "go": "golang",
+    "nuget": "nuget", "crates": "cargo", "bitnami": "bitnami",
+    "alpine": "apk/alpine", "openeuler": "rpm/openeuler", "redhat": "rpm/redhat",
+    "rocky": "rpm/rocky", "almalinux": "rpm/almalinux", "debian": "deb/debian",
+}
+
+# 分发渠道 code → 中文标签
+SBOM_DISTROS = {
+    "bitnami": "Bitnami 容器镜像",
+    "alpine": "Alpine 容器镜像",
+    "kylin": "银河麒麟(按 openEuler 同源代理匹配)",
+    "openeuler": "openEuler",
+    "rhel": "RHEL 系(Red Hat / Rocky / AlmaLinux)",
+    "debian": "Debian 系",
+    "ubuntu": "Ubuntu(未导入, 按 Debian 近似)",
+    "source": "源码编译 / 自研",
+    "other": "其他 / 未指定",
+}
+
+# 分发渠道 → 优先查询的生态序列(有序, 逐个尝试直到命中)
+DISTRO_ECOSYSTEMS = {
+    "bitnami": ["bitnami"],
+    "alpine": ["alpine"],
+    "kylin": ["openeuler"],      # 麒麟不在 OSV 生态内, 按 openEuler 同源代理
+    "openeuler": ["openeuler"],
+    "rhel": ["redhat", "rocky", "almalinux"],
+    "debian": ["debian"],
+    "ubuntu": ["debian"],        # Ubuntu 未导入, 近似匹配, 结果标注待确认
+    "source": [],                # 源码编译无 OSV 覆盖
+    "other": [],                 # 未指定 → 跨生态模糊匹配
+}
+
+# 跨生态模糊匹配时的尝试顺序(语言层在前, OS 层在后)
+FUZZY_ECOSYSTEM_ORDER = [
+    "npm", "maven", "pypi", "go", "nuget", "crates",
+    "bitnami", "alpine", "openeuler", "redhat", "rocky", "almalinux", "debian",
+]
+
+# 数据目录(SQLite 主库、离线漏洞库、CNNVD 映射库均在此; 容器内为 /app/data)
+DEFAULT_DATA_DIR = "./data"
+VULNDB_FILENAME = "vulndb.sqlite"
+CNNVD_FILENAME = "cnnvd_map.sqlite"
+
+# 漏洞查询结果的四种语义(绝不可合并为"无漏洞")
+VULN_QUERY_STATUS = {
+    "hit": "命中已知漏洞",
+    "not_found": "未发现已知漏洞",
+    "undetermined": "无法判定(未指定生态/分发渠道, 需补充)",
+    "not_covered": "未纳入本地漏洞库覆盖范围",
+}
+VULN_QUERY_STATUS_HINTS = {
+    "hit": "已在本地漏洞库中命中, 请按修复版本升级",
+    "not_found": "该组件已在本地库覆盖范围内, 且未匹配到已知漏洞",
+    "undetermined": "缺少生态或分发渠道信息, 无法精确匹配; 请补全后重新生成",
+    "not_covered": "本地漏洞库未包含该生态数据(如源码编译、K8s), 需要其他数据源补充",
+}
+
+# 麒麟代理匹配的展示口径(必须原样呈现, 不得简化为"确认漏洞")
+KYLIN_PROXY_NOTE = (
+    "基于 openEuler 同源数据推断; 麒麟的补丁回合与组件范围与上游存在差异, "
+    "最终以麒麟官方安全公告为准"
+)
+
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "unknown": 9}
 SEVERITY_LABELS = {
     "critical": "严重",
@@ -268,45 +372,69 @@ EXTERNAL_SYSTEM_DIRECTIONS = {
 }
 
 # ── 常用组件目录(按层级分组, 含默认许可证) ──────────────
+# ecosystem 为 v2.2.0 新增: 点选常用组件时自动带上, 用于生成规范 purl;
+# 不带生态的组件会退化成 pkg:generic, OSV 不支持该类型, 漏洞查询必然空转。
 COMMON_COMPONENTS: dict[str, list[dict]] = {
     "frontend": [
-        {"name": "Vue", "license": "MIT"}, {"name": "React", "license": "MIT"},
-        {"name": "Angular", "license": "MIT"}, {"name": "Element", "license": "MIT"},
-        {"name": "AntDesign", "license": "MIT"}, {"name": "lodash", "license": "MIT"},
-        {"name": "axios", "license": "MIT"}, {"name": "Ionic", "license": "MIT"},
-        {"name": "jwt", "license": "MIT"},
+        {"name": "Vue", "license": "MIT", "ecosystem": "npm"},
+        {"name": "React", "license": "MIT", "ecosystem": "npm"},
+        {"name": "Angular", "license": "MIT", "ecosystem": "npm"},
+        {"name": "Element", "license": "MIT", "ecosystem": "npm"},
+        {"name": "AntDesign", "license": "MIT", "ecosystem": "npm"},
+        {"name": "lodash", "license": "MIT", "ecosystem": "npm"},
+        {"name": "axios", "license": "MIT", "ecosystem": "npm"},
+        {"name": "Ionic", "license": "MIT", "ecosystem": "npm"},
+        {"name": "jwt", "license": "MIT", "ecosystem": "npm"},
     ],
     "backend": [
-        {"name": "Spring Boot", "license": "Apache-2.0"}, {"name": "Spring Security", "license": "Apache-2.0"},
-        {"name": "Django", "license": "BSD-3-Clause"}, {"name": "Flask", "license": "BSD-3-Clause"},
-        {"name": "okhttp", "license": "Apache-2.0"}, {"name": "Retrofit", "license": "Apache-2.0"},
-        {"name": "Struts2", "license": "Apache-2.0"}, {"name": "netty", "license": "Apache-2.0"},
-        {"name": "dubbo", "license": "Apache-2.0"},
+        {"name": "Spring Boot", "license": "Apache-2.0", "ecosystem": "maven"},
+        {"name": "Spring Security", "license": "Apache-2.0", "ecosystem": "maven"},
+        {"name": "Django", "license": "BSD-3-Clause", "ecosystem": "pypi"},
+        {"name": "Flask", "license": "BSD-3-Clause", "ecosystem": "pypi"},
+        {"name": "okhttp", "license": "Apache-2.0", "ecosystem": "maven"},
+        {"name": "Retrofit", "license": "Apache-2.0", "ecosystem": "maven"},
+        {"name": "Struts2", "license": "Apache-2.0", "ecosystem": "maven"},
+        {"name": "netty", "license": "Apache-2.0", "ecosystem": "maven"},
+        {"name": "dubbo", "license": "Apache-2.0", "ecosystem": "maven"},
     ],
     "database": [
-        {"name": "MySQL", "license": "GPL-2.0"}, {"name": "PostgreSQL", "license": "PostgreSQL"},
-        {"name": "MongoDB", "license": "SSPL-1.0"}, {"name": "Oracle", "license": "商业授权"},
-        {"name": "Redis", "license": "RSAL-2.0"},
+        {"name": "MySQL", "license": "GPL-2.0", "ecosystem": "bitnami"},
+        {"name": "PostgreSQL", "license": "PostgreSQL", "ecosystem": "bitnami"},
+        {"name": "MongoDB", "license": "SSPL-1.0", "ecosystem": "bitnami"},
+        {"name": "Oracle", "license": "商业授权", "ecosystem": "other"},
+        {"name": "Redis", "license": "RSAL-2.0", "ecosystem": "bitnami"},
     ],
     "middleware": [
-        {"name": "Nginx", "license": "BSD-2-Clause"}, {"name": "kafka", "license": "Apache-2.0"},
-        {"name": "RabbitMQ", "license": "MPL-2.0"}, {"name": "Elasticsearch", "license": "SSPL-1.0"},
-        {"name": "tomcat", "license": "Apache-2.0"}, {"name": "kubernetes", "license": "Apache-2.0"},
-        {"name": "Docker", "license": "Apache-2.0"}, {"name": "OpenSSL", "license": "Apache-2.0"},
+        {"name": "Nginx", "license": "BSD-2-Clause", "ecosystem": "bitnami"},
+        {"name": "kafka", "license": "Apache-2.0", "ecosystem": "bitnami"},
+        {"name": "RabbitMQ", "license": "MPL-2.0", "ecosystem": "bitnami"},
+        {"name": "Elasticsearch", "license": "SSPL-1.0", "ecosystem": "bitnami"},
+        {"name": "tomcat", "license": "Apache-2.0", "ecosystem": "bitnami"},
+        {"name": "kubernetes", "license": "Apache-2.0", "ecosystem": "other"},
+        {"name": "Docker", "license": "Apache-2.0", "ecosystem": "bitnami"},
+        {"name": "OpenSSL", "license": "Apache-2.0", "ecosystem": "alpine"},
     ],
     "library": [
-        {"name": "log4j", "license": "Apache-2.0"}, {"name": "log4j-core", "license": "Apache-2.0"},
-        {"name": "fastjson", "license": "Apache-2.0"}, {"name": "jackson", "license": "Apache-2.0"},
-        {"name": "gson", "license": "Apache-2.0"}, {"name": "mybatis", "license": "Apache-2.0"},
-        {"name": "Druid", "license": "Apache-2.0"}, {"name": "Shiro", "license": "Apache-2.0"},
-        {"name": "XStream", "license": "BSD-3-Clause"}, {"name": "dom4j", "license": "BSD-3-Clause"},
-        {"name": "poi", "license": "Apache-2.0"}, {"name": "itextpdf", "license": "AGPL-3.0"},
-        {"name": "requests", "license": "Apache-2.0"},
+        {"name": "log4j", "license": "Apache-2.0", "ecosystem": "maven"},
+        {"name": "log4j-core", "license": "Apache-2.0", "ecosystem": "maven"},
+        {"name": "fastjson", "license": "Apache-2.0", "ecosystem": "maven"},
+        {"name": "jackson", "license": "Apache-2.0", "ecosystem": "maven"},
+        {"name": "gson", "license": "Apache-2.0", "ecosystem": "maven"},
+        {"name": "mybatis", "license": "Apache-2.0", "ecosystem": "maven"},
+        {"name": "Druid", "license": "Apache-2.0", "ecosystem": "maven"},
+        {"name": "Shiro", "license": "Apache-2.0", "ecosystem": "maven"},
+        {"name": "XStream", "license": "BSD-3-Clause", "ecosystem": "maven"},
+        {"name": "dom4j", "license": "BSD-3-Clause", "ecosystem": "maven"},
+        {"name": "poi", "license": "Apache-2.0", "ecosystem": "maven"},
+        {"name": "itextpdf", "license": "AGPL-3.0", "ecosystem": "maven"},
+        {"name": "requests", "license": "Apache-2.0", "ecosystem": "pypi"},
     ],
     "infra": [
-        {"name": "ImageMagick", "license": "ImageMagick"}, {"name": "FFmpeg", "license": "LGPL-2.1"},
-        {"name": "zlib", "license": "Zlib"}, {"name": "libcurl", "license": "curl"},
-        {"name": "Helm", "license": "Apache-2.0"},
+        {"name": "ImageMagick", "license": "ImageMagick", "ecosystem": "alpine"},
+        {"name": "FFmpeg", "license": "LGPL-2.1", "ecosystem": "alpine"},
+        {"name": "zlib", "license": "Zlib", "ecosystem": "alpine"},
+        {"name": "libcurl", "license": "curl", "ecosystem": "alpine"},
+        {"name": "Helm", "license": "Apache-2.0", "ecosystem": "go"},
     ],
 }
 

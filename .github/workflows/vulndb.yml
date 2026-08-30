@@ -1,0 +1,103 @@
+name: VulnDB
+
+# 构建离线漏洞库并作为独立 OCI artifact 推送到 GHCR。
+#
+# 为什么独立成 artifact 而不是塞进应用镜像:
+#   1. 漏洞库 ~200MB, 塞进镜像会让每个 Release 附件从 70MB 涨到 150~200MB,
+#      十几个版本就逼近仓库 1GB 软警告线(容器镜像存储当前免费, 附件才是风险);
+#   2. 独立后可单独更新、单独版本化、被多个系统复用;
+#   3. 主镜像只内置"基线库", 完整库走运行时挂载覆盖。
+#
+# 硬约束: 漏洞库绝不随 Release 附件分发。
+on:
+  schedule:
+    # 每周一 18:00 UTC(北京时间周二凌晨), OSV 数据每日更新, 周频率足够
+    - cron: "0 18 * * 1"
+  workflow_dispatch:
+    inputs:
+      ecosystems:
+        description: "生态列表(OSV 生态名, 逗号分隔)"
+        required: false
+        default: "npm,Maven,PyPI,Go,NuGet,crates.io,Bitnami,Alpine,openEuler"
+      tag:
+        description: "推送的 artifact 标签, 留空按日期(YYYYMMDD)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  VULNDB_IMAGE: ghcr.io/timmycheng/secreq-vulndb
+
+jobs:
+  build:
+    name: 构建并推送漏洞库
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # 构建脚本只依赖标准库, 不需要装 requirements
+      - name: 构建漏洞库
+        env:
+          ECOSYSTEMS: ${{ inputs.ecosystems || 'npm,Maven,PyPI,Go,NuGet,crates.io,Bitnami,Alpine,openEuler' }}
+        run: |
+          python scripts/build_vuln_db.py \
+            --ecosystems "$ECOSYSTEMS" \
+            --out vulndb.sqlite
+
+      # 冒烟: 用真实数据源构建一个小生态, 验证下载路径与解析器没被上游改坏
+      - name: 冒烟测试(真实数据源)
+        run: |
+          python scripts/build_vuln_db.py --ecosystems crates.io --out /tmp/smoke.sqlite
+          python - <<'PY'
+          import sqlite3, sys
+          conn = sqlite3.connect("/tmp/smoke.sqlite")
+          total = conn.execute("SELECT value FROM meta WHERE key='total'").fetchone()[0]
+          ecos = conn.execute("SELECT DISTINCT ecosystem FROM vulns").fetchall()
+          print(f"smoke: total={total} ecosystems={ecos}")
+          if int(total) <= 0:
+              sys.exit("冒烟失败: 真实数据源构建的库为空")
+          PY
+
+      - name: 生成标签
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: oras-project/setup-oras@v1
+
+      - name: 登录 GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: 推送 OCI artifact
+        run: |
+          oras push \
+            "${VULNDB_IMAGE}:${{ steps.tag.outputs.value }}" \
+            --annotation "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --annotation "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+            vulndb.sqlite:application/vnd.sqlite3 \
+            vulndb.sqlite.sha256:text/plain
+          oras tag "${VULNDB_IMAGE}:${{ steps.tag.outputs.value }}" latest
+
+      - name: 归档构建报告
+        uses: actions/upload-artifact@v5
+        with:
+          name: vulndb-report
+          retention-days: 7
+          if-no-files-found: ignore
+          path: vulndb.sqlite.sha256
+
+  # CNNVD 映射库不在此构建: 月度 XML 需从 CNNVD 站点登录后下载, 无法自动化。
+  # 运维在联网区下载后手动执行:
+  #   python scripts/build_cnnvd_map.py --source-dir ./cnnvd-xml
+  # 再把 cnnvd_map.sqlite 与 vulndb.sqlite 一并挂载进容器。

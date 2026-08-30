@@ -240,19 +240,25 @@ def seed_demo_project(session: Session, overwrite: bool = True) -> Project:
     )
 
     # ── Step7 SBOM 组件清单(10项, 含 log4j 2.14.1) ────────
+    # (层级, 名称, 版本, purl, 许可证, 生态, 分发渠道)
+    # 生态与分发渠道是 v2.2.0 新增维度: OS 类组件的版本号随分发渠道而变,
+    # 不标注就只能跨渠道模糊匹配(结果标"待确认"), 甚至匹配不上。
+    # 此处不再使用 pkg:generic —— OSV 不支持该类型, 查了也是空转。
     components = [
-        ("backend", "Spring Boot", "2.7.18", "pkg:maven/org.springframework.boot/spring-boot-starter-web@2.7.18", "Apache-2.0"),
-        ("frontend", "Vue", "3.3.4", "pkg:npm/vue@3.3.4", "MIT"),
-        ("frontend", "Element Plus", "2.4.2", "pkg:npm/element-plus@2.4.2", "MIT"),
-        ("library", "log4j-core", "2.14.1", "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1", "Apache-2.0"),  # 故意保留旧版供漏洞演示
-        ("library", "fastjson", "1.2.70", "pkg:maven/com.alibaba/fastjson@1.2.70", "Apache-2.0"),
-        ("database", "MySQL", "8.0.33", "pkg:generic/mysql@8.0.33", "GPL-2.0"),
-        ("middleware", "Redis", "6.2.6", "pkg:generic/redis@6.2.6", "BSD-3-Clause"),
-        ("middleware", "Nginx", "1.20.0", "pkg:generic/nginx@1.20.0", "BSD-2-Clause"),
-        ("library", "lodash", "4.17.15", "pkg:npm/lodash@4.17.15", "MIT"),
-        ("infra", "Kubernetes", "1.24.3", "pkg:generic/kubernetes@1.24.3", "Apache-2.0"),
+        ("backend", "Spring Boot", "2.7.18", "pkg:maven/org.springframework.boot/spring-boot-starter-web@2.7.18", "Apache-2.0", "maven", None),
+        ("frontend", "Vue", "3.3.4", "pkg:npm/vue@3.3.4", "MIT", "npm", None),
+        ("frontend", "Element Plus", "2.4.2", "pkg:npm/element-plus@2.4.2", "MIT", "npm", None),
+        # 故意保留旧版供漏洞演示: 2.14.1 落在 Log4Shell 的 [2.0, 2.15.0) 窗口内
+        ("library", "log4j-core", "2.14.1", "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1", "Apache-2.0", "maven", None),
+        ("library", "fastjson", "1.2.70", "pkg:maven/com.alibaba/fastjson@1.2.70", "Apache-2.0", "maven", None),
+        ("database", "MySQL", "8.0.33", "pkg:bitnami/mysql@8.0.33", "GPL-2.0", "bitnami", "bitnami"),
+        ("middleware", "Redis", "6.2.6", "pkg:bitnami/redis@6.2.6", "BSD-3-Clause", "bitnami", "bitnami"),
+        ("middleware", "Nginx", "1.20.0", "pkg:bitnami/nginx@1.20.0", "BSD-2-Clause", "bitnami", "bitnami"),
+        ("library", "lodash", "4.17.15", "pkg:npm/lodash@4.17.15", "MIT", "npm", None),
+        # K8s 不在 Bitnami/Alpine 覆盖范围, 标注为"未纳入覆盖"而非"未发现漏洞"
+        ("infra", "Kubernetes", "1.24.3", None, "Apache-2.0", "other", None),
     ]
-    for i, (layer, name, version, purl, lic) in enumerate(components):
+    for i, (layer, name, version, purl, lic, ecosystem, distro) in enumerate(components):
         source = "manual_input"
         if i == 0:
             source = "sbom_file"  # 首个组件标记为SBOM文件导入来源, 演示两种source_type
@@ -260,6 +266,7 @@ def seed_demo_project(session: Session, overwrite: bool = True) -> Project:
             SbomComponent(
                 project_id=project.id, layer=layer, name=name, version=version,
                 purl=purl, license=lic, source_type=source,
+                ecosystem=ecosystem, distro=distro,
             )
         )
 

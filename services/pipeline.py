@@ -50,7 +50,9 @@ def run_full_pipeline(
 ) -> PipelineResult:
     """对单个项目执行"需求+SBOM+漏洞+文档"全量生成。
 
-    skip_osv 为 True 时完全跳过网络查询(离线模式), 漏洞保持库内现状。
+    skip_osv 为 True 时完全跳过漏洞查询(离线模式), 漏洞保持库内现状。
+    osv_client 传入时走在线通道(测试与开发演示用); 不传则按 SECREQ_VULN_SOURCE
+    配置链选取数据源, 内网默认为本地离线漏洞库。
     """
     from models import Project
 
@@ -64,7 +66,7 @@ def run_full_pipeline(
     bom = build_cyclonedx(ctx.project, ctx.components)
     session.commit()
 
-    # ② OSV 漏洞同步(24h 缓存/失败降级); 同步后整体重载上下文以携带最新记录
+    # ② 漏洞同步(指纹缓存/失败降级); 同步后整体重载上下文以携带最新记录
     if skip_osv:
         summary_text = "离线模式未执行漏洞查询"
     else:

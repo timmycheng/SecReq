@@ -212,6 +212,7 @@ def list_vulnerabilities(project: Project = Depends(get_accessible_project),
             component_version=comp_ids[v.component_id].version,
             cve_id=v.cve_id, severity=v.severity, cvss_score=v.cvss_score,
             affected_range=v.affected_range, fix_version=v.fix_version, summary=v.summary,
+            cnnvd_id=v.cnnvd_id, cn_severity=v.cn_severity, source=v.source,
         )
         for v in rows
     ]
@@ -270,13 +271,16 @@ def export_docx(request: Request, project: Project = Depends(get_accessible_proj
 def export_xlsx(request: Request, project: Project = Depends(get_accessible_project),
                 db: Session = Depends(get_db),
                 user: PlatformUser = Depends(require_login)):
+    from rules.context import RequirementContext
     from services.tracking_export import tracking_xlsx_bytes
 
     reqs = _sorted_requirements(db, project.id)
     if not reqs:
         raise HTTPException(
             status_code=409, detail="尚无安全需求可导出, 请先执行『生成安全基线』")
-    content = tracking_xlsx_bytes(reqs)
+    # v2.2.0: 一并导出漏洞清单(带 CNNVD 编号与数据来源), 免得合规通报时手工补录
+    ctx = RequirementContext.from_db(db, project.id)
+    content = tracking_xlsx_bytes(reqs, _load_vulnerabilities(db, ctx.components))
     _audit_export(db, user, project, "xlsx", len(reqs), request)
     filename = f"{project.code}_安全需求跟踪表.xlsx"
     return Response(

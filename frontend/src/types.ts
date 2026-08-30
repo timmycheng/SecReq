@@ -141,6 +141,8 @@ export interface ComponentVulnInline {
   affected_range: string | null
   fix_version: string | null
   summary: string | null
+  cnnvd_id?: string | null
+  cn_severity?: string | null
 }
 
 export interface ComponentRow {
@@ -151,6 +153,13 @@ export interface ComponentRow {
   purl?: string | null
   license?: string | null
   source_type: string
+  /** 生态 code(见 vuln_ecosystems); 决定漏洞查询走哪个生态的数据 */
+  ecosystem?: string | null
+  /** 分发渠道 code(见 sbom_distros); OS 覆盖的前提 —— 版本串随渠道而变 */
+  distro?: string | null
+  /** 查询语义: hit/not_found/undetermined/not_covered, 四种不可合并 */
+  vuln_status?: string | null
+  vuln_status_note?: string | null
   vulnerabilities: ComponentVulnInline[]
 }
 
@@ -259,6 +268,64 @@ export interface VulnerabilityRow {
   affected_range: string | null
   fix_version: string | null
   summary: string | null
+  cnnvd_id?: string | null
+  cn_severity?: string | null
+}
+
+/* ── 离线漏洞库(系统管理 · 漏洞库页) ─────────────── */
+
+export interface VulnSourceRow {
+  code: string
+  name: string
+  available: boolean
+  reason?: string | null
+  active: boolean
+}
+
+export interface VulnDbEcosystemRow {
+  code: string
+  label: string
+  records?: number | null
+}
+
+export interface VulnDbGap {
+  code: string
+  label: string
+  note: string
+  detail: string
+}
+
+export interface VulnDbStatus {
+  available: boolean
+  path: string
+  reason?: string
+  db_version?: string | null
+  built_at?: string | null
+  total?: number
+  size_mb?: number | null
+  sha256?: string | null
+  compressed?: boolean
+  slim?: boolean
+  upstream?: string | null
+  declared_ecosystems?: VulnDbEcosystemRow[]
+  imported_ecosystems?: string[]
+  /** 真正覆盖 = 构建时声明导入 ∩ 实际入库; 覆盖判定以此为准 */
+  covered_ecosystems?: string[]
+  /** 库内有记录但本次构建未声明导入的生态(OSV 多生态公告夹带), 不计入覆盖 */
+  incidental_ecosystems?: string[]
+  missing_ecosystems?: VulnDbEcosystemRow[]
+  sources?: VulnSourceRow[]
+  gaps?: VulnDbGap[]
+  cnnvd?: { available: boolean; path: string; total: number; db_version?: string | null }
+}
+
+export interface VulnDbVerifyResult {
+  path: string
+  sha256: string
+  expected: string | null
+  match: boolean
+  size_mb: number
+  cnnvd?: { available: boolean; path: string; total: number; db_version?: string | null }
 }
 
 /* ── 平台认证 ───────────────────────────────────── */

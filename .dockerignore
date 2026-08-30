@@ -15,8 +15,13 @@ frontend/dist
 # 本地数据与产物(容器内挂载卷, 不打入镜像)
 secreq.db
 output
+data
 
 # 不参与运行的内容
 tests
 .github
 *.md
+
+# 例外: CI 用 oras 拉取的漏洞库基线必须进入构建上下文
+!vulndb.sqlite
+!vulndb.sqlite.sha256

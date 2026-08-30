@@ -65,6 +65,60 @@ def _heading(doc: Document, text: str) -> None:
     para.paragraph_format.space_after = Pt(6)
 
 
+def _note(doc: Document, text: str) -> None:
+    """小号灰色说明段(数据来源声明、覆盖缺口提示)。"""
+    para = doc.add_paragraph()
+    run = para.add_run(text)
+    _set_cn_font(run, size=8.5, color=RGBColor(0x59, 0x59, 0x59))
+    para.paragraph_format.space_before = Pt(2)
+    para.paragraph_format.space_after = Pt(6)
+
+
+#: 数据来源 → 人读文案(导出文档里必须交代来源, 便于合规说明)
+_SOURCE_LABELS = {
+    "osv_local": "本地离线漏洞库",
+    "osv_online": "OSV.dev 在线库",
+    "sca": "行内 SCA 平台",
+}
+
+
+def _vuln_source_note(doc: Document, vulnerabilities: list) -> None:
+    """标注数据来源与库版本 —— 内网交付时这是合规说明的一部分。"""
+    sources = sorted({getattr(v, "source", "osv_local") or "osv_local" for v in vulnerabilities})
+    text = "数据来源: " + "、".join(_SOURCE_LABELS.get(s, s) for s in sources)
+    try:
+        from services.vulndb import VulnDb
+        meta = VulnDb().meta()
+        text += f" v{meta.get('db_version', '未知版本')}(构建于 {meta.get('built_at', '未知')})"
+    except Exception:  # 库不可读时只显示来源, 不阻断导出
+        pass
+    _note(doc, text)
+    if any(getattr(v, "source", "") == "osv_local" for v in vulnerabilities):
+        _note(doc, "本结果由本地离线漏洞库匹配得出, 未访问任何外部服务。")
+
+
+def _uncovered_note(doc: Document, components: list) -> None:
+    """把"未覆盖 / 无法判定 / 命中但待确认"的组件单独列出。
+
+    三者都不能混进"未发现漏洞"里 —— 那会给人虚假的安全感。
+    """
+    pending = [
+        c for c in components
+        if getattr(c, "vuln_status", None) in ("not_covered", "undetermined")
+        # 命中但带说明: 跨渠道模糊匹配、麒麟推断、版本缺修订号等
+        or (getattr(c, "vuln_status", None) == "hit" and getattr(c, "vuln_status_note", None))
+    ]
+    if not pending:
+        return
+    lines = []
+    for comp in pending:
+        label = C.VULN_QUERY_STATUS.get(comp.vuln_status, comp.vuln_status)
+        if comp.vuln_status == "hit":
+            label = "命中待确认"
+        lines.append(f"{comp.name}@{comp.version}: {label}。{comp.vuln_status_note or ''}")
+    _note(doc, "以下组件需人工确认: " + " ".join(lines))
+
+
 def build_full_docx(
     project,
     requirements: list,
@@ -161,8 +215,9 @@ def build_full_docx(
         comp_by_id = {c.id: c for c in (components or [])}
         table = _add_table(
             doc,
-            ["等级", "CVE", "组件", "受影响范围", "修复版本", "简述"],
-            [1.4, 3.0, 3.6, 3.4, 2.6, 4.5],
+            # v2.2.0: 补 CNNVD 编号 —— 银行合规通报常要求国产编号, 事后手工补录成本很高
+            ["等级", "CVE", "CNNVD", "组件", "受影响范围", "修复版本", "简述"],
+            [1.3, 2.8, 2.6, 3.3, 3.1, 2.4, 3.6],
         )
         for v in vulnerabilities:
             comp = comp_by_id.get(v.component_id)
@@ -171,10 +226,13 @@ def build_full_docx(
             high = v.severity in ("critical", "high")
             _cell_text(row[0], C.label(C.SEVERITY_LABELS, v.severity), red=high)
             _cell_text(row[1], v.cve_id, red=high)
-            _cell_text(row[2], comp_label)
-            _cell_text(row[3], v.affected_range or "—")
-            _cell_text(row[4], v.fix_version or "官方暂未发布修复版")
-            _cell_text(row[5], v.summary or "")
+            _cell_text(row[2], getattr(v, "cnnvd_id", None) or "—")
+            _cell_text(row[3], comp_label)
+            _cell_text(row[4], v.affected_range or "—")
+            _cell_text(row[5], v.fix_version or "官方暂未发布修复版")
+            _cell_text(row[6], v.summary or "")
+        _vuln_source_note(doc, vulnerabilities)
+        _uncovered_note(doc, components or [])
     else:
         doc.add_paragraph("未发现漏洞记录。")
 

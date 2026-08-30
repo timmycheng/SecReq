@@ -16,6 +16,7 @@ from schemas.data_dictionary import DataAssetIn
 from schemas.feature import FeatureIn
 from schemas.inventory import ApiEndpointIn, InfraAssetIn
 from schemas.permission import PermissionMatrixIn
+from services.sbom import ecosystem_from_purl
 
 
 class MatrixIndexError(Exception):
@@ -155,6 +156,7 @@ def replace_components(
         SbomComponent(
             project_id=project_id, layer=c.layer, name=c.name, version=c.version,
             purl=c.purl or None, license=c.license or None, source_type=source_type,
+            ecosystem=c.ecosystem or None, distro=c.distro or None,
         )
         for c in items
     )
@@ -188,6 +190,9 @@ def append_components(
             purl=row.get("purl") or None,
             license=row.get("license") or None,
             source_type="sbom_file",
+            # SBOM 文件里的 purl 是权威坐标, 优先从它反推生态,
+            # 避免导入的组件落到"未指定生态"而只能走模糊匹配
+            ecosystem=row.get("ecosystem") or ecosystem_from_purl(row.get("purl")),
         ))
         added += 1
     session.commit()

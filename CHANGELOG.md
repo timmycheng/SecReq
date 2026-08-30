@@ -7,6 +7,132 @@
 自动创建 GitHub Release,正文包含本文件中对应版本的变更内容,并附上对应的
 离线镜像包(`docker save` 产物)。
 
+## [2.2.0] - 2026-08-30
+
+**离线漏洞库 + SCA 预留**, 内网上线的功能阻塞项。新增数据源抽象、构建脚本、
+管理端漏洞库页, 且 Step7 新增「生态」与「分发渠道」两个字段 —— 按 SemVer 定为 MINOR。
+测试 184 个通过(另有 5 个 `xfail(strict=True)` 护栏用例)。
+
+### 为什么要做
+
+此前漏洞查询直连 `api.osv.dev`。平台最终部署在**无互联网出口的银行内网**,
+在线查询不可用 —— 没有本地库, 漏洞联动就是死的, Step7 采集的组件清单毫无产出。
+
+### 离线漏洞库
+
+- **数据源抽象** `services/vuln_source.py`: 定义 `VulnSource` 协议与工厂,
+  按 `SECREQ_VULN_SOURCE` 配置链选取(`local` / `online` / `sca`),
+  前一个不可用时自动降级到后一个并记日志。离线包里每条 JSON 就是
+  `OsvClient.normalize()` 的输入形态, 因此规范化逻辑**零改动复用**, 只换取数通道。
+- **构建脚本** `scripts/build_vuln_db.py`: 下载 OSV 各生态 `all.zip` → 建 SQLite
+  索引库(按包名建索引 + zlib 存 raw JSON)。默认保留完整记录 —— 实测 zlib 压缩
+  可降到 12-31%, 收益远大于字段裁剪。支持 `--ecosystems` / `--source-dir`(离线构建)/
+  `--dry-run` / `--list-ecosystems`。
+- **生态选型**(基于 2026-08-30 对 OSV 官方源实测): 语言层 npm/Maven/PyPI/Go/NuGet/
+  crates.io + OS 层 **Bitnami**(容器中间件) + **Alpine**(C 库与基础工具) +
+  宿主层 **openEuler**(银河麒麟 V10 的技术血统)。不导 Ubuntu(623MB, 性价比极低)
+  与 GIT(176.7MB, commit 级对版本匹配无用)。
+- **版本归一化** `services/vuln_match/`: OS 覆盖的难点不在数据源而在"发行版"维度 ——
+  同一个 MySQL 8.0.32 在 Debian 是 `8.0.32-1~deb12u1`、RHEL 是 `8.0.32-1.el9`、
+  Bitnami 是 `8.0.32-debian-11-r0`, 不归一化一条也匹配不上。优先走记录自带的
+  `versions` 枚举精确匹配, 枚举缺失时退化为范围比较。
+
+### 修掉一个让漏洞联动形同虚设的缺陷
+
+`services/sbom.py` 此前给无 purl 的组件补 `pkg:generic/<name>@<version>`,
+而 **OSV 不支持 generic 生态** —— 这类 purl 永远查不到任何漏洞。
+`ComponentIn.purl` 是可选字段、Step7 也没引导填生态, 实际绝大多数组件都中招。
+现改为按生态构造规范 purl; 无生态时不再伪造坐标, 而是走跨生态模糊匹配并标注「待确认」。
+
+### Step7 新增「生态」与「分发渠道」
+
+OS 类组件(MySQL / Nginx / OpenSSL 等)的版本号随分发渠道而变, 不填就只能模糊匹配。
+两个下拉选项均由后端 `shared/constants.py` 经 `/api/meta/constants` 下发,
+前端不硬编码。常用组件库点选时自动带上生态标注。
+
+### 三种「查不到」必须分开
+
+此前只有"命中/未命中"两种结果, 未覆盖与无法判定都被显示成"未发现漏洞"。
+现在落库 `vuln_status` 四选一, 界面、Word 与 Excel 导出均如实标注:
+
+| 语义 | 含义 |
+| ---- | ---- |
+| `hit` | 命中已知漏洞 |
+| `not_found` | 已覆盖该生态, 且未匹配到已知漏洞 |
+| `undetermined` | 信息不足无法判定(未填生态/分发渠道) |
+| `not_covered` | 本地库未包含该生态数据(源码编译、K8s 等) |
+
+宁可给带标注的疑似结果, 也不静默显示"无漏洞" —— 那会给人虚假的安全感。
+
+### 缓存语义改为库指纹
+
+此前按 24h TTL 判定, 两个真实缺陷: ① 导入新漏洞库后 24h 内仍沿用旧结果,
+新入库的 CVE 全漏; ② 用户改了组件版本号也沿用旧结果。
+现在按 `(数据源, 库版本, 组件名, 版本, 生态, 分发渠道)` 指纹判定, 任一变化立即重算。
+
+### SCA 预留接缝(v2.4 对接时零迁移)
+
+- `VulnerabilityRecord` 预留 `source` / `external_ref` / `cnnvd_id` / `cn_severity` 四列,
+  避免对接时再做数据迁移;
+- `ScaPlatformSource` 已注册但 `available()` 返回明确原因「尚未接入」,
+  **绝不静默失败**。v2.4 对接只需: 实现 `query()` + 切配置;
+- 汇总文案带数据来源(如「数据来源: 本地漏洞库 v20260830」), Word 导出同步标注。
+
+### CNNVD 编号对齐
+
+`scripts/build_cnnvd_map.py` 从月度 XML 抽 `CVE → CNNVD 编号 + 中文危害等级`,
+建成小映射表, 在展示与导出时补合规字段(银行合规通报常要求国产编号)。
+定位为叠加层, 不做组件匹配 —— CNNVD 是 CVE 级无包坐标, 硬匹配需 CPE, 精度差。
+
+### 管理端漏洞库页
+
+新增系统管理 → 漏洞库: 库版本 / 构建时间 / 记录数 / 体积 / 生态覆盖 / 数据源状态 /
+已知覆盖缺口。`POST /api/admin/vuln-db/verify` 重算 SHA256 与构建时记录的校验和比对
+(摆渡完整性核验), 并留 `vulndb_verify` 审计。
+
+> 校验和写 **sidecar 文件** `<库名>.sha256` 而非库内 —— 往库里 INSERT 会改变文件本身,
+> 库内记录的校验和写入即失效。
+
+### 工程质量
+
+- **前端组件拆分**: `AdminPage.tsx`(534 行 6 Tab)拆为 `src/ui/admin/` 下 7 个独立组件,
+  经 `React.lazy` 按需加载; `vite.config.ts` 配 `manualChunks` 拆分 vendor。
+  此前单包 1.29MB, 现 antd 独立为 1.16MB 缓存块(长期命中), 应用代码降至 108KB。
+- **产物体积治理**: 新增 `.github/workflows/vulndb.yml` 定时构建漏洞库并作为独立
+  OCI artifact(`secreq-vulndb:YYYYMMDD`)推送 GHCR —— 漏洞库**绝不随 Release 附件分发**;
+  `release.yml` 缓存 `mode=max` → `min`(此前累积 773MB / 85 个);
+  新增 `retention.yml` 清理 GHCR 悬空与旧版本, Release 附件只保留最近 3 个版本。
+
+### ⚠️ 必须知悉的覆盖缺口
+
+**银河麒麟不在 OSV 的 39 个生态中**, 本版本按 openEuler 同源数据代理匹配,
+结果一律标注「推断, 以麒麟官方安全公告为准」。以下四类系统性失真无法回避:
+
+| 失真 | 后果 |
+| ---- | ---- |
+| 麒麟独立 backport 补丁 | 误报: openEuler 已修 ≠ 麒麟已修 |
+| 麒麟自有组件(kysec-daemon 等 KVE 编号) | 完全漏报 |
+| 架构维度(aarch64 / loongarch64 / sw_64) | OSV 数据不含架构 |
+| KVE 编号 | 无, 需单独映射 |
+
+**补齐的唯一途径是向麒麟索取正式数据源**(走采购/服务渠道, 周期可能较长, 建议尽快启动)。
+拿到后新增 `KylinSource` 即可 —— `VulnSource` 协议天然支持多源, 上层零改动。
+Kubernetes 同理: Bitnami 与 Alpine 均无覆盖, 当前一律标注「未纳入覆盖范围」。
+
+### 其他
+
+- `SbomComponent` 增 `ecosystem` / `distro` / `osv_query_fingerprint` /
+  `vuln_status` / `vuln_status_note` 五列;
+  `VulnerabilityRecord` 增 `source` / `external_ref` / `cnnvd_id` / `cn_severity` 四列。
+- SBOM 文件导入时从 purl 反推生态(`ecosystem_from_purl`),
+  避免导入的组件落到"未指定生态"而只能模糊匹配。
+- Excel 跟踪表新增「漏洞清单」工作表(含 CNNVD 编号与数据来源);
+  Word 漏洞清单补 CNNVD 列、数据来源声明与"未覆盖组件"单独说明。
+- 启动时在日志中交代漏洞数据源状态 —— 内网最常见的事故是"漏洞库忘了挂载",
+  页面上每个组件都显示无法判定却没人知道原因。
+- 新增 `tests/test_vulndb.py`(29 例, 含"合成 zip → 建库 → 查询"端到端)
+  与管理端漏洞库用例 5 例。
+
 ## [2.1.3] - 2026-08-30
 
 缺陷修复与内网部署基建版本: 修复容器时区导致的时间显示偏差、SQLite 并发写锁死、

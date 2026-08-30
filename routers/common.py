@@ -156,10 +156,15 @@ def component_to_out(comp: SbomComponent) -> ComponentOut:
         purl=comp.purl,
         license=comp.license,
         source_type=comp.source_type,
+        ecosystem=comp.ecosystem,
+        distro=comp.distro,
+        vuln_status=comp.vuln_status,
+        vuln_status_note=comp.vuln_status_note,
         vulnerabilities=[
             ComponentVulnInline(
                 cve_id=v.cve_id, severity=v.severity, cvss_score=v.cvss_score,
                 affected_range=v.affected_range, fix_version=v.fix_version, summary=v.summary,
+                cnnvd_id=v.cnnvd_id, cn_severity=v.cn_severity,
             )
             for v in sorted(comp.vulnerabilities or [], key=_severity_sort_key)
         ],

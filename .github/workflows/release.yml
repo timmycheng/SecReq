@@ -13,6 +13,7 @@ permissions:
 # GHCR 镜像名必须小写
 env:
   IMAGE: ghcr.io/timmycheng/secreq
+  VULNDB_IMAGE: ghcr.io/timmycheng/secreq-vulndb
 
 jobs:
   test:
@@ -50,6 +51,22 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # v2.1.0 → 镜像标签 2.1.0 / 2.1 / latest
+      # 漏洞库基线走独立 OCI artifact, 绝不随 Release 附件分发(体积治理硬约束)。
+      # 拉不到时放空文件占位: 镜像照常构建, 但漏洞查询会如实标注「无法判定」,
+      # 而不是伪装成"未发现漏洞"。部署时挂载外部 vulndb.sqlite 即可覆盖。
+      - uses: oras-project/setup-oras@v1
+
+      - name: 拉取漏洞库基线
+        run: |
+          if oras pull "${VULNDB_IMAGE}:${VULNDB_TAG:-latest}"; then
+            ls -lh vulndb.sqlite*
+          else
+            echo "::warning::未拉取到漏洞库基线, 镜像将不含基线库; 部署时需挂载外部 vulndb.sqlite 覆盖"
+            : > vulndb.sqlite
+            : > vulndb.sqlite.sha256
+          fi
+
+      # v2.1.0 → 镜像标签 2.1.0 / 2.1 / latest
       - name: 生成镜像标签
         id: meta
         uses: docker/metadata-action@v6
@@ -68,7 +85,9 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # mode=min: 只缓存最终层。mode=max 会把全部中间层都存下来,
+          # 实测累积到 773MB/85 个缓存, 跨版本无限堆积。
+          cache-to: type=gha,mode=min
 
   release:
     name: 创建 Release 并附镜像包
@@ -118,3 +137,23 @@ jobs:
           files: secreq-image-*.tar.gz
           body_path: release_body.md
           generate_release_notes: true
+
+      # 只保留最近 3 个 Release 的镜像包: 每个约 70MB, private 仓库按版本累积
+      # 很快就会逼近 1GB 软警告线。代码与 tag 不受影响, 镜像可从 GHCR 重新导出。
+      - name: 清理旧 Release 附件
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          keep=3
+          ids=$(gh api --paginate "repos/${{ github.repository }}/releases?per_page=100" \
+                  --jq '.[].id' | tail -n +$((keep + 1)))
+          for id in $ids; do
+            assets=$(gh api "repos/${{ github.repository }}/releases/${id}/assets" \
+                      --jq '.[] | select(.name | startswith("secreq-image-")) | .id')
+            for asset in $assets; do
+              name=$(gh api "repos/${{ github.repository }}/releases/assets/${asset}" --jq '.name')
+              gh api -X DELETE "repos/${{ github.repository }}/releases/assets/${asset}" \
+                && echo "已删除旧附件 ${name}(Release ${id})"
+            done
+          done

@@ -1,0 +1,109 @@
+name: Retention
+
+# 产物保留策略: GHCR 镜像版本与 Release 附件的定期清理。
+#
+# 背景(2026-08-30 实测): Release 附件 4 个版本共 275MB, 每版 +70MB;
+# Actions 缓存 773MB/85 个。仓库为 private, 长期累积会逼近 1GB 软警告线。
+# 清理只删"可重建"的产物: 代码、tag 与 GHCR 镜像源均在, 附件删了可从 GHCR 重新导出。
+on:
+  schedule:
+    - cron: "0 3 * * 0"     # 每周日 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      keep_releases:
+        description: "保留最近几个 Release 的附件"
+        required: false
+        default: "3"
+      keep_minors:
+        description: "保留最近几个 minor 版本的镜像"
+        required: false
+        default: "3"
+      dry_run:
+        description: "只报告将删除的内容(true/false)"
+        required: false
+        default: "true"
+
+permissions:
+  contents: write     # 删除 Release 附件
+  packages: write     # 删除 GHCR 版本
+
+jobs:
+  ghcr-versions:
+    name: 清理 GHCR 悬空与旧版本
+    runs-on: ubuntu-latest
+    steps:
+      - name: 列出待清理版本
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP_MINORS: ${{ inputs.keep_minors || '3' }}
+          DRY_RUN: ${{ inputs.dry_run || 'true' }}
+        run: |
+          set -euo pipefail
+          OWNER="${{ github.repository_owner }}"
+          echo "当前 GHCR 版本:"
+          gh api --paginate "/users/${OWNER}/packages/container/secreq/versions" \
+            --jq '.[] | "\(.id)\t\(.metadata.container.tags | join(","))"' | tee versions.tsv
+
+          # 保留 latest、最近 N 个 minor 的 patch、以及所有带日期标签的漏洞库 artifact
+          # (漏洞库 artifact 在 secreq-vulndb 包下, 不受本作业影响)
+          python - <<'PY' > to_delete.txt || true
+          import os, subprocess, json, re
+          keep = int(os.environ.get("KEEP_MINORS", "3"))
+          rows = [l.rstrip("\n").split("\t") for l in open("versions.tsv") if l.strip()]
+          def minor_of(tags):
+              for t in tags:
+                  m = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", t)
+                  if m: return f"{m.group(1)}.{m.group(2)}"
+              return None
+          minors = sorted({m for _, t in rows for m in [minor_of(t.split(","))] if m},
+                          key=lambda s: tuple(int(x) for x in s.split(".")), reverse=True)
+          keep_set = set(minors[:keep])
+          out = []
+          for vid, tags in rows:
+              tag_list = [t for t in tags.split(",") if t]
+              if not tag_list:
+                  out.append(vid); continue          # 悬空版本
+              if "latest" in tag_list: continue
+              if minor_of(tag_list) in keep_set: continue
+              out.append(vid)
+          print("\n".join(out))
+          PY
+
+          echo "待删除版本: $(wc -l < to_delete.txt) 个"
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "dry-run: 未执行删除"; exit 0
+          fi
+          while read -r id; do
+            [ -z "$id" ] && continue
+            gh api -X DELETE "/users/${OWNER}/packages/container/secreq/versions/${id}" \
+              || echo "::warning::删除版本 ${id} 失败"
+          done < to_delete.txt
+
+  release-assets:
+    name: 清理旧 Release 附件
+    runs-on: ubuntu-latest
+    steps:
+      - name: 删除超出保留窗口的镜像包
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP: ${{ inputs.keep_releases || '3' }}
+          DRY_RUN: ${{ inputs.dry_run || 'true' }}
+        run: |
+          set -euo pipefail
+          # 按创建时间倒序, 跳过最近 KEEP 个 Release, 删除更旧 Release 上的镜像包。
+          # 代码与 tag 保留, 镜像可从 GHCR 重新导出(docker pull + docker save)。
+          ids=$(gh api --paginate "repos/${{ github.repository }}/releases?per_page=100" \
+                  --jq '.[].id' | head -n -"${KEEP}")
+          for id in $ids; do
+            assets=$(gh api "repos/${{ github.repository }}/releases/${id}/assets" \
+                      --jq '.[] | select(.name | startswith("secreq-image-")) | .id')
+            for asset in $assets; do
+              name=$(gh api "repos/${{ github.repository }}/releases/assets/${asset}" --jq '.name')
+              if [ "${DRY_RUN}" = "true" ]; then
+                echo "dry-run: 将删除附件 ${name}(Release ${id})"
+              else
+                gh api -X DELETE "repos/${{ github.repository }}/releases/assets/${asset}" \
+                  && echo "已删除附件 ${name}"
+              fi
+            done
+          done

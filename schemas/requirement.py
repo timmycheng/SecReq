@@ -46,6 +46,10 @@ class VulnerabilityOut(BaseModel):
     affected_range: str | None
     fix_version: str | None
     summary: str | None
+    #: v2.2.0: 合规通报常要求国产编号, 导出与展示都带上
+    cnnvd_id: str | None = None
+    cn_severity: str | None = None
+    source: str = "osv_local"
 
 
 class CategoryCount(BaseModel):

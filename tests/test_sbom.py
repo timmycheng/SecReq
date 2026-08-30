@@ -7,8 +7,8 @@ import pytest
 from conftest import add_base_project
 from models import SbomComponent
 from services.sbom import (
-    LAYER_TO_COMPONENT_TYPE, build_cyclonedx, ensure_purl,
-    generate_project_sbom, write_cyclonedx_file,
+    LAYER_TO_COMPONENT_TYPE, build_cyclonedx, build_purl, ecosystem_from_purl,
+    ensure_purl, generate_project_sbom, write_cyclonedx_file,
 )
 
 
@@ -61,21 +61,45 @@ def test_layer_maps_to_component_type_and_properties_kept(session):
     assert log4j_props["secreq:source-type"] == "manual_input"
 
 
-def test_purl_passthrough_and_missing_purl_autofill(session):
-    """已有 purl 原样保留; 缺失时补 pkg:generic 并回写 ORM 对象。"""
+def test_purl_passthrough_and_ecosystem_based_autofill(session):
+    """已有 purl 原样保留; 缺失时按生态构造规范 purl 并回写 ORM 对象。"""
     project = add_base_project(session)
     explicit = _add_component(session, project, name="vue", version="3.3.4",
                               purl="pkg:npm/vue@3.3.4")
-    missing = _add_component(session, project, name="Some Lib X", version="2.1.0")
+    with_eco = _add_component(session, project, name="Some Lib X", version="2.1.0",
+                              ecosystem="pypi")
+    without_eco = _add_component(session, project, name="Mystery Dep", version="9.9")
 
-    bom = build_cyclonedx(project, [explicit, missing])
+    bom = build_cyclonedx(project, [explicit, with_eco, without_eco])
     by_name = {c["name"]: c for c in bom["components"]}
     assert by_name["vue"]["purl"] == "pkg:npm/vue@3.3.4"
     assert by_name["vue"]["bom-ref"] == "pkg:npm/vue@3.3.4"
 
-    auto = by_name["Some Lib X"]
-    assert auto["purl"] == "pkg:generic/some-lib-x@2.1.0"
-    assert missing.purl == "pkg:generic/some-lib-x@2.1.0"  # 已回写供 OSV 使用
+    # 有生态 → 规范 purl(OSV 支持该类型)
+    assert by_name["Some Lib X"]["purl"] == "pkg:pypi/some-lib-x@2.1.0"
+    assert with_eco.purl == "pkg:pypi/some-lib-x@2.1.0"
+
+
+def test_missing_ecosystem_never_falls_back_to_generic(session):
+    """无生态时不得生成 pkg:generic —— OSV 不支持该类型, 查了也是空转。"""
+    project = add_base_project(session)
+    comp = _add_component(session, project, name="Mystery Dep", version="9.9")
+
+    assert build_purl(comp) is None
+    bom = build_cyclonedx(project, [comp])
+    purl = bom["components"][0]["purl"]
+    assert not purl.startswith("pkg:generic")
+    assert purl == "mystery-dep@9.9"      # 降级坐标, 仅供展示, 不参与漏洞匹配
+
+
+def test_ecosystem_from_purl_roundtrip():
+    """purl → 生态反推(SBOM 文件导入时补全生态维度)。"""
+    assert ecosystem_from_purl("pkg:apk/alpine/openssl@1.0.2h") == "alpine"
+    assert ecosystem_from_purl("pkg:bitnami/redis@6.2.0") == "bitnami"
+    assert ecosystem_from_purl("pkg:maven/log4j-core@2.14.1") == "maven"
+    assert ecosystem_from_purl("pkg:rpm/openeuler/openssl@1.1.1") == "openeuler"
+    assert ecosystem_from_purl(None) is None
+    assert ecosystem_from_purl("not-a-purl") is None
 
 
 def test_license_spdx_id_vs_free_text(session):

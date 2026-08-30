@@ -63,14 +63,38 @@ async def lifespan(_: FastAPI):
         _apply_policy_settings(db)
     finally:
         db.close()
+    _log_vuln_source_status()
     yield
+
+
+def _log_vuln_source_status() -> None:
+    """启动时交代漏洞数据源状态。
+
+    内网部署最常见的事故是"漏洞库忘了挂载", 页面上每个组件都显示无法判定却没人知道原因。
+    启动日志里说清楚, 运维一眼能定位。
+    """
+    from services.vuln_source import VulnSourceUnavailable, describe_sources
+
+    try:
+        from services.vuln_source import get_vuln_source
+        source, skipped = get_vuln_source()
+        if skipped:
+            logger.warning("漏洞数据源降级: %s", "; ".join(skipped))
+        logger.info("漏洞数据源: %s", source.available()[1])
+    except VulnSourceUnavailable:
+        logger.error(
+            "无可用漏洞数据源, 组件漏洞查询将全部标注为「无法判定」。"
+            "内网部署请确认已挂载 vulndb.sqlite, 或调整 SECREQ_VULN_SOURCE"
+        )
+        for row in describe_sources():
+            logger.error("  数据源 %s: 可用=%s, %s", row["code"], row["available"], row["reason"] or "")
 
 
 app = FastAPI(
     title="安全需求管理平台",
     description="面向开发与安全两角色的安全需求管理平台: JR/T 0197 五级数据分级、"
                 "监管合规基线映射、安全需求清单生成与确认",
-    version="2.1.3",
+    version="2.2.0",
     lifespan=lifespan,
     dependencies=[Depends(auth_guard)],  # 全局认证: 开放路径外一律要求登录
 )

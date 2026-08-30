@@ -13,7 +13,7 @@
 #   - 预留漏洞库挂载位: v2.2.0 起可覆盖镜像内置基线库, 更新漏洞数据不必重建镜像
 services:
   secreq:
-    image: ghcr.io/timmycheng/secreq:v2.1.3   # 改成实际导入的版本号
+    image: ghcr.io/timmycheng/secreq:v2.2.0   # 改成实际导入的版本号
     container_name: secreq
     ports:
       - "8000:8000"
@@ -21,14 +21,23 @@ services:
       SECREQ_DATABASE_URL: sqlite:////app/data/secreq.db
       TZ: Asia/Shanghai                       # 与镜像内 tzdata 配套
       SECREQ_LOG_LEVEL: INFO
+      # 漏洞数据源链: 本地库优先。行内 SCA 接入后改成 sca,local 即可
+      # (前一项不可用时自动降级到后一项, 并记日志, 不静默失败)
+      SECREQ_VULN_SOURCE: local
+      # 漏洞库路径。镜像内置基线库; 挂载外部库可覆盖
+      SECREQ_VULNDB_PATH: /app/data/vulndb.sqlite
       # 必填: 种子账号初始密码。缺失时 compose 直接拒绝启动, 避免线上出现随机口令
       SECREQ_SEED_PASSWORD: ${SECREQ_SEED_PASSWORD:?请在 .env 中设置 SECREQ_SEED_PASSWORD}
     volumes:
       - secreq-data:/app/data       # SQLite 数据库
       - secreq-output:/app/output   # 生成产物(SBOM JSON)
-      # v2.2.0 起: 挂载外部漏洞库可覆盖镜像内置基线库。
-      # 更新漏洞数据时只替换这个文件并重启容器, 无需重建镜像走内网镜像入库流程。
+      # 漏洞库: 取消注释即用外部库覆盖镜像内置基线库。
+      # 更新漏洞数据只替换文件 + 重启容器, 不必重建镜像走内网镜像入库流程;
+      # 遇到 log4j2 级别的紧急漏洞, 分钟级生效。
+      # 摆渡进内网时连同 .sha256 一起带, 管理端「漏洞库 → 校验文件完整性」可核对。
       # - ./vulndb/vulndb-20260915.sqlite:/app/data/vulndb.sqlite:ro
+      # CNNVD 映射(可选): 缺失不影响漏洞匹配, 仅导出时少补国产编号
+      # - ./vulndb/cnnvd_map.sqlite:/app/data/cnnvd_map.sqlite:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
