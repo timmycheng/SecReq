@@ -50,6 +50,7 @@ export interface FeatureRow {
   id?: number
   name: string
   module?: string | null
+  description?: string | null
   categories: string[]
   sensitivity: string
   involves_payment: boolean

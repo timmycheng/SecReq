@@ -3,7 +3,7 @@
    字段编辑为表卡片内的行内编辑区, 避免多层弹窗嵌套。 */
 import { useRef, useState } from 'react'
 import {
-  Alert, Button, Checkbox, Divider, Form, Input, Modal, Popconfirm, Select,
+  Alert, Button, Checkbox, Col, Divider, Form, Input, Modal, Popconfirm, Row, Select,
   Space, Spin, Table, Tag, Tooltip, Typography, Upload, message,
 } from 'antd'
 import {
@@ -182,55 +182,72 @@ function AssetEditor({ initial, onSave, onClose }: {
       }}
     >
       <Form form={form} layout="vertical" initialValues={{ ...initial }}>
-        <Space size={16} style={{ display: 'flex' }}>
-          <Form.Item name="name" label="资产名称" rules={[{ required: true }]} style={{ width: 240 }}>
-            <Input placeholder="如: 银行账户信息" />
-          </Form.Item>
-          <Form.Item name="data_type" label="资产分类" rules={[{ required: true }]} style={{ width: 200 }}>
-            <Select options={optionsOf(enums, 'data_asset_types')} />
-          </Form.Item>
-          <Form.Item
-            name="classification"
-            label={(
-              <Tooltip title="JR/T 0197-2020《金融数据安全 数据安全分级指南》五级体系">
-                分级(?)
-              </Tooltip>
-            )}
-            rules={[{ required: true }]}
-            style={{ width: 320 }}
-            extra={selectedLevel && levelMeta[selectedLevel] ? (
-              <Typography.Text type="secondary" style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>
-                典型数据(JR/T 0197 附录A节选): {levelMeta[selectedLevel].examples}
-              </Typography.Text>
-            ) : undefined}
-          >
-            <Select
-              showSearch
-              optionFilterProp="label"
-              options={(enums['data_levels'] as string[] ?? []).map((code) => ({
-                value: code,
-                label: levelMeta[code]?.label ?? levelLabels[code] ?? code,
-              }))}
-            />
-          </Form.Item>
-        </Space>
-        <Space size={24} wrap>
-          <Form.Item noStyle shouldUpdate={(a, b) => a.classification !== b.classification}>
-            {({ getFieldValue }) => (
-              <Form.Item name="c3_tag" valuePropName="checked" style={{ marginBottom: 0 }}>
-                <Checkbox disabled={!['4级_C3鉴别信息', '5级_重要数据'].includes(getFieldValue('classification'))}>
-                  C3 鉴别信息标签(生物特征/口令类, 触发传输/缓存/日志专属规则)
-                </Checkbox>
-              </Form.Item>
-            )}
-          </Form.Item>
-          <Form.Item name="is_pii" label="是否个人信息" valuePropName="checked"><Checkbox /></Form.Item>
-          <Form.Item name="is_sensitive_pii" label="是否敏感个人信息" valuePropName="checked"><Checkbox /></Form.Item>
-          <Form.Item name="cross_border_transfer" label="是否跨境传输" valuePropName="checked"><Checkbox /></Form.Item>
-          <Form.Item name="storage_envs" label="存储位置(多选)">
-            <Select mode="multiple" style={{ minWidth: 280 }} options={optionsOf(enums, 'storage_envs')} />
-          </Form.Item>
-        </Space>
+        <Row gutter={16}>
+          <Col span={8}>
+            <Form.Item name="name" label="资产名称" rules={[{ required: true }]}>
+              <Input placeholder="如: 银行账户信息" />
+            </Form.Item>
+          </Col>
+          <Col span={7}>
+            <Form.Item name="data_type" label="资产分类" rules={[{ required: true }]}>
+              <Select options={optionsOf(enums, 'data_asset_types')} />
+            </Form.Item>
+          </Col>
+          <Col span={9}>
+            <Form.Item
+              name="classification"
+              label={(
+                <Tooltip title="JR/T 0197-2020《金融数据安全 数据安全分级指南》五级体系">
+                  分级(?)
+                </Tooltip>
+              )}
+              rules={[{ required: true }]}
+              extra={selectedLevel && levelMeta[selectedLevel] ? (
+                <Typography.Text type="secondary" style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>
+                  典型数据(JR/T 0197 附录A节选): {levelMeta[selectedLevel].examples}
+                </Typography.Text>
+              ) : undefined}
+            >
+              <Select
+                showSearch
+                optionFilterProp="label"
+                options={(enums['data_levels'] as string[] ?? []).map((code) => ({
+                  value: code,
+                  label: levelMeta[code]?.label ?? levelLabels[code] ?? code,
+                }))}
+              />
+            </Form.Item>
+          </Col>
+        </Row>
+        <Row gutter={16}>
+          <Col span={24}>
+            <Form.Item noStyle shouldUpdate={(a, b) => a.classification !== b.classification}>
+              {({ getFieldValue }) => (
+                <Form.Item name="c3_tag" valuePropName="checked" style={{ marginBottom: 8 }}>
+                  <Checkbox disabled={!['4级_C3鉴别信息', '5级_重要数据'].includes(getFieldValue('classification'))}>
+                    C3 鉴别信息标签(生物特征/口令类, 触发传输/缓存/日志专属规则)
+                  </Checkbox>
+                </Form.Item>
+              )}
+            </Form.Item>
+          </Col>
+        </Row>
+        <Row gutter={16}>
+          <Col span={6}>
+            <Form.Item name="is_pii" label="是否个人信息" valuePropName="checked"><Checkbox /></Form.Item>
+          </Col>
+          <Col span={7}>
+            <Form.Item name="is_sensitive_pii" label="是否敏感个人信息" valuePropName="checked"><Checkbox /></Form.Item>
+          </Col>
+          <Col span={5}>
+            <Form.Item name="cross_border_transfer" label="是否跨境传输" valuePropName="checked"><Checkbox /></Form.Item>
+          </Col>
+          <Col span={6}>
+            <Form.Item name="storage_envs" label="存储位置(多选)">
+              <Select mode="multiple" options={optionsOf(enums, 'storage_envs')} />
+            </Form.Item>
+          </Col>
+        </Row>
       </Form>
 
       <Divider plain>数据表(在表卡片内直接增删改字段)</Divider>

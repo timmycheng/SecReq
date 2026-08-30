@@ -29,6 +29,7 @@ def replace_features(session: Session, project_id: int, items: list[FeatureIn]) 
             project_id=project_id,
             name=f.name,
             module=f.module,
+            description=f.description,
             categories=f.categories,
             sensitivity=f.sensitivity,
             involves_payment=f.involves_payment,

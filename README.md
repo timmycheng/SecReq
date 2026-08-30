@@ -7,7 +7,7 @@ JR/T 0197-2020 五级数据分级与监管合规基线映射。
 
 [![Release CI](https://github.com/timmycheng/SecReq/actions/workflows/release.yml/badge.svg)](https://github.com/timmycheng/SecReq/actions/workflows/release.yml)
 
-当前版本 **v2.1.0** · 各版本变更见 [CHANGELOG.md](CHANGELOG.md)
+当前版本 **v2.1.2** · 各版本变更见 [CHANGELOG.md](CHANGELOG.md)
 
 ## 功能特性
 
@@ -38,7 +38,7 @@ JR/T 0197-2020 五级数据分级与监管合规基线映射。
 ```bash
 docker run -d --name secreq -p 8000:8000 \
   -v secreq-data:/app/data -v secreq-output:/app/output \
-  ghcr.io/timmycheng/secreq:v2.1.0
+  ghcr.io/timmycheng/secreq:v2.1.2
 ```
 
 或使用仓库自带的 `docker-compose.yml`:
@@ -53,7 +53,7 @@ docker compose up -d
 离线环境可从 GitHub Release 下载对应版本的镜像包后导入:
 
 ```bash
-docker load -i secreq-image-v2.1.0.tar.gz
+docker load -i secreq-image-v2.1.2.tar.gz
 ```
 
 ### 演示账号

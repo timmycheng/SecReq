@@ -1,7 +1,7 @@
 # SecReq 一键部署: docker compose up -d 后访问 http://localhost:8000
 services:
   secreq:
-    image: ghcr.io/timmycheng/secreq:latest  # 可固定为具体版本, 如 ghcr.io/timmycheng/secreq:v2.1.0
+    image: ghcr.io/timmycheng/secreq:latest  # 可固定为具体版本, 如 ghcr.io/timmycheng/secreq:v2.1.2
     container_name: secreq
     ports:
       - "8000:8000"

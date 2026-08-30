@@ -17,7 +17,7 @@ interface CandidateFeature extends FeatureRow {
 }
 
 const EMPTY: FeatureRow = {
-  name: '', module: '', categories: [], sensitivity: 'internal',
+  name: '', module: '', description: '', categories: [], sensitivity: 'internal',
   involves_payment: false, exposed_to_internet: false,
 }
 
@@ -100,8 +100,12 @@ export default function Step3Features({ ws, patch }: StepProps) {
         pagination={false}
         size="small"
         columns={[
-          { title: '功能名称', dataIndex: 'name' },
-          { title: '所属模块', dataIndex: 'module', render: (v) => v || '—' },
+          { title: '所属模块', dataIndex: 'module', width: 130, render: (v) => v || '—' },
+          { title: '功能名称', dataIndex: 'name', width: 180 },
+          {
+            title: '详细描述', dataIndex: 'description', ellipsis: { showTitle: true },
+            render: (v) => v || '—',
+          },
           {
             title: '功能分类', dataIndex: 'categories',
             render: (cats: string[]) => cats.map((c) => <Tag key={c} color="blue">{categoryMap[c] ?? c}</Tag>),
@@ -202,10 +206,12 @@ function PasteExtractModal({ projectId, open, onClose, onConfirm }: {
       <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
         把业务需求书/会议纪要里的功能描述段落贴到下面, 系统自动提取功能点并建议分类,
         确认后再加入清单 —— 只建议不落库, 加入后仍可修改删除。
+        支持两种贴法: ① 按模块分节(先写「支付模块:」等节标题, 其下列功能) → 自动归入所属模块;
+        ② 平铺罗列功能点, 每行一条(可用「功能名: 具体说明」补充详细描述)。
       </Typography.Paragraph>
       <Input.TextArea
         rows={6}
-        placeholder={'示例: 系统支持个人用户注册登录, 登录需要短信验证码。\n客户可在线提交转账支付申请, 并查询交易订单。\n管理后台提供数据导出与操作日志功能。'}
+        placeholder={'按模块分节贴:\n支付模块:\n客户可在线提交转账支付申请, 并查询交易订单\n转账汇款需支持限额校验与短信确认\n\n或平铺罗列:\n系统支持个人用户注册登录, 登录需要短信验证码\n管理后台提供数据导出与操作日志功能'}
         value={text}
         onChange={(e) => setText(e.target.value)}
       />
@@ -231,7 +237,11 @@ function PasteExtractModal({ projectId, open, onClose, onConfirm }: {
                 />
               ),
             },
-            { title: '功能点', dataIndex: 'name', width: 300 },
+            { title: '所属模块', dataIndex: 'module', width: 110,
+              render: (v) => v || '—' },
+            { title: '功能点', dataIndex: 'name', width: 200 },
+            { title: '详细描述', dataIndex: 'description', ellipsis: { showTitle: true },
+              render: (v) => v || '—' },
             { title: '建议分类', dataIndex: 'categories',
               render: (cats: string[]) => cats.map((c) => <Tag key={c} color="blue">{categoryMap[c] ?? c}</Tag>) },
             { title: '资金', dataIndex: 'involves_payment', width: 60,
@@ -266,10 +276,21 @@ function FeatureModal({ value, onOk, onCancel }: {
       forceRender
     >
       <Form form={form} layout="vertical" initialValues={value ?? EMPTY}>
+        <Form.Item
+          name="module" label="所属模块"
+          extra="比功能高一级的功能聚合/子系统, 如: 支付模块、用户中心、管理后台"
+        >
+          <Input placeholder="如: 支付模块" />
+        </Form.Item>
         <Form.Item name="name" label="功能名称" rules={[{ required: true, message: '请输入功能名称' }]}>
           <Input placeholder="如: 转账汇款" />
         </Form.Item>
-        <Form.Item name="module" label="所属模块"><Input placeholder="如: 支付模块" /></Form.Item>
+        <Form.Item name="description" label="详细描述">
+          <Input.TextArea
+            rows={2} maxLength={500} showCount
+            placeholder="功能的具体内容说明, 如: 客户可在线向本行/他行账户发起转账, 支持限额校验与短信确认"
+          />
+        </Form.Item>
         <Form.Item
           name="categories" label="功能分类(可多选)"
           rules={[{ required: true, message: '至少选择一个分类' }]}

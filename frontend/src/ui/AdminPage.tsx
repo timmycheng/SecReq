@@ -21,15 +21,21 @@ export default function AdminPage() {
   // 后端仅安全角色可访问; 前端同步给非安全角色明确的 403 提示
   if (getStoredUser()?.role !== 'security') {
     return (
-      <div style={{ padding: 24 }}>
-        <Card>
+      <div style={{ minHeight: '60vh', display: 'grid', placeItems: 'center', padding: 24 }}>
+        <Card style={{ width: '100%', maxWidth: 480 }}>
           <Result status="403" title="403" subTitle="系统管理仅安全角色可访问" />
         </Card>
       </div>
     )
   }
   return (
-    <div style={{ padding: 24 }}>
+    <div style={{ maxWidth: 1100, margin: '0 auto', padding: 24 }}>
+      <div style={{ marginBottom: 16 }}>
+        <Typography.Title level={4} style={{ marginBottom: 4 }}>系统管理</Typography.Title>
+        <Typography.Text type="secondary">
+          知识库、定级题库、密码策略基线、大模型接入与用户、审计日志的统一维护入口(仅安全角色)
+        </Typography.Text>
+      </div>
       <Card>
         <Tabs
           items={[
@@ -76,15 +82,15 @@ function KbTab() {
 
   return (
     <>
+      <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
+        停用后生成时跳过; 编辑写回 YAML 自动备份, 保存时全量校验。当前共 {rows.length} 条模板。
+      </Typography.Paragraph>
       <Space style={{ marginBottom: 12 }} wrap>
         <Input.Search
           placeholder="按 id 或标题搜索" allowClear style={{ width: 280 }}
           onSearch={setKeyword}
         />
         <Button icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
-        <Typography.Text type="secondary">
-          共 {rows.length} 条模板 · 停用后生成时跳过; 编辑写回 YAML 自动备份, 保存时全量校验
-        </Typography.Text>
       </Space>
       <Table<KbTemplateRow>
         rowKey="id"
@@ -220,7 +226,7 @@ function QuestionTab() {
     }
   }
 
-  if (!bank) return <Spin />
+  if (!bank) return <Spin style={{ display: 'block', margin: '40px auto' }} />
 
   const updateOption = (qi: number, oi: number, patch: Partial<QuestionBank['questions'][0]['options'][0]>) => {
     const copy: QuestionBank = JSON.parse(JSON.stringify(bank))
@@ -230,7 +236,7 @@ function QuestionTab() {
 
   return (
     <>
-      <Typography.Paragraph type="secondary">
+      <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
         题目分值与组合规则决定自动定级建议。此处调整选项分值; 保存后立即对新提交的问卷生效。
       </Typography.Paragraph>
       {bank.questions.map((q, qi) => (
@@ -239,7 +245,7 @@ function QuestionTab() {
           extra={<Tag>命中组合: {bank.levels.find((l) => l.level)?.level ?? ''}</Tag>}
         >
           {q.options.map((o, oi) => (
-            <Space key={o.id} size={8} style={{ display: 'flex', marginBottom: 6 }}>
+            <Space key={o.id} size={8} style={{ display: 'flex', marginBottom: 6 }} wrap>
               <Tag style={{ minWidth: 28, textAlign: 'center' }}>{o.id}</Tag>
               <Input style={{ width: 300 }} value={o.label}
                 onChange={(e) => updateOption(qi, oi, { label: e.target.value })} />
@@ -252,7 +258,9 @@ function QuestionTab() {
           ))}
         </Card>
       ))}
-      <Button type="primary" loading={saving} onClick={() => void save()}>保存题库</Button>
+      <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #f0f0f0' }}>
+        <Button type="primary" loading={saving} onClick={() => void save()}>保存题库</Button>
+      </div>
     </>
   )
 }
@@ -267,7 +275,7 @@ function PolicyTab() {
   }, [])
   useEffect(reload, [reload])
 
-  if (!data) return <Spin />
+  if (!data) return <Spin style={{ display: 'block', margin: '40px auto' }} />
 
   const update = (level: string, key: string, value: number | null) => {
     const copy: PolicyBaselines = JSON.parse(JSON.stringify(data))
@@ -276,8 +284,8 @@ function PolicyTab() {
   }
 
   return (
-    <div style={{ maxWidth: 760 }}>
-      <Typography.Paragraph type="secondary">
+    <div style={{ maxWidth: 760, margin: '0 auto' }}>
+      <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
         各定级档位的默认密码基线; 项目未显式覆盖时按此取值, 保存后对新预览与生成即时生效。
       </Typography.Paragraph>
       {Object.entries(data.baselines).map(([level, base]) => (
@@ -346,8 +354,8 @@ function LlmTab() {
   useEffect(reload, [reload])
 
   return (
-    <div style={{ maxWidth: 640 }}>
-      <Typography.Paragraph type="secondary">
+    <div style={{ maxWidth: 640, margin: '0 auto' }}>
+      <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
         配置 OpenAI 兼容接口(/chat/completions)后, 功能清单的「粘贴需求段落自动生成」将使用大模型提取;
         未配置或调用失败时自动降级为关键词规则提取。
       </Typography.Paragraph>
@@ -397,9 +405,11 @@ function UsersTab() {
 
   return (
     <>
-      <Space style={{ marginBottom: 12 }}>
+      <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
+        新用户未指定密码时由系统生成随机初始密码, 创建后弹窗展示。
+      </Typography.Paragraph>
+      <Space style={{ marginBottom: 12 }} wrap>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>新增用户</Button>
-        <Typography.Text type="secondary">新用户未指定密码时由系统生成随机初始密码, 创建后弹窗展示</Typography.Text>
       </Space>
       <Table<AdminUserRow>
         rowKey="username" dataSource={rows} pagination={false} size="small"
@@ -493,9 +503,11 @@ function AuditTab() {
 
   return (
     <>
-      <Space style={{ marginBottom: 12 }}>
+      <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
+        记录登录、生成、确认以及知识库与用户管理变更, 当前展示最近 {rows.length} 条。
+      </Typography.Paragraph>
+      <Space style={{ marginBottom: 12 }} wrap>
         <Button icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
-        <Typography.Text type="secondary">最近 {rows.length} 条(登录/生成/确认/知识库与用户管理变更)</Typography.Text>
       </Space>
       <Table<AuditLogRow>
         rowKey="id" loading={loading} dataSource={rows} size="small"

@@ -21,8 +21,16 @@ _SYSTEM_PROMPT = """你是银行/金融行业的安全需求分析助手。用�
 
 要求:
 - 每个功能点一个对象: {"name": 功能名(不超过20字), "module": 所属模块(可空字符串),
+  "description": 功能详细描述(一句话概括该功能具体做什么, 可空字符串),
   "categories": 分类代码数组(从下面列表选, 可多个), "involves_payment": 是否涉及资金交易(bool),
   "exposed_to_internet": 是否面向互联网用户(bool), "sensitivity": "public|internal|sensitive|confidential"}
+- 所属模块是比单个功能高一级的功能聚合/子系统(如: 支付模块、用户中心、管理后台、报表平台)。
+  粘贴文本常见以下几种组织形态, 请区分处理:
+  1) 按模块分节: 文中出现"XX模块/XX中心/XX管理"等节标题(或"一、二、"编号标题), 其下罗列多个功能
+     → 这些功能的 module 填节标题, 且功能名里不要再重复模块名;
+  2) 平铺罗列: 功能直接逐条列出, 没有明确的模块归属 → module 填空字符串, 不要凭空猜测;
+  3) 带描述的功能条目: 形如"功能名: 具体说明"或句尾附补充说明 → name 取功能名,
+     说明部分概括进 description, 不要把整句塞进 name。
 - 分类代码表:
 %s
 - 只输出 JSON 数组, 不要任何解释文字。
@@ -103,6 +111,7 @@ def _normalize(items: list) -> list[dict]:
         out.append({
             "name": name,
             "module": str(item.get("module") or "").strip()[:50] or None,
+            "description": str(item.get("description") or "").strip()[:300] or None,
             "categories": categories,
             "involves_payment": bool(item.get("involves_payment")),
             "exposed_to_internet": bool(item.get("exposed_to_internet")),
@@ -151,6 +160,7 @@ def _make_candidate(text: str, categories: list[str]) -> dict:
     return {
         "name": text[:50],
         "module": None,
+        "description": None,
         "categories": categories[:5],
         "involves_payment": any(c in ("payment", "refund") for c in categories),
         "exposed_to_internet": any(w in text for w in _INTERNET_HINTS),

@@ -37,6 +37,9 @@ _NEW_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("quantity", "INTEGER"),
         ("purpose", "VARCHAR(300)"),
     ],
+    "features": [
+        ("description", "VARCHAR(500)"),
+    ],
     "security_requirements": [
         ("source_label", "VARCHAR(200)"),
         ("regulatory_ref", "JSON"),
