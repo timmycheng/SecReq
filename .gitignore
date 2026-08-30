@@ -13,6 +13,12 @@ output_test/
 node_modules/
 dist/
 
+# 本地环境变量(含初始口令, 绝不可提交)
+.env
+
 # ZCode 工具产物
 .zcode/
 .mimosa/
+
+# Workbuddy 工具产物
+.workbuddy/

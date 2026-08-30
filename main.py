@@ -10,6 +10,8 @@
 - 启动时自动补齐存量库新列(JR/T 五级改造)并执行老四级数据迁移 + 种子用户写入,
   与 scripts/migrate_classification.py 共用同一实现(services/classification_migration)。
 """
+import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -20,6 +22,14 @@ from fastapi.staticfiles import StaticFiles
 from models import init_db, make_engine, make_session_factory
 from routers import admin, auth, generate, meta, projects, steps
 from routers.common import auth_guard
+
+# 统一日志出口: 容器部署时全部走 stdout 便于采集。
+# root 已配置过 handler 时 basicConfig 是空操作, 不会覆盖 uvicorn 的日志配置。
+logging.basicConfig(
+    level=os.environ.get("SECREQ_LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logger = logging.getLogger("secreq")
 
 ROOT_DIR = Path(__file__).resolve().parent
 
@@ -43,12 +53,12 @@ async def lifespan(_: FastAPI):
     try:
         stats = migrate_legacy_classification(db)
         if stats["migrated"]:
-            print(f"[SecReq] 老四级分级已迁移为 JR/T 0197 五级: {stats}")
+            logger.info("老四级分级已迁移为 JR/T 0197 五级: %s", stats)
         ensure_seed_users(db)
         populate_project_types(db)
         moved = assign_legacy_projects(db)
         if moved:
-            print(f"[SecReq] {moved} 个存量项目已归入默认开发账号")
+            logger.info("%d 个存量项目已归入默认开发账号", moved)
         from routers.admin import _apply_policy_settings
         _apply_policy_settings(db)
     finally:
@@ -60,7 +70,7 @@ app = FastAPI(
     title="安全需求管理平台",
     description="面向开发与安全两角色的安全需求管理平台: JR/T 0197 五级数据分级、"
                 "监管合规基线映射、安全需求清单生成与确认",
-    version="2.1.2",
+    version="2.1.3",
     lifespan=lifespan,
     dependencies=[Depends(auth_guard)],  # 全局认证: 开放路径外一律要求登录
 )

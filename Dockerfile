@@ -11,8 +11,16 @@ RUN npm run build
 # ── 阶段二: 运行镜像 ────────────────────────────────────────────────────────
 FROM python:3.12-slim
 WORKDIR /app
+
+# 时区: slim 镜像不保证自带 tzdata, 缺了 TZ 环境变量不生效,
+# 会导致确认时间/审计时间/导出时间整体按 UTC 显示(差 8 小时)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    TZ=Asia/Shanghai \
     SECREQ_DATABASE_URL=sqlite:////app/data/secreq.db
 
 COPY requirements.txt ./

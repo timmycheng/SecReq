@@ -4,7 +4,11 @@
 消费方式(DESIGN.md 附注): 遍历知识库全部模板, 按 trigger.type 分派判定函数,
 条件满足即实例化为 SecurityRequirement(渲染 {{placeholder}} 占位符),
 同类规则命中多个实例时生成多条独立需求并分别关联各自的 source_entity_id。
+
+容错口径: 单条模板配置有误(未知 rule_key / 未知 trigger_type)时跳过该模板并记入
+`skipped`, 不中断整轮生成 —— 一条坏配置不该让其余模板全部失效。
 """
+import logging
 import re
 from dataclasses import dataclass
 
@@ -13,6 +17,8 @@ from rules.context import RequirementContext
 from rules.loader import KnowledgeBase, RequirementTemplate
 
 import shared.constants as C
+
+logger = logging.getLogger(__name__)
 
 _PLACEHOLDER_PATTERN = re.compile(r"\{\{\s*(\w+)\s*\}\}")
 
@@ -53,6 +59,8 @@ class RuleEngine:
     def __init__(self, kb: KnowledgeBase, fix_deadline_days: int = DEFAULT_FIX_DEADLINE_DAYS):
         self.kb = kb
         self.fix_deadline_days = fix_deadline_days
+        # 本轮因配置有误被跳过的模板 [{template_id, reason}]; 每次 generate 重置
+        self.skipped: list[dict] = []
         # trigger.type → 命中判定函数(返回 Match 列表)
         self._handlers = {
             "feature_category": self._match_features,
@@ -74,26 +82,40 @@ class RuleEngine:
         from rules.loader import load_knowledge_base
         return cls(load_knowledge_base(path))
 
+    def _skip(self, tpl: RequirementTemplate, reason: str) -> None:
+        """记录一条被跳过的模板(供调用方提示与排障)。"""
+        self.skipped.append({"template_id": tpl.id, "reason": reason})
+        logger.error("跳过配置有误的知识库模板『%s』: %s", tpl.id, reason)
+
     # ────────────────────────── 主流程 ──────────────────────────
 
     def generate(self, ctx: RequirementContext) -> list[SecurityRequirement]:
         """对项目上下文执行全量规则匹配, 返回未入库的 SecurityRequirement 列表。
 
         排序稳定(知识库声明顺序 → 来源实体id), 同模板多实例用 -NN 序号保证 req_id 唯一。
+        单条模板配置有误时跳过并记入 `self.skipped`, 不中断整轮匹配。
         """
         collected: list[tuple[RequirementTemplate, Match]] = []
         seen: set[tuple[str, int]] = set()
+        self.skipped = []
 
         for tpl in self.kb.templates:
             if not tpl.enabled:
                 continue
-            handler = self._handlers[tpl.trigger_type]
-            for match in handler(tpl, ctx):
-                key = (tpl.id, match.source_entity_id)
-                if key in seen:  # 同一模板对同一来源只生成一条
-                    continue
-                seen.add(key)
-                collected.append((tpl, match))
+            handler = self._handlers.get(tpl.trigger_type)
+            if handler is None:
+                self._skip(tpl, f"未知触发器类型: {tpl.trigger_type}")
+                continue
+            try:
+                for match in handler(tpl, ctx):
+                    key = (tpl.id, match.source_entity_id)
+                    if key in seen:  # 同一模板对同一来源只生成一条
+                        continue
+                    seen.add(key)
+                    collected.append((tpl, match))
+            except RuleEngineError as exc:
+                # 未知 rule_key / 占位符缺失等: 跳过该模板, 其余模板继续
+                self._skip(tpl, str(exc))
 
         # 稳定排序后分配 req_id 与实例序号; 监管报送类恒置顶
         collected.sort(key=lambda pair: (
@@ -470,15 +492,17 @@ class RuleEngine:
     def _match_regulatory_triggers(self, tpl: RequirementTemplate, ctx: RequirementContext) -> list[Match]:
         """监管报送触发器(改造点3): 项目输入满足条件即在需求清单置顶生成报送类需求。
 
-        rule_key 枚举:
+        rule_key 枚举(7 项, 均已实现):
         - l5_data_exists        存在 5级(重要数据)资产
         - cross_border_exists   任一资产跨境传输 或 项目存在境外外包/供应商
-        - saas_finance          部署环境含外采SaaS 且 业务条目属金融
         - mobile_app_type       项目类型为手机APP/小程序
         - ai_feature            功能清单含 AI 功能
         - final_level_l3        有效定级为三级
         - sensitive_pii_exists  存在敏感个人信息资产(PIA 事前评估)
         - djcp_l3_filing        三级系统等保测评与公安机关备案
+
+        未知 rule_key 抛 RuleEngineError, 由 generate() 捕获后跳过该模板
+        (早前 docstring 曾列有未实现的 saas_finance, 已移除以免误导配置)。
         """
         key = tpl.trigger.get("rule_key")
         pid = ctx.project.id

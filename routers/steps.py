@@ -4,6 +4,8 @@
 统一语义: POST 为该步骤整卷保存(整体替换)并返回落库后的最新实体;
 GET 读取当前值。枚举选项一律由 /api/meta/constants 提供, 本文件不重复定义。
 """
+import logging
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -11,12 +13,13 @@ from sqlalchemy.orm import Session
 import shared.constants as C
 from models import (
     ApiEndpoint, AuthConfig, DataAsset, ExternalSystem, Feature, GradingSurvey,
-    InfraAsset, PermissionEntry, Project, Resource, Role, SbomComponent,
+    InfraAsset, PermissionEntry, PlatformUser, Project, Resource, Role, SbomComponent,
 )
 from routers.common import (
     asset_to_out, component_to_out, get_accessible_project, get_db,
-    get_writable_project, survey_to_out,
+    get_writable_project, require_write_roles, survey_to_out,
 )
+from services.audit_service import audit
 from schemas.auth import AuthConfigIn, AuthConfigOut, AuthDefaultsOut
 from schemas.component import ComponentsSaveIn, ComponentOut, SbomImportResult
 from schemas.data_dictionary import DataAssetOut
@@ -27,6 +30,7 @@ from schemas.inventory import (
 from schemas.project import ExternalSystemIn, ExternalSystemOut
 from schemas.permission import PermissionMatrixIn, PermissionMatrixOut
 from schemas.survey import SurveySubmitIn
+from services.errors import server_error
 from services.feature_extract import FeatureExtractionError, extract_candidates
 from services.grading import GradingError, grade_survey
 from services.sbom_import import SbomParseError, import_sbom_file
@@ -36,6 +40,38 @@ from services.step_store import (
     replace_data_assets, replace_external_systems, replace_features,
     replace_infra_assets, replace_permission_matrix, upsert_auth_config,
 )
+
+logger = logging.getLogger(__name__)
+
+# 上传文件体积上限; 按块读取并在累计超限时立刻 413, 避免一次性载入内存
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+_CHUNK_SIZE = 64 * 1024
+
+
+async def _read_limited(file: UploadFile, limit: int = MAX_UPLOAD_BYTES) -> bytes:
+    """按块读取上传文件; 累计超过 limit 立即抛 413。"""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(_CHUNK_SIZE)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > limit:
+            raise HTTPException(
+                status_code=413,
+                detail=f"上传文件过大, 上限 {limit // (1024 * 1024)} MB",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _audit_step(db: Session, user: PlatformUser, project: Project,
+                step: str, count: int) -> None:
+    """向导步骤保存留痕: 只记步骤名与条目数, 不记全量数据(避免审计库膨胀)。"""
+    audit(db, user.username, "step_save",
+          {"project_id": project.id, "step": step, "count": count})
+
 
 router = APIRouter(
     prefix="/api/projects/{project_id}", tags=["wizard-steps"],
@@ -102,9 +138,12 @@ def get_survey(project: Project = Depends(get_accessible_project), db: Session =
 @router.post("/external-systems", response_model=list[ExternalSystemOut])
 def save_external_systems(payload: list[ExternalSystemIn],
                           project: Project = Depends(get_writable_project),
-                          db: Session = Depends(get_db)):
+                          db: Session = Depends(get_db),
+                          user: PlatformUser = Depends(
+                              require_write_roles(*C.WRITE_WIZARD_ROLES))):
     replace_external_systems(db, project.id, payload)
     rows = db.query(ExternalSystem).filter_by(project_id=project.id).order_by(ExternalSystem.id).all()
+    _audit_step(db, user, project, "external_systems", len(rows))
     return [ExternalSystemOut.model_validate(r) for r in rows]
 
 
@@ -152,11 +191,14 @@ def grading_baseline(project: Project = Depends(get_accessible_project),
 # ── Step3 功能清单 ────────────────────────────────────
 @router.post("/features", response_model=list[FeatureOut])
 def save_features(payload: list[dict], project: Project = Depends(get_writable_project),
-                  db: Session = Depends(get_db)):
+                  db: Session = Depends(get_db),
+                  user: PlatformUser = Depends(
+                      require_write_roles(*C.WRITE_WIZARD_ROLES))):
     from schemas.feature import FeatureIn
     items = [FeatureIn(**row) for row in payload]
     replace_features(db, project.id, items)
     rows = db.query(Feature).filter_by(project_id=project.id).order_by(Feature.id).all()
+    _audit_step(db, user, project, "features", len(rows))
     return [FeatureOut.model_validate(f) for f in rows]
 
 
@@ -185,11 +227,14 @@ def extract_feature_candidates(payload: FeatureExtractIn,
 # ── Step4 数据字典 ────────────────────────────────────
 @router.post("/data-assets", response_model=list[DataAssetOut])
 def save_data_assets(payload: list[dict], project: Project = Depends(get_writable_project),
-                     db: Session = Depends(get_db)):
+                     db: Session = Depends(get_db),
+                     user: PlatformUser = Depends(
+                         require_write_roles(*C.WRITE_WIZARD_ROLES))):
     from schemas.data_dictionary import DataAssetIn
     items = [DataAssetIn(**row) for row in payload]
     replace_data_assets(db, project.id, items)
     assets = db.query(DataAsset).filter_by(project_id=project.id).order_by(DataAsset.id).all()
+    _audit_step(db, user, project, "data_assets", len(assets))
     return [asset_to_out(a) for a in assets]
 
 
@@ -225,12 +270,14 @@ async def import_dictionary_file(project: Project = Depends(get_writable_project
         build_asset_suggestions, parse_dictionary_text, parse_dictionary_xlsx,
     )
     name = (file.filename or "").lower()
-    payload = await file.read()
+    payload = await _read_limited(file)
     if name.endswith((".xlsx", ".xlsm")):
         try:
             rows = parse_dictionary_xlsx(payload)
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail=f"Excel 解析失败: {exc}") from exc
+        except Exception as exc:  # openpyxl 内部异常, 原文可能含路径等内部信息
+            raise server_error(logger, exc, "Excel 解析失败",
+                               project_id=project.id, filename=file.filename,
+                               status_code=400) from exc
     elif name.endswith((".csv", ".txt", ".tsv")):
         text = None
         for encoding in ("utf-8-sig", "gbk"):
@@ -252,11 +299,14 @@ async def import_dictionary_file(project: Project = Depends(get_writable_project
 # ── Step5 权限矩阵 ────────────────────────────────────
 @router.post("/matrix")
 def save_matrix(payload: PermissionMatrixIn, project: Project = Depends(get_writable_project),
-                db: Session = Depends(get_db)):
+                db: Session = Depends(get_db),
+                user: PlatformUser = Depends(
+                    require_write_roles(*C.WRITE_WIZARD_ROLES))):
     try:
         stats = replace_permission_matrix(db, project.id, payload)
     except MatrixIndexError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _audit_step(db, user, project, "permission_matrix", stats.get("entries", 0))
     return _matrix_out(db, project.id, extra=stats)
 
 
@@ -292,8 +342,11 @@ def _matrix_out(db: Session, pid: int, extra: dict | None = None) -> dict:
 # ── Step6 认证与密码策略 ──────────────────────────────
 @router.post("/auth-config", response_model=AuthConfigOut)
 def save_auth_config(payload: AuthConfigIn, project: Project = Depends(get_writable_project),
-                     db: Session = Depends(get_db)):
+                     db: Session = Depends(get_db),
+                     user: PlatformUser = Depends(
+                         require_write_roles(*C.WRITE_WIZARD_ROLES))):
     cfg = upsert_auth_config(db, project.id, payload)
+    _audit_step(db, user, project, "auth_config", 1)
     return AuthConfigOut.model_validate(cfg)
 
 
@@ -324,34 +377,44 @@ def get_components(project: Project = Depends(get_accessible_project), db: Sessi
 
 @router.post("/components", response_model=list[ComponentOut])
 def save_components(payload: ComponentsSaveIn, project: Project = Depends(get_writable_project),
-                    db: Session = Depends(get_db)):
+                    db: Session = Depends(get_db),
+                    user: PlatformUser = Depends(
+                        require_write_roles(*C.WRITE_WIZARD_ROLES))):
     replace_components(db, project.id, payload.components)
     comps = db.query(SbomComponent).filter_by(project_id=project.id).order_by(SbomComponent.id).all()
+    _audit_step(db, user, project, "components", len(comps))
     return [component_to_out(c) for c in comps]
 
 
 @router.post("/components/import-sbom", response_model=SbomImportResult)
 async def import_sbom_file_route(project: Project = Depends(get_writable_project),
                                  db: Session = Depends(get_db),
-                                 file: UploadFile = File(...)):
+                                 file: UploadFile = File(...),
+                                 user: PlatformUser = Depends(
+                                     require_write_roles(*C.WRITE_WIZARD_ROLES))):
     """上传 CycloneDX/SPDX 格式 SBOM 文件批量导入(source_type=sbom_file)。"""
     if not file.filename or not file.filename.lower().endswith(
             (".json", ".spdx", ".cdx.json")):
         raise HTTPException(status_code=400, detail="请上传 .json(CycloneDX/SPDX JSON) 或 .spdx 文件")
-    payload = await file.read()
+    payload = await _read_limited(file)
     try:
-        return import_sbom_file(db, project.id, file.filename, payload)
+        result = import_sbom_file(db, project.id, file.filename, payload)
     except SbomParseError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _audit_step(db, user, project, "sbom_import", result.added)
+    return result
 
 
 # ── API 接口清单(独立步骤) ────────────────────────────
 @router.post("/api-endpoints", response_model=list[ApiEndpointOut])
 def save_api_endpoints(payload: list[ApiEndpointIn],
                        project: Project = Depends(get_writable_project),
-                       db: Session = Depends(get_db)):
+                       db: Session = Depends(get_db),
+                       user: PlatformUser = Depends(
+                           require_write_roles(*C.WRITE_WIZARD_ROLES))):
     replace_api_endpoints(db, project.id, payload)
     rows = db.query(ApiEndpoint).filter_by(project_id=project.id).order_by(ApiEndpoint.id).all()
+    _audit_step(db, user, project, "api_endpoints", len(rows))
     return [ApiEndpointOut.model_validate(e) for e in rows]
 
 
@@ -366,9 +429,12 @@ def get_api_endpoints(project: Project = Depends(get_accessible_project),
 @router.post("/infra-assets", response_model=list[InfraAssetOut])
 def save_infra_assets(payload: InfraAssetListIn,
                       project: Project = Depends(get_writable_project),
-                      db: Session = Depends(get_db)):
+                      db: Session = Depends(get_db),
+                      user: PlatformUser = Depends(
+                          require_write_roles(*C.WRITE_WIZARD_ROLES))):
     replace_infra_assets(db, project.id, payload.assets)
     rows = db.query(InfraAsset).filter_by(project_id=project.id).order_by(InfraAsset.id).all()
+    _audit_step(db, user, project, "infra_assets", len(rows))
     return [InfraAssetOut.model_validate(a) for a in rows]
 
 

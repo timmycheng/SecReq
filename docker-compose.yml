@@ -1,12 +1,13 @@
 # SecReq 一键部署: docker compose up -d 后访问 http://localhost:8000
 services:
   secreq:
-    image: ghcr.io/timmycheng/secreq:latest  # 可固定为具体版本, 如 ghcr.io/timmycheng/secreq:v2.1.2
+    image: ghcr.io/timmycheng/secreq:latest  # 可固定为具体版本, 如 ghcr.io/timmycheng/secreq:v2.1.3
     container_name: secreq
     ports:
       - "8000:8000"
     environment:
       SECREQ_DATABASE_URL: sqlite:////app/data/secreq.db
+      TZ: Asia/Shanghai  # 页面上的确认/审计/导出时间按本地时区显示
       # 种子账号初始密码; 不设置则每次启动随机生成并打印到容器日志(仅对新建/补设密码账号生效)
       # SECREQ_SEED_PASSWORD: change-me-please
     volumes:

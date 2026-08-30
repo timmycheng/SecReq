@@ -5,7 +5,8 @@ SQLite 开发, 模型全部使用可移植类型(JSON 代替 ARRAY), 兼容 Post
 """
 import os
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 
@@ -13,9 +14,25 @@ class Base(DeclarativeBase):
     """全项目 ORM 声明基类。"""
 
 
-def _sqlite_kwargs() -> dict:
-    """SQLite 连接参数: 关闭同线程检查, 复用单连接(配合内存库测试)。"""
-    return {"connect_args": {"check_same_thread": False}, "poolclass": None}
+@event.listens_for(Engine, "connect")
+def _set_sqlite_pragma(dbapi_connection, connection_record):  # noqa: ARG001
+    """SQLite 连接级 PRAGMA(非 SQLite 连接直接跳过)。
+
+    默认 rollback journal 模式下读阻塞写、写阻塞读; 而向导保存是整表
+    delete+insert 的大事务, 几个用户并发点保存就会抛 "database is locked"。
+    - journal_mode=WAL   读写不互斥
+    - busy_timeout=5000  锁等待 5s 而非立即报错
+    - synchronous=NORMAL WAL 模式下的合理选择
+    """
+    if dbapi_connection.__class__.__module__.split(".")[0] != "sqlite3":
+        return
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+    finally:
+        cursor.close()
 
 
 def make_engine(url: str | None = None):

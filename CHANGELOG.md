@@ -7,6 +7,57 @@
 自动创建 GitHub Release,正文包含本文件中对应版本的变更内容,并附上对应的
 离线镜像包(`docker save` 产物)。
 
+## [2.1.3] - 2026-08-30
+
+缺陷修复与内网部署基建版本: 修复容器时区导致的时间显示偏差、SQLite 并发写锁死、
+异常详情回显等信息与稳定性问题, 补全审计留痕, 并新增内网交付模板。
+无新增功能与字段, 按 SemVer 定为 PATCH。测试 148 个通过(另有 5 个 xfail 护栏用例)。
+
+### 内网部署基建
+
+- **容器时区**: 镜像安装 `tzdata` 并设置 `TZ=Asia/Shanghai`。此前容器默认 UTC,
+  页面上的需求确认时间、审计时间、导出时间整体差 8 小时。会话过期判定不受影响
+  (写入与比较用的是同一套 `datetime.now()`), 仅显示时间有误。
+- **SQLite 并发**: `make_engine` 对 SQLite 连接设置 `journal_mode=WAL`、
+  `busy_timeout=5000`、`synchronous=NORMAL`。此前默认 rollback journal 下读写互斥,
+  而向导保存是整表 delete+insert 的大事务, 并发点保存会抛 "database is locked"。
+- **内网交付模板**: 新增 `docker-compose.intranet.yml`(固定镜像版本 / 注入时区 /
+  初始密码必填 / 预留漏洞库挂载位)与 `.env.example`;
+  HTTPS 由前置代理终结, 配置模板见 `deploy/nginx/secreq.conf`。
+- **启动日志**: `main.py` 的两处 `print` 改为 logging, 并补 `logging.basicConfig`
+  (root 已配置时为空操作, 不覆盖 uvicorn 的日志配置), 容器部署统一走 stdout。
+
+### 信息与稳定性
+
+- **异常脱敏**: 新增 `services/errors.py`, 生成与 Excel 解析的兜底分支改为
+  服务端记完整栈、客户端只返回通用文案 + 12 位追踪码。此前会把 SQL 语句、
+  文件路径、知识库结构等内部细节直接回显。业务校验错误(模板不存在、参数越界等)
+  仍按原样回显具体原因。
+- **规则引擎容错**: 单条模板配置有误(未知 `rule_key` / 未知 `trigger_type`)时
+  跳过该模板并记入 `RuleEngine.skipped`, 不再中断整轮生成 —— 一条坏配置
+  不该让其余模板全部失效。同时移除 `_match_regulatory_triggers` docstring 中
+  从未实现的 `saas_finance` 声明(早前按文档配置该规则会导致生成 500)。
+- **上传体积限制**: 数据字典与 SBOM 导入改为按块读取, 累计超过 5 MB 立即返回 413,
+  不再一次性 `await file.read()` 载入内存。
+- **LLM 降级提示收敛**: 大模型调用失败时前端只看到异常类型名,
+  异常原文(可能含内网大模型地址)仅写入服务端日志。
+
+### 审计留痕补全
+
+- 新增 `project_create` / `project_delete` / `export`(Word、Excel 数据外带)/
+  `step_save`(向导 8 个保存端点 + SBOM 导入)五类埋点。
+  `step_save` 只记步骤名与条目数, 不记明细内容, 避免审计库膨胀。
+- 删除项目时先取编码与名称再执行删除, 确保留痕的是"已发生的删除"。
+
+### 其他
+
+- 删除 `models/database.py` 中从未被调用的 `_sqlite_kwargs()`。
+- 新增 `tests/test_engine_fault_tolerance.py`(5 例)与
+  `tests/test_audit_coverage.py`(6 例)。
+- 新增 `tests/test_traceability_stability.py`(5 例, 均为 `xfail(strict=True)`):
+  锁定 v2.3.0 uid 迁移的目标行为 —— 重新生成保留确认状态、删除一行不影响其余行主键、
+  需求溯源与接口-资产关联在重新保存后不漂移。修复后将报 XPASS 提醒移除标记。
+
 ## [2.1.2] - 2026-08-30
 
 界面走查整改版本: 系统管理/数据资产弹窗两处布局问题修复, 功能清单「所属模块」定位

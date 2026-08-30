@@ -1,8 +1,8 @@
 /* 系统管理(仅安全角色): 知识库/定级题库/策略基线/大模型接入/用户管理/审计日志。 */
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Button, Card, Col, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Space,
-  Spin, Switch, Table, Tabs, Tag, Typography, message,
+  Alert, Button, Card, Col, Form, Input, InputNumber, Modal, Popconfirm, Row, Select,
+  Space, Spin, Switch, Table, Tabs, Tag, Typography, message,
   Result,
 } from 'antd'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
@@ -356,11 +356,18 @@ function LlmTab() {
   return (
     <div style={{ maxWidth: 640, margin: '0 auto' }}>
       <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
+        <Alert
+          type="info" showIcon style={{ marginBottom: 12 }}
+          message="内网部署请填写行内大模型的接口地址"
+          description="平台部署于无互联网出口的内网时, 公网大模型地址不可达。请填写行内已部署的
+            OpenAI 兼容服务地址(如 https://llm-gate.corp.example.com/v1);
+            留空则直接使用关键词规则提取, 功能不受影响。"
+        />
         配置 OpenAI 兼容接口(/chat/completions)后, 功能清单的「粘贴需求段落自动生成」将使用大模型提取;
         未配置或调用失败时自动降级为关键词规则提取。
       </Typography.Paragraph>
       <Form form={form} layout="vertical">
-        <Form.Item name="base_url" label="接口地址" extra="如 https://llm-gate.example.com/v1">
+        <Form.Item name="base_url" label="接口地址" extra="如 https://llm-gate.corp.example.com/v1">
           <Input placeholder="https://..." />
         </Form.Item>
         <Form.Item name="api_key" label="API Key" extra={cfg?.api_key ? `当前: ${cfg.api_key}` : '未配置'}>

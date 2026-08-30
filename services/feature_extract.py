@@ -8,11 +8,14 @@
 两条路径输出同一形态的候选列表, 由用户在前端勾选确认后并入功能清单。
 """
 import json
+import logging
 import re
 
 import httpx
 
 import shared.constants as C
+
+logger = logging.getLogger(__name__)
 
 _TIMEOUT_SECONDS = 45
 
@@ -57,7 +60,11 @@ def extract_candidates(text: str, llm_config: dict | None = None) -> tuple[list[
         try:
             return extract_by_llm(text, llm_config), "llm", ""
         except Exception as exc:  # 网络/解析失败一律降级, 不阻塞录入
-            return extract_by_rules(text), "rules", f"大模型调用失败已降级为关键词提取: {exc}"
+            # 只回显异常类型, 不回显原文 —— 原文可能含内网大模型地址等内部信息
+            logger.warning("大模型提取失败, 降级为关键词规则: %s", exc, exc_info=True)
+            return extract_by_rules(text), "rules", (
+                f"大模型调用失败({type(exc).__name__}), 已降级为关键词提取"
+            )
     return extract_by_rules(text), "rules", "未配置大模型, 使用关键词规则提取(无标点长文本建议在系统管理配置大模型, 拆分更准确)"
 
 

@@ -7,7 +7,7 @@ JR/T 0197-2020 五级数据分级与监管合规基线映射。
 
 [![Release CI](https://github.com/timmycheng/SecReq/actions/workflows/release.yml/badge.svg)](https://github.com/timmycheng/SecReq/actions/workflows/release.yml)
 
-当前版本 **v2.1.2** · 各版本变更见 [CHANGELOG.md](CHANGELOG.md)
+当前版本 **v2.1.3** · 各版本变更见 [CHANGELOG.md](CHANGELOG.md)
 
 ## 功能特性
 
@@ -38,7 +38,8 @@ JR/T 0197-2020 五级数据分级与监管合规基线映射。
 ```bash
 docker run -d --name secreq -p 8000:8000 \
   -v secreq-data:/app/data -v secreq-output:/app/output \
-  ghcr.io/timmycheng/secreq:v2.1.2
+  -e TZ=Asia/Shanghai \
+  ghcr.io/timmycheng/secreq:v2.1.3
 ```
 
 或使用仓库自带的 `docker-compose.yml`:
@@ -53,8 +54,24 @@ docker compose up -d
 离线环境可从 GitHub Release 下载对应版本的镜像包后导入:
 
 ```bash
-docker load -i secreq-image-v2.1.2.tar.gz
+docker load -i secreq-image-v2.1.3.tar.gz
 ```
+
+### 内网部署(无互联网出口)
+
+内网部署请使用 `docker-compose.intranet.yml`:固定镜像版本(内网拉不到 `latest`)、
+显式注入时区、初始密码通过 `.env` 必填(参考 `.env.example`),
+并预留了漏洞库挂载位(v2.2.0 起可用于不重建镜像更新漏洞数据)。
+
+```bash
+docker load -i secreq-image-v2.1.3.tar.gz
+cp docker-compose.intranet.yml docker-compose.yml
+cp .env.example .env   # 编辑 .env 设置 SECREQ_SEED_PASSWORD
+docker compose up -d
+```
+
+HTTPS 由前置反向代理终结(容器本身只提供 HTTP), 配置模板见
+`deploy/nginx/secreq.conf`。
 
 ### 演示账号
 

@@ -9,6 +9,7 @@
 - GET  /export/docx   《安全需求说明书》Word 全文下载(走查整改: 全文下载用 .docx)
 - GET  /export/xlsx   需求跟踪表下载(Jira 可导入)
 """
+import logging
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
@@ -24,10 +25,13 @@ from routers.common import (
     get_accessible_project, get_db, get_writable_project, require_login,
 )
 from services.audit_service import audit
+from services.errors import server_error
 from schemas.requirement import (
     CategoryCount, GenerateSummary, PreviewResult, RequirementOut, VulnerabilityOut,
 )
 from services.pipeline import _load_vulnerabilities, project_output_dir, run_full_pipeline
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["generate-export"])
 
@@ -100,10 +104,11 @@ def generate(payload: GenerateRequest | None = None,
             db, project.id, out_dir=project_output_dir(ROOT_DIR / "output", project.code),
             skip_osv=skip_osv,
         )
-    except ValueError as exc:            # 项目不存在等
+    except ValueError as exc:            # 项目不存在等(业务性, 原因可回显)
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:             # 知识库占位符缺陷等引擎期错误
-        raise HTTPException(status_code=500, detail=f"生成失败: {exc}") from exc
+        raise server_error(logger, exc, "生成失败",
+                           project_id=project.id, skip_osv=skip_osv) from exc
 
     project.status = "generated"
     db.commit()
@@ -229,8 +234,18 @@ def get_sbom(project: Project = Depends(get_accessible_project), db: Session = D
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
+def _audit_export(db: Session, user: PlatformUser, project: Project,
+                  fmt: str, count: int, request: Request) -> None:
+    """导出留痕: 需求清单外带属敏感动作, 需记录导出格式、条目数、来源 IP。"""
+    audit(db, user.username, "export",
+          {"project_id": project.id, "code": project.code, "format": fmt, "count": count},
+          request.client.host if request.client else None)
+
+
 @router.get("/export/docx")
-def export_docx(project: Project = Depends(get_accessible_project), db: Session = Depends(get_db)):
+def export_docx(request: Request, project: Project = Depends(get_accessible_project),
+                db: Session = Depends(get_db),
+                user: PlatformUser = Depends(require_login)):
     """《安全需求说明书》全文 Word 下载(概况定级 + 需求清单全文 + 漏洞清单)。"""
     from rules.context import RequirementContext
     from services.doc_export import build_full_docx
@@ -242,6 +257,7 @@ def export_docx(project: Project = Depends(get_accessible_project), db: Session 
     ctx = RequirementContext.from_db(db, project.id)
     vulns = _load_vulnerabilities(db, ctx.components)
     content = build_full_docx(ctx.project, reqs, vulns, components=ctx.components)
+    _audit_export(db, user, project, "docx", len(reqs), request)
     filename = f"{project.code}_安全需求说明书.docx"
     return Response(
         content=content,
@@ -251,7 +267,9 @@ def export_docx(project: Project = Depends(get_accessible_project), db: Session 
 
 
 @router.get("/export/xlsx")
-def export_xlsx(project: Project = Depends(get_accessible_project), db: Session = Depends(get_db)):
+def export_xlsx(request: Request, project: Project = Depends(get_accessible_project),
+                db: Session = Depends(get_db),
+                user: PlatformUser = Depends(require_login)):
     from services.tracking_export import tracking_xlsx_bytes
 
     reqs = _sorted_requirements(db, project.id)
@@ -259,6 +277,7 @@ def export_xlsx(project: Project = Depends(get_accessible_project), db: Session 
         raise HTTPException(
             status_code=409, detail="尚无安全需求可导出, 请先执行『生成安全基线』")
     content = tracking_xlsx_bytes(reqs)
+    _audit_export(db, user, project, "xlsx", len(reqs), request)
     filename = f"{project.code}_安全需求跟踪表.xlsx"
     return Response(
         content=content,

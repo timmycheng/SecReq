@@ -4,7 +4,7 @@
 数据权限: 开发(developer)只能看到/操作自己创建的项目, 安全(security)全量可见;
 越权访问一律按 404 处理, 不泄露项目存在性。
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from models import GradingSurvey, PlatformUser, Project  # noqa: F401 (类型标注用)
@@ -15,6 +15,7 @@ from routers.common import (
 from schemas.project import (
     ProjectCreate, ProjectDetail, ProjectUpdate, serialize_project,
 )
+from services.audit_service import audit
 from services.project_service import ProjectExistsError, create_project, project_counts, update_project
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -43,6 +44,8 @@ def create(payload: ProjectCreate, db: Session = Depends(get_db),
         project = create_project(db, payload.model_dump(), owner_user_id=user.id)
     except ProjectExistsError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    audit(db, user.username, "project_create",
+          {"project_id": project.id, "code": project.code, "name": project.name})
     return _detail(db, project)
 
 
@@ -77,12 +80,17 @@ def patch(payload: ProjectUpdate, project: Project = Depends(get_project_or_404)
 
 
 @router.delete("/{project_id}", status_code=204, dependencies=[_writable])
-def remove(project: Project = Depends(get_project_or_404), db: Session = Depends(get_db),
+def remove(request: Request, project: Project = Depends(get_project_or_404),
+           db: Session = Depends(get_db),
            user: PlatformUser = Depends(require_write_roles("developer", "security"))):
     from routers.common import ensure_project_access
     from services.project_service import delete_project_cascade
     ensure_project_access(user, project)
+    # 先取出标识再删, 删完再留痕(确保记录的是"已发生的删除")
+    snapshot = {"project_id": project.id, "code": project.code, "name": project.name}
     delete_project_cascade(db, project.id)
+    audit(db, user.username, "project_delete", snapshot,
+          request.client.host if request.client else None)
 
 
 @router.get("/{project_id}/wizard-state")
