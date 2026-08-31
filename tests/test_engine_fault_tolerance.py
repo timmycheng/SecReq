@@ -7,6 +7,7 @@
 但从未实现的 `saas_finance` 报送规则。
 """
 from conftest import add_base_project
+from pathlib import Path
 from rules import RuleEngine, load_knowledge_base
 from rules.context import RequirementContext
 from rules.loader import RequirementTemplate
@@ -108,3 +109,53 @@ def test_disabled_template_not_in_skipped(session):
     engine.generate(RequirementContext.from_db(session, project.id))
 
     assert engine.skipped == []
+
+
+def test_missing_placeholder_is_skipped_at_instantiation(session):
+    """占位符缺值在实例化阶段被跳过而非整轮中断(#15), 其余模板产出与干净基线一致。"""
+    project = add_base_project(session)
+    session.flush()
+
+    clean = RuleEngine(load_knowledge_base())
+    baseline = clean.generate(RequirementContext.from_db(session, project.id))
+
+    bad = _template("policy_baseline", {"type": "policy_baseline", "rule_key": "always"},
+                    tid="SEC-TST-998")
+    bad.title = "测试: {{no_such_key}} 占位符缺值"
+    engine = _engine_with(bad)
+    result = engine.generate(RequirementContext.from_db(session, project.id))
+
+    assert len(engine.skipped) == 1
+    assert engine.skipped[0]["template_id"] == "SEC-TST-998"
+    assert "没有可用的取值" in engine.skipped[0]["reason"]
+    assert len(result) == len(baseline)
+
+
+def test_generate_summary_reports_skipped_templates(api, monkeypatch):
+    """skipped 接到生成响应(#16): 坏模板被跳过时 summary.skipped_templates 非空。"""
+    import shutil
+
+    code = "PRJ-SKIP-T1"
+    out_dir = Path(__file__).resolve().parent.parent / "output" / code
+    shutil.rmtree(out_dir, ignore_errors=True)
+
+    bad = _template("policy_baseline", {"type": "policy_baseline", "rule_key": "always"},
+                    tid="SEC-TST-997")
+    bad.title = "测试: {{no_such_key}}"
+    monkeypatch.setattr(
+        RuleEngine, "load",
+        classmethod(lambda cls, path=None: _engine_with(bad)),
+    )
+
+    try:
+        resp = api.post("/api/projects", json={
+            "name": "跳过透传测试", "code": code, "type": "web", "user_scale": "under_1k"})
+        assert resp.status_code == 201, resp.text
+        pid = resp.json()["id"]
+
+        resp = api.post(f"/api/projects/{pid}/generate", json={"skip_osv": True})
+        assert resp.status_code == 200, resp.text
+        summary = resp.json()
+        assert [s["template_id"] for s in summary["skipped_templates"]] == ["SEC-TST-997"]
+    finally:
+        shutil.rmtree(out_dir, ignore_errors=True)

@@ -227,6 +227,7 @@ export interface GenerateSummary {
   degraded: boolean
   documents: Record<string, string>
   bom_file?: string | null
+  skipped_templates: { template_id: string; reason: string }[]
 }
 
 export interface RegulatoryRefItem {
