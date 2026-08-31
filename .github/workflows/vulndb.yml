@@ -28,6 +28,11 @@ permissions:
   contents: read
   packages: write
 
+# 定时与手动并发时取消旧运行, 避免互覆 latest 标签(#34)
+concurrency:
+  group: vulndb-build
+  cancel-in-progress: true
+
 env:
   VULNDB_IMAGE: ghcr.io/timmycheng/secreq-vulndb
 
@@ -67,9 +72,12 @@ jobs:
 
       - name: 生成标签
         id: tag
+        # tag 经 env 传递, 不直接内插进 run shell(注入面, #34)
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          if [ -n "${{ inputs.tag }}" ]; then
-            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          if [ -n "${INPUT_TAG}" ]; then
+            echo "value=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
           else
             echo "value=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
           fi
