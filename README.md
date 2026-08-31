@@ -73,6 +73,8 @@ docker compose up -d
 HTTPS 由前置反向代理终结(容器本身只提供 HTTP), 配置模板见
 `deploy/nginx/secreq.conf`。
 
+注意: `/app/data` 若挂载到 NAS/NFS 等网络文件系统, SQLite 的 WAL 模式不适用(锁语义在网络文件系统上不可靠), 请移除 WAL PRAGMA 或改用本地卷/本地盘。
+
 ### 离线漏洞库(v2.2.0)
 
 平台在内网运行, **组件漏洞匹配完全依赖本地离线漏洞库**, 不访问任何外部服务。
