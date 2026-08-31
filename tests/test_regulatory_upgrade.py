@@ -112,7 +112,6 @@ def test_all_templates_have_regulatory_ref_with_real_files():
 
 
 def test_generated_requirement_carries_regulatory_ref():
-    session_ref = None
     engine = make_engine("sqlite:///:memory:")
     init_db(engine)
     from sqlalchemy.orm import sessionmaker

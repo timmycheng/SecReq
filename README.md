@@ -5,9 +5,9 @@
 安全需求清单(产物以 Web 展示 + 一键复制到 Word),并联动组件 SBOM 漏洞查询、
 JR/T 0197-2020 五级数据分级与监管合规基线映射。
 
-[![Release CI](https://github.com/timmycheng/SecReq/actions/workflows/release.yml/badge.svg)](https://github.com/timmycheng/SecReq/actions/workflows/release.yml)
+[![CI](https://github.com/timmycheng/SecReq/actions/workflows/ci.yml/badge.svg)](https://github.com/timmycheng/SecReq/actions/workflows/ci.yml) [![Release CI](https://github.com/timmycheng/SecReq/actions/workflows/release.yml/badge.svg)](https://github.com/timmycheng/SecReq/actions/workflows/release.yml)
 
-当前版本 **v2.1.3** · 各版本变更见 [CHANGELOG.md](CHANGELOG.md)
+当前版本以 [CHANGELOG.md](CHANGELOG.md) 顶部章节为准
 
 ## 功能特性
 
@@ -228,11 +228,9 @@ SecReq/
 
 ## 版本与发布
 
-- 全部版本变更见 [CHANGELOG.md](CHANGELOG.md);
-- 发布流程:推送 `vX.Y.Z` 版本 tag → CI 自动运行 pytest → 构建并推送 Docker 镜像到
-  `ghcr.io/timmycheng/secreq`(同时打 `X.Y.Z` / `X.Y` / `latest` 标签)→
-  自动创建 GitHub Release:正文包含 CHANGELOG 中对应版本的变更内容,
-  并附离线镜像包(`secreq-image-vX.Y.Z.tar.gz`)。
+- 开发流程:所有改动经 issue → 分支 → PR → CI → squash 合并进入 main, main 受分支保护, 详见 [CONTRIBUTING.md](CONTRIBUTING.md);
+- 发布流程:确认 main CI 全绿后, 修改 `main.py` 的 `version` 并在 [CHANGELOG.md](CHANGELOG.md) 新增对应版本章节, 本地运行 `python scripts/check_version.py vX.Y.Z` 校验 tag、代码版本、CHANGELOG 三者一致, 再推送 `vX.Y.Z` tag(CI 会再校验一次);
+- tag 触发 release.yml:自动运行 pytest → 构建并推送 Docker 镜像到 `ghcr.io/timmycheng/secreq`(同时打 `X.Y.Z` / `X.Y` / `latest` 标签)→ 自动创建 GitHub Release(正文取 CHANGELOG 对应章节)并附离线镜像包(`secreq-image-vX.Y.Z.tar.gz`)。
 
 ## 路线图
 

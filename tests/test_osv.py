@@ -8,7 +8,6 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import httpx
-import pytest
 
 from conftest import add_base_project
 from models import SbomComponent, VulnerabilityRecord
@@ -199,7 +198,6 @@ def test_summary_truncated():
 
 def test_severity_dedup_keeps_stricter_when_same_cve_listed_twice(session):
     """同一 CVE 出现在两条原始记录(如 GHSA+CVE 双编号互为别名)时只落一条, 取更严重档。"""
-    import shared.constants as C
     from models import SbomComponent, VulnerabilityRecord
     from services.osv import _replace_component_vulns
 
@@ -316,7 +314,6 @@ def test_failure_degrades_gracefully_and_keeps_old_records(session):
 
 def test_vulnerability_engine_rule_fires_after_sync(session):
     """规则引擎 vulnerability 触发器消费同步产物: 命中组件生成整改需求。"""
-    from models import SecurityRequirement
 
     project, comps = _seed_components(session)
     fake = FakeOsv(_payloads_for_hit_all())

@@ -1,0 +1,7 @@
+# Ruff 宽松口径: 只拦真实错误类(E4 缩进/E7 语句/E9 运行时语法)与 pyflakes(F 未用导入/未定义名),
+# 不含行宽(E501)与风格类规则, 避免对存量代码大开杀戒。
+# 与 .github/workflows/ci.yml 的「后端 Lint」job 同口径; 本地复跑: python -m ruff check .
+target-version = "py312"
+
+[lint]
+select = ["E4", "E7", "E9", "F"]

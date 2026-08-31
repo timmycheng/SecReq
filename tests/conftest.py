@@ -6,14 +6,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
 from models import (
-    ApiEndpoint, AuthConfig, DataAsset, DataField, DataTable, Feature,
-    GradingSurvey, PermissionEntry, Project, Resource, Role, SbomComponent,
-    VulnerabilityRecord, init_db, make_engine,
+    Project, init_db, make_engine,
 )
-from rules import RuleEngine
 
 
 @pytest.fixture()
@@ -46,8 +44,6 @@ def gen_for(session, project, engine):
 
 
 # ── 第三批: API 层公共夹具 ──────────────────────────────
-import pytest
-from fastapi.testclient import TestClient
 
 
 @pytest.fixture()

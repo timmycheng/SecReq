@@ -9,9 +9,9 @@ from sqlalchemy.orm import Session
 
 import shared.constants as C
 from models import (
-    ApiEndpoint, AuthConfig, DataAsset, DataField, DataTable, ExternalSystem,
+    ApiEndpoint, AuthConfig, DataAsset, DataTable, ExternalSystem,
     Feature, GradingSurvey, InfraAsset, PermissionEntry, Project, Resource, Role,
-    SbomComponent, SecurityRequirement, VulnerabilityRecord,
+    SbomComponent,
 )
 
 

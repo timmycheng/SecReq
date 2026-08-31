@@ -25,7 +25,7 @@ from schemas.component import ComponentsSaveIn, ComponentOut, SbomImportResult
 from schemas.data_dictionary import DataAssetOut
 from schemas.feature import FeatureOut
 from schemas.inventory import (
-    ApiEndpointIn, ApiEndpointOut, InfraAssetIn, InfraAssetListIn, InfraAssetOut,
+    ApiEndpointIn, ApiEndpointOut, InfraAssetListIn, InfraAssetOut,
 )
 from schemas.project import ExternalSystemIn, ExternalSystemOut
 from schemas.permission import PermissionMatrixIn, PermissionMatrixOut

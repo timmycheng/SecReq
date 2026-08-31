@@ -7,7 +7,6 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-import shared.constants as C
 from models import (
     ApiEndpoint, AuthConfig, DataAsset, DataField, DataTable, ExternalSystem,
     Feature, GradingSurvey, InfraAsset, PermissionEntry, Project,
@@ -46,7 +45,6 @@ def create_project(session: Session, data: dict, owner_user_id: int | None = Non
 
 def populate_project_types(session: Session) -> int:
     """存量项目 types 为空时按单值 type 回填(类型多选改造), 幂等。"""
-    import json as _json
 
     rows = session.query(Project).filter(Project.types.is_(None)).all()
     rows += [r for r in session.query(Project).filter(

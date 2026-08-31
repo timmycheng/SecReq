@@ -319,8 +319,11 @@ def summarize_requirements(requirements) -> str:
 
     lines = [f"共生成 {len(requirements)} 条安全需求:", ""]
     priority_order = {p: i for i, p in enumerate(["critical", "high", "medium", "low"])}
-    priority_label = lambda p: C.label(C.REQUIREMENT_PRIORITY_LABELS, p)
-    phase_label = lambda ph: C.label(C.REQUIREMENT_PHASES, ph, ph)
+    def priority_label(p):
+        return C.label(C.REQUIREMENT_PRIORITY_LABELS, p)
+
+    def phase_label(ph):
+        return C.label(C.REQUIREMENT_PHASES, ph, ph)
 
     for category, items in grouped.items():
         counts = {}

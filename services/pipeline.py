@@ -67,11 +67,8 @@ def run_full_pipeline(
     session.commit()
 
     # ② 漏洞同步(指纹缓存/失败降级); 同步后整体重载上下文以携带最新记录
-    if skip_osv:
-        summary_text = "离线模式未执行漏洞查询"
-    else:
+    if not skip_osv:
         _, result.sync = sync_vulnerabilities(session, ctx.components, client=osv_client)
-        summary_text = result.sync.summary_text()
         ctx = RequirementContext.from_db(session, project_id)
 
     all_vulns = _load_vulnerabilities(session, ctx.components)

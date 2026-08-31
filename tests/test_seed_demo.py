@@ -5,10 +5,9 @@
 """
 import pytest
 
-from models import SecurityRequirement
 from rules import RuleEngine
 from rules.context import RequirementContext
-from services.seed_data import DEMO_PROJECT_CODE, seed_demo_project
+from services.seed_data import seed_demo_project
 
 
 @pytest.fixture(scope="module")

@@ -6,7 +6,7 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from models import (
-    ApiEndpoint, AuthConfig, DataAsset, DataField, DataTable, ExternalSystem,
+    ApiEndpoint, AuthConfig, DataAsset, ExternalSystem,
     Feature, GradingSurvey, InfraAsset, PermissionEntry, PlatformUser, Project,
     SbomComponent, VulnerabilityRecord, Resource, Role,
 )
@@ -264,7 +264,7 @@ def wizard_state(db: Session, project: Project) -> dict:
 
 
 def _plain_project(project: Project) -> dict:
-    from schemas.project import ProjectOut, serialize_project
+    from schemas.project import serialize_project
     return serialize_project(project).model_dump()
 
 

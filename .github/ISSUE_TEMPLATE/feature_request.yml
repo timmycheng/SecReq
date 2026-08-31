@@ -1,0 +1,25 @@
+name: 功能建议 (Feature)
+description: 新功能或对现有功能的改进建议
+labels: ["type: feature"]
+body:
+  - type: textarea
+    id: motivation
+    attributes:
+      label: 动机与场景
+      description: 要解决什么问题? 在什么场景下遇到? (如: 内网部署时漏洞库更新…)
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望方案
+      description: 理想中的交互与产出形态
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 备选方案
+      description: 考虑过的替代做法及不选的原因(可留空)
+    validations:
+      required: false
