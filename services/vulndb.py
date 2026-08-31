@@ -33,6 +33,8 @@ AMBIGUOUS_REVISION_NOTE = (
     "版本未包含发行版修订号(如 Alpine 的 -rN), 无法区分是否已含修复, "
     "按疑似命中处理; 请核对实际包版本"
 )
+#: versions-only 记录(只有 versions 枚举、无 ranges)命中的保守说明(#28)
+VERSIONS_ONLY_NOTE = "该版本出现在公告受影响版本列表中, 记录未提供影响范围, 请人工核对修复版本"
 FUZZY_NOTE = "未指定生态, 已在全部已导入生态中做跨渠道模糊匹配, 结果需人工确认"
 KYLIN_NOTE = C.KYLIN_PROXY_NOTE
 
@@ -176,7 +178,8 @@ def _windows_including(vuln: dict, purl: str, ecosystem: str, version: str) -> t
 
     两条判定路径:
       1. 记录带 versions 枚举时先确认该版本在生态中真实存在(比范围比较可靠);
-      2. 再用生态感知的比较键判断落在哪个 [introduced, fixed) 窗口。
+      2. 再用生态感知的比较键判断落在哪个 [introduced, fixed) 窗口;
+      3. 记录只有 versions 枚举、无 ranges 时, 枚举命中即按伪窗口返回(带说明)。
 
     边界: 用户填 `1.0.2h` 而修复版是 `1.0.2h-r0` 时, 两者归一化后相等,
     严格比大小会判成"未受影响" —— 但用户很可能只是没写发行版修订号。
@@ -215,6 +218,11 @@ def _windows_including(vuln: dict, purl: str, ecosystem: str, version: str) -> t
             if enumerated and not in_versions(ecosystem, version, enumerated):
                 continue
             return [w], AMBIGUOUS_REVISION_NOTE
+
+    # versions-only 记录(#28): 只有受影响版本枚举、无 ranges, 范围比较永远不中。
+    # 保守判为命中并说明"未提供范围", 不让该形态结构性漏报(修复版本自然缺省)
+    if not windows and enumerated and in_versions(ecosystem, version, enumerated):
+        return [{"introduced": version}], VERSIONS_ONLY_NOTE
     return [], None
 
 
@@ -254,10 +262,12 @@ class OsvLocalSource:
 
         from services.osv import MATCHED_WINDOWS_KEY
 
-        purl = q.purl or _match_purl(q, ecosystems[0])
         matched: list[dict] = []
         notes: list[str] = []
         for ecosystem in ecosystems:
+            # 逐生态构造 purl: 同一组件名在不同生态的类型不同,
+            # 按 ecosystems[0] 构造一次会让其余生态的同坐标筛选全不中(#29)
+            purl = q.purl or _match_purl(q, ecosystem)
             for vuln in self.db.candidates(ecosystem, q.name):
                 windows, ambiguous = _windows_including(vuln, purl, ecosystem, q.version)
                 if not windows:

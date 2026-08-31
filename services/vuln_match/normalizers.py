@@ -24,18 +24,26 @@ _PRERELEASE_RE = re.compile(r"(?i)(alpha|beta|rc|dev|pre|snapshot|-)")
 
 
 def numeric_key(text: str) -> tuple:
-    """宽松比较键: (数字段补齐 4 位, 预发布标记, 字母段序列)。
+    """宽松比较键: (数字段补齐 4 位, 预发布标记, 字母段序列, 预发布段尾序)。
 
     字母段是必需的 —— OpenSSL 这类版本用末尾字母做发布序号(1.0.2g / 1.0.2h),
     只比数字会把 1.0.2g 和 1.0.2h 判成同一个版本, 直接漏掉 CVE-2016-2105。
+    预发布(#21): 命中 alpha/beta/rc/- 等标记时, 标记之后的文本不参与数字段/字母段
+    提取 —— 否则 2.15.0-rc1 的 "1" 会被当成第 4 位版本号, 永远排在同号稳定版之后,
+    窗口 [2.13.0, 2.15.0) 内的 2.15.0-rc1 被误判"已修复"而漏报; 标记位使预发布排前,
+    预发布段内的数字/字母单独作尾序(2.15.0-rc1 < 2.15.0-rc2 < 2.15.0)。
     """
     text = str(text or "")
-    nums = [int(n) for n in _NUM_RE.findall(text)]
+    m = _PRERELEASE_RE.search(text)
+    release, pre = (text[:m.start()], text[m.start():]) if m else (text, "")
+    nums = [int(n) for n in _NUM_RE.findall(release)]
     while len(nums) < 4:
         nums.append(0)
-    letters = tuple(s.lower() for s in _LETTERS_RE.findall(text))
-    prerelease = 1 if _PRERELEASE_RE.search(text) else 0
-    return (tuple(nums[:4]), prerelease, letters)
+    letters = tuple(s.lower() for s in _LETTERS_RE.findall(release))
+    prerelease = 0 if m else 1
+    pre_tail = (tuple(s.lower() for s in _LETTERS_RE.findall(pre)),
+                tuple(int(n) for n in _NUM_RE.findall(pre)))
+    return (tuple(nums[:4]), prerelease, letters, pre_tail)
 
 
 class Normalizer:
