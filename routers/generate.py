@@ -204,7 +204,8 @@ def list_vulnerabilities(project: Project = Depends(get_accessible_project),
         .filter(VulnerabilityRecord.component_id.in_(list(comp_ids)))
         .all() if comp_ids else []
     )
-    severity_key = lambda v: C.SEVERITY_ORDER.get(v.severity, 9)
+    def severity_key(v):
+        return C.SEVERITY_ORDER.get(v.severity, 9)
     rows.sort(key=lambda v: (severity_key(v), comp_ids[v.component_id].name, v.cve_id))
     return [
         VulnerabilityOut(

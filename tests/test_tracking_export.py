@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """Excel 需求跟踪表导出测试。"""
-from openpyxl import load_workbook
 
 import services.tracking_export as te
 from models import SecurityRequirement

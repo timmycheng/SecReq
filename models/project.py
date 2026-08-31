@@ -44,11 +44,11 @@ class Project(Base):
     data_assets: Mapped[list["DataAsset"]] = relationship(back_populates="project")  # noqa: F821
     roles: Mapped[list["Role"]] = relationship(back_populates="project")  # noqa: F821
     resources: Mapped[list["Resource"]] = relationship(back_populates="project")  # noqa: F821
-    auth_config: Mapped["AuthConfig | None"] = relationship(back_populates="project", uselist=False)
+    auth_config: Mapped["AuthConfig | None"] = relationship(back_populates="project", uselist=False)  # noqa: F821
     components: Mapped[list["SbomComponent"]] = relationship(back_populates="project")  # noqa: F821
     api_endpoints: Mapped[list["ApiEndpoint"]] = relationship(back_populates="project")  # noqa: F821
     infra_assets: Mapped[list["InfraAsset"]] = relationship(back_populates="project")  # noqa: F821
-    requirements: Mapped[list["SecurityRequirement"]] = relationship(back_populates="project")
+    requirements: Mapped[list["SecurityRequirement"]] = relationship(back_populates="project")  # noqa: F821
     review_gates: Mapped[list["ReviewGate"]] = relationship(back_populates="project")  # noqa: F821
     external_systems: Mapped[list["ExternalSystem"]] = relationship(back_populates="project")
 

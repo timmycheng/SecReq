@@ -245,7 +245,7 @@ class RuleEngine:
         return scan(ctx)
 
     @staticmethod
-    def _entry_role(ctx: RequirementContext, entry) -> "Role | None":
+    def _entry_role(ctx: RequirementContext, entry) -> "Role | None":  # noqa: F821
         return next((r for r in ctx.roles if r.id == entry.role_id), None)
 
     def _scan_missing_approval(self, ctx: RequirementContext) -> list[Match]:

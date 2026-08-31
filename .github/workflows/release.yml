@@ -22,6 +22,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # 发版前置一致性校验: tag ↔ main.py 版本 ↔ CHANGELOG 章节, 漂移即中止
+      - name: 版本一致性校验
+        run: python scripts/check_version.py "${{ github.ref_name }}"
+
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"

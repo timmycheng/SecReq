@@ -14,8 +14,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-logger = logging.getLogger(__name__)
-
 import shared.constants as C
 from models import AuditLog, PlatformUser
 from routers.common import get_db, require_login
@@ -29,6 +27,8 @@ from services.kb_admin import (
 )
 from services.session_service import revoke_user_sessions
 from services.settings_service import get_llm_config, get_setting, set_setting
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -157,7 +157,6 @@ def put_policy_baselines(payload: PolicyBaselinesIn, request: Request,
 def _apply_policy_settings(db: Session) -> None:
     """把库内策略覆盖注入运行时(lifespan 启动时与本保存接口共用)。"""
     from rules.policy import set_policy_baselines
-    from services.settings_service import get_setting
 
     stored = get_setting(db, "policy_baselines")
     if stored.get("baselines"):

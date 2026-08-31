@@ -8,7 +8,7 @@ from conftest import add_base_project
 from models import SbomComponent
 from services.sbom import (
     LAYER_TO_COMPONENT_TYPE, build_cyclonedx, build_purl, ecosystem_from_purl,
-    ensure_purl, generate_project_sbom, write_cyclonedx_file,
+    generate_project_sbom, write_cyclonedx_file,
 )
 
 

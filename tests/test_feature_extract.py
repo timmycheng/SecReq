@@ -18,7 +18,6 @@ def test_long_text_without_punctuation_still_extracts():
             "和交易明细用户可以在转账汇款模块发起行内转账转账需要短信验证码确认"
             "管理后台提供操作日志审计和数据批量导出功能运维人员通过管理后台进行参数配置")
     candidates = extract_by_rules(text)
-    joined = "".join(c["name"] for c in candidates)
     assert len(candidates) >= 5
     # 主要功能类别都被覆盖到
     all_cats = {cat for c in candidates for cat in c["categories"]}

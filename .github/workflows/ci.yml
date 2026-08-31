@@ -1,0 +1,71 @@
+name: CI
+
+# push/PR 阶段的质量门禁: 后端测试 + 后端 Lint + 前端检查。
+# 发版(tag)阶段的质量门禁在 release.yml, 两侧后端口径一致。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# 同一分支推新提交时自动取消仍在跑的旧运行, 节省 Actions 时长
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-test:
+    name: 后端测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      # OSV 查询使用 MockTransport, 测试不出网
+      - name: 运行测试
+        run: python -m pytest tests -q
+
+  backend-lint:
+    name: 后端 Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # 口径见 ruff.toml: 只拦真实错误类(E4/E7/E9/F), 不做行宽与风格审判
+      - uses: astral-sh/ruff-action@v3
+        with:
+          args: check .
+
+  frontend-check:
+    name: 前端检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"   # 与 Dockerfile 构建阶段一致
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装依赖
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      # build 内含 tsc -b 全量类型检查
+      - name: 构建
+        working-directory: frontend
+        run: npm run build

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Step6 身份认证与密码/会话策略(与项目一对一)。"""
-from sqlalchemy import Boolean, ForeignKey, Integer, JSON, String
+from sqlalchemy import Boolean, ForeignKey, Integer, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models.database import Base
