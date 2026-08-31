@@ -1,6 +1,6 @@
 # 第一批(后端数据模型 + 规则引擎)所需依赖
 sqlalchemy>=2.0
-pyyaml>=6.0
+pyyaml>=6.0.3
 pytest>=9.1.1
 httpx>=0.27            # 第二批: OSV.dev 漏洞查询客户端
 
