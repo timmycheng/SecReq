@@ -37,8 +37,9 @@ export default function VulnDbTab() {
     try {
       const res = await api.verifyVulnDb()
       setVerified(res)
-      if (res.match) message.success('校验和一致, 漏洞库文件完整')
-      else message.warning('校验和不一致, 请确认摆渡过程是否损坏并重新导入')
+      if (res.match === true) message.success('校验和一致, 漏洞库文件完整')
+      else if (res.match === false) message.warning('校验和不一致, 请确认摆渡过程是否损坏并重新导入')
+      else message.info('构建时未记录校验和, 无法核验完整性, 请核对文件来源')
     } catch (e) {
       message.error((e as Error).message)
     } finally {
@@ -116,9 +117,13 @@ export default function VulnDbTab() {
       {verified && (
         <Alert
           style={{ marginBottom: 16 }}
-          type={verified.match ? 'success' : 'error'}
+          type={verified.match === false ? 'error' : verified.match === true ? 'success' : 'info'}
           showIcon
-          message={verified.match ? '校验和一致, 文件完整' : '校验和不一致, 文件可能已损坏'}
+          message={verified.match === true
+            ? '校验和一致, 文件完整'
+            : verified.match === false
+              ? '校验和不一致, 文件可能已损坏'
+              : '无校验和可比对(构建时未记录校验和)'}
           description={<code style={{ fontSize: 12 }}>{verified.sha256}</code>}
         />
       )}

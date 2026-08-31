@@ -295,7 +295,9 @@ def _vulndb_snapshot() -> dict:
     declared = [e for e in (meta.get("ecosystems") or "").split(",") if e]
     missing = [
         {"code": code, "label": label}
-        for code, label in C.VULN_ECOSYSTEMS.items() if code not in imported
+        # other 本就不可导入, 不进"未导入"清单(#31)
+        for code, label in C.VULN_ECOSYSTEMS.items()
+        if code not in imported and code != "other"
     ]
     try:
         size_mb = round(os.path.getsize(db.path) / 1e6, 2)
@@ -366,7 +368,8 @@ def verify_vuln_db(request: Request, db: Session = Depends(get_db),
         raise HTTPException(status_code=404, detail=f"漏洞库文件不存在: {path}")
     digest = _sha256_file(path)
     expected = _read_expected_sha256(path)
-    ok = expected is None or digest == expected
+    # 三态(#22): true 一致 / false 不一致 / null 无 sidecar 可比对
+    ok = (digest == expected) if expected is not None else None
     detail = {
         "path": path,
         "sha256": digest,
@@ -375,7 +378,7 @@ def verify_vuln_db(request: Request, db: Session = Depends(get_db),
         "size_mb": round(os.path.getsize(path) / 1e6, 2),
     }
     audit(db, user.username, "vulndb_verify", detail, client_ip(request))
-    if not ok:
+    if ok is False:
         logger.error("漏洞库校验和不匹配: %s(期望 %s)", digest, expected)
     return {**detail, "cnnvd": cnnvd_stats()}
 

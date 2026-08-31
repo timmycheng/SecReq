@@ -245,3 +245,24 @@ def vulndb_file(tmp_path):
     out = tmp_path / "vulndb.sqlite"
     build(zips, out, slim=False, compress=True)
     return str(out)
+
+
+def test_vuln_db_verify_without_sidecar_reports_null_match(sec, monkeypatch, vulndb_file):
+    """无 sidecar 校验文件时 match 为 null(无可比对), 不再冒充"校验和一致"(#22)。"""
+    monkeypatch.setenv("SECREQ_VULNDB_PATH", vulndb_file)
+
+    body = sec.post("/api/admin/vuln-db/verify").json()
+    assert body["match"] is None
+    assert body["expected"] is None
+    assert body["sha256"]
+
+
+def test_vuln_db_missing_ecosystems_excludes_other(sec, monkeypatch, vulndb_file):
+    """「未导入生态」清单不含 other —— 该生态本就不可导入, 列进去配指引是误导(#31)。"""
+    import services.cnnvd as cnnvd
+
+    monkeypatch.setenv("SECREQ_VULNDB_PATH", vulndb_file)
+    monkeypatch.setattr(cnnvd, "stats", lambda path=None: {"available": False, "total": 0})
+
+    body = sec.get("/api/admin/vuln-db").json()
+    assert "other" not in {m["code"] for m in body["missing_ecosystems"]}

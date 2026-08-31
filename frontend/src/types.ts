@@ -324,7 +324,7 @@ export interface VulnDbVerifyResult {
   path: string
   sha256: string
   expected: string | null
-  match: boolean
+  match: boolean | null
   size_mb: number
   cnnvd?: { available: boolean; path: string; total: number; db_version?: string | null }
 }

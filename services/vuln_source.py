@@ -71,7 +71,7 @@ class VulnQueryResult:
     status 四种取值不可合并(合并会制造虚假安全感):
         hit           命中已知漏洞
         not_found     已覆盖该生态, 但未匹配到漏洞
-        undetermined  信息不足无法判定(未指定生态/分发渠道)
+        undetermined  信息不足无法判定(组件缺少版本号等信息)
         not_covered   本地库未包含该生态数据
     """
 
