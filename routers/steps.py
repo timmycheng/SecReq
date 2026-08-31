@@ -17,7 +17,7 @@ from models import (
 )
 from routers.common import (
     asset_to_out, component_to_out, get_accessible_project, get_db,
-    get_writable_project, require_write_roles, survey_to_out,
+    get_writable_project, require_login, survey_to_out,
 )
 from services.audit_service import audit
 from schemas.auth import AuthConfigIn, AuthConfigOut, AuthDefaultsOut
@@ -139,8 +139,7 @@ def get_survey(project: Project = Depends(get_accessible_project), db: Session =
 def save_external_systems(payload: list[ExternalSystemIn],
                           project: Project = Depends(get_writable_project),
                           db: Session = Depends(get_db),
-                          user: PlatformUser = Depends(
-                              require_write_roles(*C.WRITE_WIZARD_ROLES))):
+                          user: PlatformUser = Depends(require_login)):
     replace_external_systems(db, project.id, payload)
     rows = db.query(ExternalSystem).filter_by(project_id=project.id).order_by(ExternalSystem.id).all()
     _audit_step(db, user, project, "external_systems", len(rows))
@@ -192,8 +191,7 @@ def grading_baseline(project: Project = Depends(get_accessible_project),
 @router.post("/features", response_model=list[FeatureOut])
 def save_features(payload: list[dict], project: Project = Depends(get_writable_project),
                   db: Session = Depends(get_db),
-                  user: PlatformUser = Depends(
-                      require_write_roles(*C.WRITE_WIZARD_ROLES))):
+                  user: PlatformUser = Depends(require_login)):
     from schemas.feature import FeatureIn
     items = [FeatureIn(**row) for row in payload]
     replace_features(db, project.id, items)
@@ -228,8 +226,7 @@ def extract_feature_candidates(payload: FeatureExtractIn,
 @router.post("/data-assets", response_model=list[DataAssetOut])
 def save_data_assets(payload: list[dict], project: Project = Depends(get_writable_project),
                      db: Session = Depends(get_db),
-                     user: PlatformUser = Depends(
-                         require_write_roles(*C.WRITE_WIZARD_ROLES))):
+                     user: PlatformUser = Depends(require_login)):
     from schemas.data_dictionary import DataAssetIn
     items = [DataAssetIn(**row) for row in payload]
     replace_data_assets(db, project.id, items)
@@ -300,8 +297,7 @@ async def import_dictionary_file(project: Project = Depends(get_writable_project
 @router.post("/matrix")
 def save_matrix(payload: PermissionMatrixIn, project: Project = Depends(get_writable_project),
                 db: Session = Depends(get_db),
-                user: PlatformUser = Depends(
-                    require_write_roles(*C.WRITE_WIZARD_ROLES))):
+                user: PlatformUser = Depends(require_login)):
     try:
         stats = replace_permission_matrix(db, project.id, payload)
     except MatrixIndexError as exc:
@@ -343,8 +339,7 @@ def _matrix_out(db: Session, pid: int, extra: dict | None = None) -> dict:
 @router.post("/auth-config", response_model=AuthConfigOut)
 def save_auth_config(payload: AuthConfigIn, project: Project = Depends(get_writable_project),
                      db: Session = Depends(get_db),
-                     user: PlatformUser = Depends(
-                         require_write_roles(*C.WRITE_WIZARD_ROLES))):
+                     user: PlatformUser = Depends(require_login)):
     cfg = upsert_auth_config(db, project.id, payload)
     _audit_step(db, user, project, "auth_config", 1)
     return AuthConfigOut.model_validate(cfg)
@@ -378,8 +373,7 @@ def get_components(project: Project = Depends(get_accessible_project), db: Sessi
 @router.post("/components", response_model=list[ComponentOut])
 def save_components(payload: ComponentsSaveIn, project: Project = Depends(get_writable_project),
                     db: Session = Depends(get_db),
-                    user: PlatformUser = Depends(
-                        require_write_roles(*C.WRITE_WIZARD_ROLES))):
+                    user: PlatformUser = Depends(require_login)):
     replace_components(db, project.id, payload.components)
     comps = db.query(SbomComponent).filter_by(project_id=project.id).order_by(SbomComponent.id).all()
     _audit_step(db, user, project, "components", len(comps))
@@ -390,8 +384,7 @@ def save_components(payload: ComponentsSaveIn, project: Project = Depends(get_wr
 async def import_sbom_file_route(project: Project = Depends(get_writable_project),
                                  db: Session = Depends(get_db),
                                  file: UploadFile = File(...),
-                                 user: PlatformUser = Depends(
-                                     require_write_roles(*C.WRITE_WIZARD_ROLES))):
+                                 user: PlatformUser = Depends(require_login)):
     """上传 CycloneDX/SPDX 格式 SBOM 文件批量导入(source_type=sbom_file)。"""
     if not file.filename or not file.filename.lower().endswith(
             (".json", ".spdx", ".cdx.json")):
@@ -410,8 +403,7 @@ async def import_sbom_file_route(project: Project = Depends(get_writable_project
 def save_api_endpoints(payload: list[ApiEndpointIn],
                        project: Project = Depends(get_writable_project),
                        db: Session = Depends(get_db),
-                       user: PlatformUser = Depends(
-                           require_write_roles(*C.WRITE_WIZARD_ROLES))):
+                       user: PlatformUser = Depends(require_login)):
     replace_api_endpoints(db, project.id, payload)
     rows = db.query(ApiEndpoint).filter_by(project_id=project.id).order_by(ApiEndpoint.id).all()
     _audit_step(db, user, project, "api_endpoints", len(rows))
@@ -430,8 +422,7 @@ def get_api_endpoints(project: Project = Depends(get_accessible_project),
 def save_infra_assets(payload: InfraAssetListIn,
                       project: Project = Depends(get_writable_project),
                       db: Session = Depends(get_db),
-                      user: PlatformUser = Depends(
-                          require_write_roles(*C.WRITE_WIZARD_ROLES))):
+                      user: PlatformUser = Depends(require_login)):
     replace_infra_assets(db, project.id, payload.assets)
     rows = db.query(InfraAsset).filter_by(project_id=project.id).order_by(InfraAsset.id).all()
     _audit_step(db, user, project, "infra_assets", len(rows))

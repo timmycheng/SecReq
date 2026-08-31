@@ -17,6 +17,7 @@ import json
 import logging
 import sqlite3
 import zlib
+from contextlib import closing
 from pathlib import Path
 
 import shared.constants as C
@@ -72,7 +73,7 @@ class VulnDb:
     def meta(self) -> dict[str, str]:
         if self._meta is not None:
             return self._meta
-        with self.connect() as conn:
+        with closing(self.connect()) as conn:
             rows = conn.execute("SELECT key, value FROM meta").fetchall()
         self._meta = {r["key"]: r["value"] for r in rows}
         return self._meta
@@ -97,7 +98,7 @@ class VulnDb:
     def imported_ecosystems(self) -> set[str]:
         """实际入库的生态(可能为库声明生态的子集, 以库内数据为准)。"""
         try:
-            with self.connect() as conn:
+            with closing(self.connect()) as conn:
                 rows = conn.execute("SELECT DISTINCT ecosystem FROM vulns").fetchall()
         except (VulnSourceUnavailable, sqlite3.Error):
             return set()
@@ -124,7 +125,7 @@ class VulnDb:
         key = (name or "").strip().lower()
         if not key or not ecosystem:
             return []
-        with self.connect() as conn:
+        with closing(self.connect()) as conn:
             rows = conn.execute(
                 "SELECT raw FROM vulns WHERE ecosystem = ? AND (name = ? OR tail = ?)",
                 (ecosystem, key, key),

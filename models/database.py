@@ -14,34 +14,39 @@ class Base(DeclarativeBase):
     """全项目 ORM 声明基类。"""
 
 
-@event.listens_for(Engine, "connect")
-def _set_sqlite_pragma(dbapi_connection, connection_record):  # noqa: ARG001
-    """SQLite 连接级 PRAGMA(非 SQLite 连接直接跳过)。
+def make_engine(url: str | None = None):
+    """创建 SQLAlchemy 引擎。默认 sqlite:///./secreq.db, 可用环境变量覆盖。"""
+    url = url or os.environ.get("SECREQ_DATABASE_URL", "sqlite:///./secreq.db")
+    if url.startswith("sqlite"):
+        engine = create_engine(url, connect_args={"check_same_thread": False})
+    else:
+        # PostgreSQL 等其他库使用默认连接池
+        engine = create_engine(url, pool_pre_ping=True)
+    _register_sqlite_pragma(engine)
+    return engine
+
+
+def _register_sqlite_pragma(engine: Engine) -> None:
+    """按引擎实例注册 SQLite 连接级 PRAGMA(非 SQLite 连接直接跳过)。
 
     默认 rollback journal 模式下读阻塞写、写阻塞读; 而向导保存是整表
     delete+insert 的大事务, 几个用户并发点保存就会抛 "database is locked"。
     - journal_mode=WAL   读写不互斥
     - busy_timeout=5000  锁等待 5s 而非立即报错
     - synchronous=NORMAL WAL 模式下的合理选择
+    作用域: 挂在本引擎实例上, 不污染其他 create_engine 创建的引擎(#36)
     """
-    if dbapi_connection.__class__.__module__.split(".")[0] != "sqlite3":
-        return
-    cursor = dbapi_connection.cursor()
-    try:
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA busy_timeout=5000")
-        cursor.execute("PRAGMA synchronous=NORMAL")
-    finally:
-        cursor.close()
-
-
-def make_engine(url: str | None = None):
-    """创建 SQLAlchemy 引擎。默认 sqlite:///./secreq.db, 可用环境变量覆盖。"""
-    url = url or os.environ.get("SECREQ_DATABASE_URL", "sqlite:///./secreq.db")
-    if url.startswith("sqlite"):
-        return create_engine(url, connect_args={"check_same_thread": False})
-    # PostgreSQL 等其他库使用默认连接池
-    return create_engine(url, pool_pre_ping=True)
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragma(dbapi_connection, connection_record):  # noqa: ARG001
+        if dbapi_connection.__class__.__module__.split(".")[0] != "sqlite3":
+            return
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=5000")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+        finally:
+            cursor.close()
 
 
 def make_session_factory(engine) -> sessionmaker:
