@@ -126,6 +126,19 @@ def build_tracking_workbook(requirements: list, vulnerabilities: list | None = N
     return wb
 
 
+def _component_of(v) -> tuple[str, str]:
+    """组件名/版本: 投影属性优先(测试用 SimpleNamespace 形态), ORM relationship 兜底。
+
+    生产调用链(pipeline._load_vulnerabilities)传回的是 ORM VulnerabilityRecord,
+    该模型没有 component_name/component_version 属性 —— 缺 relationship 兜底时
+    getattr 落到默认空串, 「组件」列恒为「—」(#14)。
+    """
+    comp = getattr(v, "component", None)
+    name = getattr(v, "component_name", None) or (getattr(comp, "name", None) or "")
+    version = getattr(v, "component_version", None) or (getattr(comp, "version", None) or "")
+    return name or "", version or ""
+
+
 def _append_vuln_sheet(wb: Workbook, vulnerabilities: list) -> None:
     """追加漏洞清单工作表; 表头样式与跟踪表保持一致。"""
     ws = wb.create_sheet("漏洞清单")
@@ -142,11 +155,11 @@ def _append_vuln_sheet(wb: Workbook, vulnerabilities: list) -> None:
     severity_order = {s: i for i, s in enumerate(["critical", "high", "medium", "low"])}
     rows = sorted(
         vulnerabilities,
-        key=lambda v: (severity_order.get(v.severity, 9), getattr(v, "component_name", "") or "", v.cve_id),
+        key=lambda v: (severity_order.get(v.severity, 9), _component_of(v)[0], v.cve_id),
     )
     for idx, v in enumerate(rows, start=2):
-        version = getattr(v, "component_version", "") or ""
-        comp = f"{getattr(v, 'component_name', '')}@{version}".strip("@")
+        name, version = _component_of(v)
+        comp = f"{name}@{version}".strip("@")
         values = [
             C.label(C.SEVERITY_LABELS, v.severity),
             v.cve_id,
