@@ -90,7 +90,7 @@ jobs:
           oras tag "${VULNDB_IMAGE}:${{ steps.tag.outputs.value }}" latest
 
       - name: 归档构建报告
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: vulndb-report
           retention-days: 7
