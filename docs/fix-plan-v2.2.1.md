@@ -61,7 +61,7 @@ v2.2.0 给 `sbom_components` 新增 5 列、`vulnerability_records` 新增 4 列
     ("vuln_status", "VARCHAR(20)"),
     ("vuln_status_note", "VARCHAR(300)"),
 ],
-"vulnerability_records": [
+"vulnerabilities": [  # 原文误写 vulnerability_records; 模型实际表名见 models/sbom.py __tablename__
     ("source", "VARCHAR(20) NOT NULL DEFAULT 'osv_local'"),
     ("external_ref", "VARCHAR(200)"),
     ("cnnvd_id", "VARCHAR(32)"),
