@@ -23,9 +23,6 @@ dist/
 # 本地环境变量(含初始口令, 绝不可提交)
 .env
 
-# ZCode 工具产物
-.zcode/
+# Agent 工具本地产物
 .mimosa/
 
-# Workbuddy 工具产物
-.workbuddy/

@@ -233,7 +233,7 @@ OS 层 Bitnami 8.8 + Alpine 3.9
 ## 提交与推送（同日收尾）
 
 v2.1.3 已提交并推送至 `origin/main`，commit `1e26ccd`。
-本地与远程一致，工作区干净。方案文档按用户决定留在 `.workbuddy/`（gitignored）未入库。
+本地与远程一致，工作区干净。方案文档按用户决定留在本地 agent 工作目录（gitignored）未入库。
 
 ### 环境坑：git 推送需要显式挂 gh 凭据
 

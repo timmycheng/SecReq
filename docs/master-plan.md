@@ -2,7 +2,7 @@
 
 基线 v2.1.2 · 2026-08-30 · 整合评审、实施计划与离线漏洞库三份文档
 
-> **状态说明(2026-08-31 由 `.workbuddy/` 同步至 docs/)**: 本文档是 v2.1.2 时期的开发总纲, v2.1.3 与 v2.2.0 已按其编排发布, v2.2.1 缺陷修复已按 issue 跟踪并发布。**当前完成状态一律以 issue / milestone 与 CHANGELOG 为准**, 流程规范以 [dev-workflow.md](dev-workflow.md) 为唯一权威来源; 本文保留用于跨版本约束、uid 迁移(#66)与 SCA 对接(#70)的方案依据、外部待确认项。原 `.workbuddy/` 配套文档已归档至 [archive/](archive/README.md)。
+> **状态说明(2026-08-31 由本地 agent 工作目录同步至 docs/)**: 本文档是 v2.1.2 时期的开发总纲, v2.1.3 与 v2.2.0 已按其编排发布, v2.2.1 缺陷修复已按 issue 跟踪并发布。**当前完成状态一律以 issue / milestone 与 CHANGELOG 为准**, 流程规范以 [dev-workflow.md](dev-workflow.md) 为唯一权威来源; 本文保留用于跨版本约束、uid 迁移(#66)与 SCA 对接(#70)的方案依据、外部待确认项。原 agent 工作目录配套文档已归档至 [archive/](archive/README.md)。
 
 ---
 
@@ -26,9 +26,9 @@
 | 文档 | 定位 | 状态 |
 | ---- | ---- | ---- |
 | **本文档** | **总纲**: 版本路线图、跨版本约束、待确认项 | 方案参考(状态以 issue/milestone 与 CHANGELOG 为准) |
-| [archive/workbuddy-optimization-review.md](archive/workbuddy-optimization-review.md) | 问题清单与评级(P0/P1/P2), 各条目的事实依据 | 已完成 |
-| [archive/workbuddy-implementation-plan.md](archive/workbuddy-implementation-plan.md) | 阶段 0-4 的文件级改动清单 | 已被本文版本编排取代, 细节仍可参照 |
-| [archive/workbuddy-offline-vuln-db-plan.md](archive/workbuddy-offline-vuln-db-plan.md) | 离线漏洞库设计(v2, 含实测数据) | v2.2.0 已落地 |
+| [archive/agents-optimization-review.md](archive/agents-optimization-review.md) | 问题清单与评级(P0/P1/P2), 各条目的事实依据 | 已完成 |
+| [archive/agents-implementation-plan.md](archive/agents-implementation-plan.md) | 阶段 0-4 的文件级改动清单 | 已被本文版本编排取代, 细节仍可参照 |
+| [archive/agents-offline-vuln-db-plan.md](archive/agents-offline-vuln-db-plan.md) | 离线漏洞库设计(v2, 含实测数据) | v2.2.0 已落地 |
 
 > 本文与归档文档均为历史方案存档; 有冲突时以 issue / milestone 与 CHANGELOG 为准。
 
@@ -82,7 +82,7 @@ cnnvd_id: Mapped[str | None] = mapped_column(String(32))
 
 ### 2.3 为什么现在只留接缝而不实现
 
-SCA 可对接性未知(7 条核查清单见 `archive/workbuddy-offline-vuln-db-plan.md` 2.3)。
+SCA 可对接性未知(7 条核查清单见 `archive/agents-offline-vuln-db-plan.md` 2.3)。
 **前两条任一为否就无法对接** —— 是否提供 REST API、是否支持按组件坐标查询。
 在结论出来前投入实现是浪费; 但接缝成本几乎为零, 不做才是浪费。
 
@@ -153,7 +153,7 @@ v2.2.0 是内网上线的功能阻塞项(没它漏洞联动就是死的);v2.3.0 
 **定级说明**: 新增独立数据源、构建脚本、管理端页面, 且 Step7 新增「生态」「分发渠道」
 两个字段 —— 与 2.1.2 因新增 `description` 字段而定为 MINOR 同理。
 
-详细设计见 `archive/workbuddy-offline-vuln-db-plan.md`, 此处只列任务与验收。
+详细设计见 `archive/agents-offline-vuln-db-plan.md`, 此处只列任务与验收。
 
 ### 5.1 任务清单
 
@@ -258,7 +258,7 @@ OS 层    Bitnami 8.8 + Alpine 3.9
 1. **漏洞库绝不随 Release 附件分发。** 只走独立的 GHCR OCI artifact
    `secreq-vulndb:YYYYMMDD`(容器镜像存储当前免费), 主镜像保持 ~70 MB。   任务 10 与任务 11-13 必须一起验收, 否则等于把风险又搬回附件。
 2. **应用镜像内置的是精简基线库, 不是完整库。** 完整库通过挂载覆盖
-   (见 `archive/workbuddy-offline-vuln-db-plan.md` 5.1 的双轨设计)。
+   (见 `archive/agents-offline-vuln-db-plan.md` 5.1 的双轨设计)。
 3. **Release 附件保留最近 N 个版本**(建议 N=3), 更旧的自动清理。
 
 **任务 11 细节 —— Actions 缓存瘦身**
@@ -289,7 +289,7 @@ OS 层    Bitnami 8.8 + Alpine 3.9
 但它改动数据模型(增 uid 列、改 `sensitive_asset_ids`)并要求前端保存时回传 uid,
 **契约发生了变化, 不再是向后兼容的修复**, 因此定 MINOR。
 
-详细设计见 `archive/workbuddy-implementation-plan.md` 阶段 3, 此处只列要点。
+详细设计见 `archive/agents-implementation-plan.md` 阶段 3, 此处只列要点。
 
 ### 6.1 要解决的两个 P0
 
