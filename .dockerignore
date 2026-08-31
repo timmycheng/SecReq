@@ -5,7 +5,6 @@
 .pytest_cache
 __pycache__
 **/__pycache__
-.zcode
 
 # 前端依赖与本地构建产物(镜像内重新构建)
 node_modules
