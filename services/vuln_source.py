@@ -106,7 +106,7 @@ class ScaPlatformSource:
     对接时机取决于 SCA 核查结论(是否提供 REST API、是否支持按组件坐标查询;
     前两条任一为否即无法对接)。实现时只需:
         1. 本类实现 query(), 把 SCA 返回结构映射为 OSV 形态字典;
-        2. 在 get_vuln_source() 的 _REGISTRY 中它已注册;
+        2. 在 _build() 中注册一个分支;
         3. 配置切到 sca。
     """
 
@@ -120,13 +120,6 @@ class ScaPlatformSource:
 
     def query(self, q: VulnQuery) -> VulnQueryResult:  # pragma: no cover - 预留
         raise VulnSourceUnavailable(self.available()[1])
-
-
-_REGISTRY: dict[str, type] = {
-    SOURCE_LOCAL: None,   # 延迟填充, 避免 vulndb 导入 sqlalchemy 时的循环依赖
-    SOURCE_ONLINE: None,
-    "sca": ScaPlatformSource,
-}
 
 
 def _local_cls():
