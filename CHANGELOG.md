@@ -2,58 +2,36 @@
 
 本文件记录 SecReq 各版本的用户可见变更与实现要点存档,版本号遵循语义化版本(SemVer)。
 
-**发布流程**:推送 `vX.Y.Z` 格式的版本 tag → CI 自动运行测试 → 构建并推送 Docker 镜像
-到 `ghcr.io/timmycheng/secreq`(同时打 `X.Y.Z` / `X.Y` / `latest` 标签)→
-自动创建 GitHub Release,正文包含本文件中对应版本的变更内容,并附上对应的
-离线镜像包(`docker save` 产物)。
+**发布流程**:推送 `vX.Y.Z` 格式的版本 tag → CI 自动运行测试 → 构建并推送 Docker 镜像到 `ghcr.io/timmycheng/secreq`(同时打 `X.Y.Z` / `X.Y` / `latest` 标签)→自动创建 GitHub Release,正文包含本文件中对应版本的变更内容,并附上对应的离线镜像包(`docker save` 产物)。
+
+**排版约定**:正文一条/一段独占一行,不做段内硬换行,编辑器内靠软换行阅读 —— 本文件对应章节会被原样抽取为 GitHub Release 正文,而 Release 页把段内换行渲染成真实断行,中文句子会在任意词组处被切断。
 
 ## [2.2.0] - 2026-08-30
 
-**离线漏洞库 + SCA 预留**, 内网上线的功能阻塞项。新增数据源抽象、构建脚本、
-管理端漏洞库页, 且 Step7 新增「生态」与「分发渠道」两个字段 —— 按 SemVer 定为 MINOR。
-测试 184 个通过(另有 5 个 `xfail(strict=True)` 护栏用例)。
+**离线漏洞库 + SCA 预留**, 内网上线的功能阻塞项。新增数据源抽象、构建脚本、管理端漏洞库页, 且 Step7 新增「生态」与「分发渠道」两个字段 —— 按 SemVer 定为 MINOR。测试 184 个通过(另有 5 个 `xfail(strict=True)` 护栏用例)。
 
 ### 为什么要做
 
-此前漏洞查询直连 `api.osv.dev`。平台最终部署在**无互联网出口的银行内网**,
-在线查询不可用 —— 没有本地库, 漏洞联动就是死的, Step7 采集的组件清单毫无产出。
+此前漏洞查询直连 `api.osv.dev`。平台最终部署在**无互联网出口的银行内网**,在线查询不可用 —— 没有本地库, 漏洞联动就是死的, Step7 采集的组件清单毫无产出。
 
 ### 离线漏洞库
 
-- **数据源抽象** `services/vuln_source.py`: 定义 `VulnSource` 协议与工厂,
-  按 `SECREQ_VULN_SOURCE` 配置链选取(`local` / `online` / `sca`),
-  前一个不可用时自动降级到后一个并记日志。离线包里每条 JSON 就是
-  `OsvClient.normalize()` 的输入形态, 因此规范化逻辑**零改动复用**, 只换取数通道。
-- **构建脚本** `scripts/build_vuln_db.py`: 下载 OSV 各生态 `all.zip` → 建 SQLite
-  索引库(按包名建索引 + zlib 存 raw JSON)。默认保留完整记录 —— 实测 zlib 压缩
-  可降到 12-31%, 收益远大于字段裁剪。支持 `--ecosystems` / `--source-dir`(离线构建)/
-  `--dry-run` / `--list-ecosystems`。
-- **生态选型**(基于 2026-08-30 对 OSV 官方源实测): 语言层 npm/Maven/PyPI/Go/NuGet/
-  crates.io + OS 层 **Bitnami**(容器中间件) + **Alpine**(C 库与基础工具) +
-  宿主层 **openEuler**(银河麒麟 V10 的技术血统)。不导 Ubuntu(623MB, 性价比极低)
-  与 GIT(176.7MB, commit 级对版本匹配无用)。
-- **版本归一化** `services/vuln_match/`: OS 覆盖的难点不在数据源而在"发行版"维度 ——
-  同一个 MySQL 8.0.32 在 Debian 是 `8.0.32-1~deb12u1`、RHEL 是 `8.0.32-1.el9`、
-  Bitnami 是 `8.0.32-debian-11-r0`, 不归一化一条也匹配不上。优先走记录自带的
-  `versions` 枚举精确匹配, 枚举缺失时退化为范围比较。
+- **数据源抽象** `services/vuln_source.py`: 定义 `VulnSource` 协议与工厂, 按 `SECREQ_VULN_SOURCE` 配置链选取(`local` / `online` / `sca`),前一个不可用时自动降级到后一个并记日志。离线包里每条 JSON 就是`OsvClient.normalize()` 的输入形态, 因此规范化逻辑**零改动复用**, 只换取数通道。
+- **构建脚本** `scripts/build_vuln_db.py`: 下载 OSV 各生态 `all.zip` → 建 SQLite 索引库(按包名建索引 + zlib 存 raw JSON)。默认保留完整记录 —— 实测 zlib 压缩可降到 12-31%, 收益远大于字段裁剪。支持 `--ecosystems` / `--source-dir`(离线构建)/ `--dry-run` / `--list-ecosystems`。
+- **生态选型**(基于 2026-08-30 对 OSV 官方源实测): 语言层 npm/Maven/PyPI/Go/NuGet/crates.io + OS 层 **Bitnami**(容器中间件) + **Alpine**(C 库与基础工具) +宿主层 **openEuler**(银河麒麟 V10 的技术血统)。不导 Ubuntu(623MB, 性价比极低)与 GIT(176.7MB, commit 级对版本匹配无用)。
+- **版本归一化** `services/vuln_match/`: OS 覆盖的难点不在数据源而在"发行版"维度 —— 同一个 MySQL 8.0.32 在 Debian 是 `8.0.32-1~deb12u1`、RHEL 是 `8.0.32-1.el9`、Bitnami 是 `8.0.32-debian-11-r0`, 不归一化一条也匹配不上。优先走记录自带的`versions` 枚举精确匹配, 枚举缺失时退化为范围比较。
 
 ### 修掉一个让漏洞联动形同虚设的缺陷
 
-`services/sbom.py` 此前给无 purl 的组件补 `pkg:generic/<name>@<version>`,
-而 **OSV 不支持 generic 生态** —— 这类 purl 永远查不到任何漏洞。
-`ComponentIn.purl` 是可选字段、Step7 也没引导填生态, 实际绝大多数组件都中招。
-现改为按生态构造规范 purl; 无生态时不再伪造坐标, 而是走跨生态模糊匹配并标注「待确认」。
+`services/sbom.py` 此前给无 purl 的组件补 `pkg:generic/<name>@<version>`,而 **OSV 不支持 generic 生态** —— 这类 purl 永远查不到任何漏洞。`ComponentIn.purl` 是可选字段、Step7 也没引导填生态, 实际绝大多数组件都中招。现改为按生态构造规范 purl; 无生态时不再伪造坐标, 而是走跨生态模糊匹配并标注「待确认」。
 
 ### Step7 新增「生态」与「分发渠道」
 
-OS 类组件(MySQL / Nginx / OpenSSL 等)的版本号随分发渠道而变, 不填就只能模糊匹配。
-两个下拉选项均由后端 `shared/constants.py` 经 `/api/meta/constants` 下发,
-前端不硬编码。常用组件库点选时自动带上生态标注。
+OS 类组件(MySQL / Nginx / OpenSSL 等)的版本号随分发渠道而变, 不填就只能模糊匹配。两个下拉选项均由后端 `shared/constants.py` 经 `/api/meta/constants` 下发,前端不硬编码。常用组件库点选时自动带上生态标注。
 
 ### 三种「查不到」必须分开
 
-此前只有"命中/未命中"两种结果, 未覆盖与无法判定都被显示成"未发现漏洞"。
-现在落库 `vuln_status` 四选一, 界面、Word 与 Excel 导出均如实标注:
+此前只有"命中/未命中"两种结果, 未覆盖与无法判定都被显示成"未发现漏洞"。现在落库 `vuln_status` 四选一, 界面、Word 与 Excel 导出均如实标注:
 
 | 语义 | 含义 |
 | ---- | ---- |
@@ -66,47 +44,33 @@ OS 类组件(MySQL / Nginx / OpenSSL 等)的版本号随分发渠道而变, 不�
 
 ### 缓存语义改为库指纹
 
-此前按 24h TTL 判定, 两个真实缺陷: ① 导入新漏洞库后 24h 内仍沿用旧结果,
-新入库的 CVE 全漏; ② 用户改了组件版本号也沿用旧结果。
-现在按 `(数据源, 库版本, 组件名, 版本, 生态, 分发渠道)` 指纹判定, 任一变化立即重算。
+此前按 24h TTL 判定, 两个真实缺陷: ① 导入新漏洞库后 24h 内仍沿用旧结果,新入库的 CVE 全漏; ② 用户改了组件版本号也沿用旧结果。现在按 `(数据源, 库版本, 组件名, 版本, 生态, 分发渠道)` 指纹判定, 任一变化立即重算。
 
 ### SCA 预留接缝(v2.4 对接时零迁移)
 
-- `VulnerabilityRecord` 预留 `source` / `external_ref` / `cnnvd_id` / `cn_severity` 四列,
-  避免对接时再做数据迁移;
-- `ScaPlatformSource` 已注册但 `available()` 返回明确原因「尚未接入」,
-  **绝不静默失败**。v2.4 对接只需: 实现 `query()` + 切配置;
+- `VulnerabilityRecord` 预留 `source` / `external_ref` / `cnnvd_id` / `cn_severity` 四列,避免对接时再做数据迁移;
+- `ScaPlatformSource` 已注册但 `available()` 返回明确原因「尚未接入」, **绝不静默失败**。v2.4 对接只需: 实现 `query()` + 切配置;
 - 汇总文案带数据来源(如「数据来源: 本地漏洞库 v20260830」), Word 导出同步标注。
 
 ### CNNVD 编号对齐
 
-`scripts/build_cnnvd_map.py` 从月度 XML 抽 `CVE → CNNVD 编号 + 中文危害等级`,
-建成小映射表, 在展示与导出时补合规字段(银行合规通报常要求国产编号)。
-定位为叠加层, 不做组件匹配 —— CNNVD 是 CVE 级无包坐标, 硬匹配需 CPE, 精度差。
+`scripts/build_cnnvd_map.py` 从月度 XML 抽 `CVE → CNNVD 编号 + 中文危害等级`,建成小映射表, 在展示与导出时补合规字段(银行合规通报常要求国产编号)。定位为叠加层, 不做组件匹配 —— CNNVD 是 CVE 级无包坐标, 硬匹配需 CPE, 精度差。
 
 ### 管理端漏洞库页
 
-新增系统管理 → 漏洞库: 库版本 / 构建时间 / 记录数 / 体积 / 生态覆盖 / 数据源状态 /
-已知覆盖缺口。`POST /api/admin/vuln-db/verify` 重算 SHA256 与构建时记录的校验和比对
-(摆渡完整性核验), 并留 `vulndb_verify` 审计。
+新增系统管理 → 漏洞库: 库版本 / 构建时间 / 记录数 / 体积 / 生态覆盖 / 数据源状态 /已知覆盖缺口。`POST /api/admin/vuln-db/verify` 重算 SHA256 与构建时记录的校验和比对(摆渡完整性核验), 并留 `vulndb_verify` 审计。
 
 > 校验和写 **sidecar 文件** `<库名>.sha256` 而非库内 —— 往库里 INSERT 会改变文件本身,
 > 库内记录的校验和写入即失效。
 
 ### 工程质量
 
-- **前端组件拆分**: `AdminPage.tsx`(534 行 6 Tab)拆为 `src/ui/admin/` 下 7 个独立组件,
-  经 `React.lazy` 按需加载; `vite.config.ts` 配 `manualChunks` 拆分 vendor。
-  此前单包 1.29MB, 现 antd 独立为 1.16MB 缓存块(长期命中), 应用代码降至 108KB。
-- **产物体积治理**: 新增 `.github/workflows/vulndb.yml` 定时构建漏洞库并作为独立
-  OCI artifact(`secreq-vulndb:YYYYMMDD`)推送 GHCR —— 漏洞库**绝不随 Release 附件分发**;
-  `release.yml` 缓存 `mode=max` → `min`(此前累积 773MB / 85 个);
-  新增 `retention.yml` 清理 GHCR 悬空与旧版本, Release 附件只保留最近 3 个版本。
+- **前端组件拆分**: `AdminPage.tsx`(534 行 6 Tab)拆为 `src/ui/admin/` 下 7 个独立组件,经 `React.lazy` 按需加载; `vite.config.ts` 配 `manualChunks` 拆分 vendor。此前单包 1.29MB, 现 antd 独立为 1.16MB 缓存块(长期命中), 应用代码降至 108KB。
+- **产物体积治理**: 新增 `.github/workflows/vulndb.yml` 定时构建漏洞库并作为独立OCI artifact(`secreq-vulndb:YYYYMMDD`)推送 GHCR —— 漏洞库**绝不随 Release 附件分发**; `release.yml` 缓存 `mode=max` → `min`(此前累积 773MB / 85 个);新增 `retention.yml` 清理 GHCR 悬空与旧版本, Release 附件只保留最近 3 个版本。
 
 ### ⚠️ 必须知悉的覆盖缺口
 
-**银河麒麟不在 OSV 的 39 个生态中**, 本版本按 openEuler 同源数据代理匹配,
-结果一律标注「推断, 以麒麟官方安全公告为准」。以下四类系统性失真无法回避:
+**银河麒麟不在 OSV 的 39 个生态中**, 本版本按 openEuler 同源数据代理匹配,结果一律标注「推断, 以麒麟官方安全公告为准」。以下四类系统性失真无法回避:
 
 | 失真 | 后果 |
 | ---- | ---- |
@@ -115,129 +79,77 @@ OS 类组件(MySQL / Nginx / OpenSSL 等)的版本号随分发渠道而变, 不�
 | 架构维度(aarch64 / loongarch64 / sw_64) | OSV 数据不含架构 |
 | KVE 编号 | 无, 需单独映射 |
 
-**补齐的唯一途径是向麒麟索取正式数据源**(走采购/服务渠道, 周期可能较长, 建议尽快启动)。
-拿到后新增 `KylinSource` 即可 —— `VulnSource` 协议天然支持多源, 上层零改动。
-Kubernetes 同理: Bitnami 与 Alpine 均无覆盖, 当前一律标注「未纳入覆盖范围」。
+**补齐的唯一途径是向麒麟索取正式数据源**(走采购/服务渠道, 周期可能较长, 建议尽快启动)。拿到后新增 `KylinSource` 即可 —— `VulnSource` 协议天然支持多源, 上层零改动。Kubernetes 同理: Bitnami 与 Alpine 均无覆盖, 当前一律标注「未纳入覆盖范围」。
 
 ### 其他
 
-- `SbomComponent` 增 `ecosystem` / `distro` / `osv_query_fingerprint` /
-  `vuln_status` / `vuln_status_note` 五列;
-  `VulnerabilityRecord` 增 `source` / `external_ref` / `cnnvd_id` / `cn_severity` 四列。
-- SBOM 文件导入时从 purl 反推生态(`ecosystem_from_purl`),
-  避免导入的组件落到"未指定生态"而只能模糊匹配。
-- Excel 跟踪表新增「漏洞清单」工作表(含 CNNVD 编号与数据来源);
-  Word 漏洞清单补 CNNVD 列、数据来源声明与"未覆盖组件"单独说明。
-- 启动时在日志中交代漏洞数据源状态 —— 内网最常见的事故是"漏洞库忘了挂载",
-  页面上每个组件都显示无法判定却没人知道原因。
-- 新增 `tests/test_vulndb.py`(29 例, 含"合成 zip → 建库 → 查询"端到端)
-  与管理端漏洞库用例 5 例。
+- `SbomComponent` 增 `ecosystem` / `distro` / `osv_query_fingerprint` / `vuln_status` / `vuln_status_note` 五列; `VulnerabilityRecord` 增 `source` / `external_ref` / `cnnvd_id` / `cn_severity` 四列。
+- SBOM 文件导入时从 purl 反推生态(`ecosystem_from_purl`),避免导入的组件落到"未指定生态"而只能模糊匹配。
+- Excel 跟踪表新增「漏洞清单」工作表(含 CNNVD 编号与数据来源); Word 漏洞清单补 CNNVD 列、数据来源声明与"未覆盖组件"单独说明。
+- 启动时在日志中交代漏洞数据源状态 —— 内网最常见的事故是"漏洞库忘了挂载",页面上每个组件都显示无法判定却没人知道原因。
+- 新增 `tests/test_vulndb.py`(29 例, 含"合成 zip → 建库 → 查询"端到端)与管理端漏洞库用例 5 例。
 
 ## [2.1.3] - 2026-08-30
 
-缺陷修复与内网部署基建版本: 修复容器时区导致的时间显示偏差、SQLite 并发写锁死、
-异常详情回显等信息与稳定性问题, 补全审计留痕, 并新增内网交付模板。
-无新增功能与字段, 按 SemVer 定为 PATCH。测试 148 个通过(另有 5 个 xfail 护栏用例)。
+缺陷修复与内网部署基建版本: 修复容器时区导致的时间显示偏差、SQLite 并发写锁死、异常详情回显等信息与稳定性问题, 补全审计留痕, 并新增内网交付模板。无新增功能与字段, 按 SemVer 定为 PATCH。测试 148 个通过(另有 5 个 xfail 护栏用例)。
 
 ### 内网部署基建
 
-- **容器时区**: 镜像安装 `tzdata` 并设置 `TZ=Asia/Shanghai`。此前容器默认 UTC,
-  页面上的需求确认时间、审计时间、导出时间整体差 8 小时。会话过期判定不受影响
-  (写入与比较用的是同一套 `datetime.now()`), 仅显示时间有误。
-- **SQLite 并发**: `make_engine` 对 SQLite 连接设置 `journal_mode=WAL`、
-  `busy_timeout=5000`、`synchronous=NORMAL`。此前默认 rollback journal 下读写互斥,
-  而向导保存是整表 delete+insert 的大事务, 并发点保存会抛 "database is locked"。
-- **内网交付模板**: 新增 `docker-compose.intranet.yml`(固定镜像版本 / 注入时区 /
-  初始密码必填 / 预留漏洞库挂载位)与 `.env.example`;
-  HTTPS 由前置代理终结, 配置模板见 `deploy/nginx/secreq.conf`。
-- **启动日志**: `main.py` 的两处 `print` 改为 logging, 并补 `logging.basicConfig`
-  (root 已配置时为空操作, 不覆盖 uvicorn 的日志配置), 容器部署统一走 stdout。
+- **容器时区**: 镜像安装 `tzdata` 并设置 `TZ=Asia/Shanghai`。此前容器默认 UTC,页面上的需求确认时间、审计时间、导出时间整体差 8 小时。会话过期判定不受影响(写入与比较用的是同一套 `datetime.now()`), 仅显示时间有误。
+- **SQLite 并发**: `make_engine` 对 SQLite 连接设置 `journal_mode=WAL`、`busy_timeout=5000`、`synchronous=NORMAL`。此前默认 rollback journal 下读写互斥,而向导保存是整表 delete+insert 的大事务, 并发点保存会抛 "database is locked"。
+- **内网交付模板**: 新增 `docker-compose.intranet.yml`(固定镜像版本 / 注入时区 /初始密码必填 / 预留漏洞库挂载位)与 `.env.example`; HTTPS 由前置代理终结, 配置模板见 `deploy/nginx/secreq.conf`。
+- **启动日志**: `main.py` 的两处 `print` 改为 logging, 并补 `logging.basicConfig` (root 已配置时为空操作, 不覆盖 uvicorn 的日志配置), 容器部署统一走 stdout。
 
 ### 信息与稳定性
 
-- **异常脱敏**: 新增 `services/errors.py`, 生成与 Excel 解析的兜底分支改为
-  服务端记完整栈、客户端只返回通用文案 + 12 位追踪码。此前会把 SQL 语句、
-  文件路径、知识库结构等内部细节直接回显。业务校验错误(模板不存在、参数越界等)
-  仍按原样回显具体原因。
-- **规则引擎容错**: 单条模板配置有误(未知 `rule_key` / 未知 `trigger_type`)时
-  跳过该模板并记入 `RuleEngine.skipped`, 不再中断整轮生成 —— 一条坏配置
-  不该让其余模板全部失效。同时移除 `_match_regulatory_triggers` docstring 中
-  从未实现的 `saas_finance` 声明(早前按文档配置该规则会导致生成 500)。
-- **上传体积限制**: 数据字典与 SBOM 导入改为按块读取, 累计超过 5 MB 立即返回 413,
-  不再一次性 `await file.read()` 载入内存。
-- **LLM 降级提示收敛**: 大模型调用失败时前端只看到异常类型名,
-  异常原文(可能含内网大模型地址)仅写入服务端日志。
+- **异常脱敏**: 新增 `services/errors.py`, 生成与 Excel 解析的兜底分支改为服务端记完整栈、客户端只返回通用文案 + 12 位追踪码。此前会把 SQL 语句、文件路径、知识库结构等内部细节直接回显。业务校验错误(模板不存在、参数越界等)仍按原样回显具体原因。
+- **规则引擎容错**: 单条模板配置有误(未知 `rule_key` / 未知 `trigger_type`)时跳过该模板并记入 `RuleEngine.skipped`, 不再中断整轮生成 —— 一条坏配置不该让其余模板全部失效。同时移除 `_match_regulatory_triggers` docstring 中从未实现的 `saas_finance` 声明(早前按文档配置该规则会导致生成 500)。
+- **上传体积限制**: 数据字典与 SBOM 导入改为按块读取, 累计超过 5 MB 立即返回 413,不再一次性 `await file.read()` 载入内存。
+- **LLM 降级提示收敛**: 大模型调用失败时前端只看到异常类型名,异常原文(可能含内网大模型地址)仅写入服务端日志。
 
 ### 审计留痕补全
 
-- 新增 `project_create` / `project_delete` / `export`(Word、Excel 数据外带)/
-  `step_save`(向导 8 个保存端点 + SBOM 导入)五类埋点。
-  `step_save` 只记步骤名与条目数, 不记明细内容, 避免审计库膨胀。
+- 新增 `project_create` / `project_delete` / `export`(Word、Excel 数据外带)/ `step_save`(向导 8 个保存端点 + SBOM 导入)五类埋点。`step_save` 只记步骤名与条目数, 不记明细内容, 避免审计库膨胀。
 - 删除项目时先取编码与名称再执行删除, 确保留痕的是"已发生的删除"。
 
 ### 其他
 
 - 删除 `models/database.py` 中从未被调用的 `_sqlite_kwargs()`。
-- 新增 `tests/test_engine_fault_tolerance.py`(5 例)与
-  `tests/test_audit_coverage.py`(6 例)。
-- 新增 `tests/test_traceability_stability.py`(5 例, 均为 `xfail(strict=True)`):
-  锁定 v2.3.0 uid 迁移的目标行为 —— 重新生成保留确认状态、删除一行不影响其余行主键、
-  需求溯源与接口-资产关联在重新保存后不漂移。修复后将报 XPASS 提醒移除标记。
+- 新增 `tests/test_engine_fault_tolerance.py`(5 例)与`tests/test_audit_coverage.py`(6 例)。
+- 新增 `tests/test_traceability_stability.py`(5 例, 均为 `xfail(strict=True)`):锁定 v2.3.0 uid 迁移的目标行为 —— 重新生成保留确认状态、删除一行不影响其余行主键、需求溯源与接口-资产关联在重新保存后不漂移。修复后将报 XPASS 提醒移除标记。
 
 ## [2.1.2] - 2026-08-30
 
-界面走查整改版本: 系统管理/数据资产弹窗两处布局问题修复, 功能清单「所属模块」定位
-明确化并新增详细描述, 粘贴提取支持区分多种粘贴形态。测试 138 个全量通过。
+界面走查整改版本: 系统管理/数据资产弹窗两处布局问题修复, 功能清单「所属模块」定位明确化并新增详细描述, 粘贴提取支持区分多种粘贴形态。测试 138 个全量通过。
 
 ### 界面布局
 
-- **系统管理居中布局**: 整页内容 maxWidth 1100 居中, 新增页面标题与说明; 六个 Tab
-  统一「说明文字 → 工具栏 → 内容区」结构, 知识库/用户管理/审计日志的长说明移入说明行,
-  密码策略基线/大模型接入窄表单在页内居中, 加载态与 403 提示居中显示。
-- **数据资产编辑弹窗重排**: 原表单固定宽度横排(240+200+320px)超出 760 弹窗内容区,
-  导致「分级」下拉溢出弹窗、复选框行高低错位; 改为 Row/Col 栅格三行布局
-  (基本属性一行 / C3 标签整行 / 个人信息与存储位置一行), 随弹窗宽度自适应。
+- **系统管理居中布局**: 整页内容 maxWidth 1100 居中, 新增页面标题与说明; 六个 Tab统一「说明文字 → 工具栏 → 内容区」结构, 知识库/用户管理/审计日志的长说明移入说明行,密码策略基线/大模型接入窄表单在页内居中, 加载态与 403 提示居中显示。
+- **数据资产编辑弹窗重排**: 原表单固定宽度横排(240+200+320px)超出 760 弹窗内容区,导致「分级」下拉溢出弹窗、复选框行高低错位; 改为 Row/Col 栅格三行布局(基本属性一行 / C3 标签整行 / 个人信息与存储位置一行), 随弹窗宽度自适应。
 
 ### 功能清单增强
 
-- **所属模块列前置**: 表格列序调整为 所属模块 → 功能名称 → 详细描述 → 功能分类…,
-  明确所属模块是比单个功能高一级的功能聚合(如支付模块/用户中心/管理后台);
-  编辑弹窗字段顺序同步, 并补充字段用途说明。
-- **新增功能详细描述**: 功能条目新增 `description` 字段(≤500 字, 编辑弹窗多行输入
-  带字数统计), 模型/Schema/保存链路同步; 存量库经启动自动补列升级, 老数据不受影响。
-- **粘贴提取区分三种形态**: 大模型提取提示词重写, 明确区分 ①按模块分节(节标题自动
-  归入所属模块, 功能名内去重模块名) ②平铺罗列(无明确归属时模块留空, 不猜测)
-  ③带描述条目(「功能名: 具体说明」拆分为名称与描述); 粘贴弹窗说明与示例更新,
-  候选确认表新增所属模块/详细描述两列。关键词规则降级路径行为不变。
+- **所属模块列前置**: 表格列序调整为 所属模块 → 功能名称 → 详细描述 → 功能分类…,明确所属模块是比单个功能高一级的功能聚合(如支付模块/用户中心/管理后台);编辑弹窗字段顺序同步, 并补充字段用途说明。
+- **新增功能详细描述**: 功能条目新增 `description` 字段(≤500 字, 编辑弹窗多行输入带字数统计), 模型/Schema/保存链路同步; 存量库经启动自动补列升级, 老数据不受影响。
+- **粘贴提取区分三种形态**: 大模型提取提示词重写, 明确区分 ①按模块分节(节标题自动归入所属模块, 功能名内去重模块名) ②平铺罗列(无明确归属时模块留空, 不猜测) ③带描述条目(「功能名: 具体说明」拆分为名称与描述); 粘贴弹窗说明与示例更新,候选确认表新增所属模块/详细描述两列。关键词规则降级路径行为不变。
 
 ### 其他
 
-- README 版本引用(当前版本/镜像 tag/离线包名)与 `main.py` FastAPI version 同步至
-  2.1.2(此前停留在 2.1.0)。
+- README 版本引用(当前版本/镜像 tag/离线包名)与 `main.py` FastAPI version 同步至2.1.2(此前停留在 2.1.0)。
 
 ## [2.1.1] - 2026-08-29
 
-安全审计修复版本: Mimosa 深度扫描 7 项 finding 全部处置(4 项修复 + 3 项甄别为误报),
-并完成依赖漏洞核对。测试 138 个全量通过。
+安全审计修复版本: Mimosa 深度扫描 7 项 finding 全部处置(4 项修复 + 3 项甄别为误报),并完成依赖漏洞核对。测试 138 个全量通过。
 
 ### 安全修复
 
-- **硬编码凭据(CWE-798)**: 种子账号/新用户初始密码不再写死在源码, 优先读环境变量
-  `SECREQ_SEED_PASSWORD`, 未设置时每次启动随机生成并打印到启动日志(仅对当次新建或
-  补设密码的账号生效); 重置密码接口密码改为可选, 缺省由后端生成随机密码并在响应中
-  回显; 前端登录页/管理页移除写死口令的文案与按钮传参。
-- **路径穿越(CWE-22)**: 项目编码创建时拒绝 `/` `\` `:` `..` 等路径字符(中文编码不受
-  影响), 产物输出目录统一经 `services.pipeline.project_output_dir` 清洗兜底(覆盖生成
-  路由/编排服务/演示脚本, 兼顾存量库脏数据); 知识库管理移除服务层 `_path` 路径覆写
-  后门, 写入目标固定为默认知识库文件。
-- **依赖风险**: 构建工具链 pip 24.0→26.2.1、setuptools 65.5.0→84.0.0(OSV 19 条通告
-  清零), Dockerfile 安装依赖前先升级工具链; 全部运行时依赖按实际安装版本经 OSV
-  核对, 无已知漏洞。
+- **硬编码凭据(CWE-798)**: 种子账号/新用户初始密码不再写死在源码, 优先读环境变量`SECREQ_SEED_PASSWORD`, 未设置时每次启动随机生成并打印到启动日志(仅对当次新建或补设密码的账号生效); 重置密码接口密码改为可选, 缺省由后端生成随机密码并在响应中回显; 前端登录页/管理页移除写死口令的文案与按钮传参。
+- **路径穿越(CWE-22)**: 项目编码创建时拒绝 `/` `\` `:` `..` 等路径字符(中文编码不受影响), 产物输出目录统一经 `services.pipeline.project_output_dir` 清洗兜底(覆盖生成路由/编排服务/演示脚本, 兼顾存量库脏数据); 知识库管理移除服务层 `_path` 路径覆写后门, 写入目标固定为默认知识库文件。
+- **依赖风险**: 构建工具链 pip 24.0→26.2.1、setuptools 65.5.0→84.0.0(OSV 19 条通告清零), Dockerfile 安装依赖前先升级工具链; 全部运行时依赖按实际安装版本经 OSV核对, 无已知漏洞。
 
 ### 甄别为误报(附安全口径)
 
-- SSTI(rules/loader.py): 占位符渲染为白名单替换(仅 `{{单词}}` 形态、字典取值、函数
-  替换字面插入), 无表达式求值, 不构成 CWE-1336; 安全口径已注明于 `rules/engine.py:render`。
+- SSTI(rules/loader.py): 占位符渲染为白名单替换(仅 `{{单词}}` 形态、字典取值、函数替换字面插入), 无表达式求值, 不构成 CWE-1336; 安全口径已注明于 `rules/engine.py:render`。
 - 路径穿越(kb_admin.py 题库写盘): 写入目标为模块常量路径, 无外部输入参与。
 - SSRF(演示脚本): 入参仅 `--offline` 布尔开关, OSV 查询地址为固定常量。
 
@@ -248,8 +160,7 @@ Kubernetes 同理: Bitnami 与 Alpine 均无覆盖, 当前一律标注「未纳�
 
 ## [2.1.0] - 2026-08-28
 
-首个语义化版本。在 v2.0 平台化改造与三批基线交付(见下文「历史版本」)之上,
-完成走查整改与智能提取增强。
+首个语义化版本。在 v2.0 平台化改造与三批基线交付(见下文「历史版本」)之上,完成走查整改与智能提取增强。
 
 ### 走查整改(2026-08)
 
@@ -287,75 +198,37 @@ Kubernetes 同理: Bitnami 与 Alpine 均无覆盖, 当前一律标注「未纳�
 ### 基线三批交付
 
 - 基线第一批: 后端数据模型 + 知识库 YAML + 规则引擎 + pytest 测试;
-- 基线第二批: SBOM(CycloneDX 1.5)生成、OSV.dev 漏洞查询(24h缓存/失败降级)、
-  Word 文档生成与全流程编排(`services/pipeline.py`);
-- 基线第三批: FastAPI 路由与文档/Excel 下载 API + React 8 步向导前端
-  (权限矩阵交叉表格)+ 定级问卷打分 + SBOM 文件导入 + Jira 跟踪表。
+- 基线第二批: SBOM(CycloneDX 1.5)生成、OSV.dev 漏洞查询(24h缓存/失败降级)、Word 文档生成与全流程编排(`services/pipeline.py`);
+- 基线第三批: FastAPI 路由与文档/Excel 下载 API + React 8 步向导前端(权限矩阵交叉表格)+ 定级问卷打分 + SBOM 文件导入 + Jira 跟踪表。
 
 ### 第一批实现说明(知识库与规则引擎)
 
-**知识库** `rules/knowledge_base.yml`: 触发器 trigger 分八类——功能分类 /
-权限矩阵分析 / 认证方式 / 密码策略基线 / 数据资产 / API接口 / 合规目标 /
-SBOM漏洞联动。每条模板含 req_id(按 ASVS 4.0.3 章节分组)、中文描述、优先级、
-验收标准、建议阶段、trigger_reason 与 `{{占位符}}`。
-安全中心可直接修改此文件扩充规则, 无需改代码; 加载器对 id 格式、必填字段、
-未知触发类型做完整性校验, 出错时汇总报告全部问题。
+**知识库** `rules/knowledge_base.yml`: 触发器 trigger 分八类——功能分类 /权限矩阵分析 / 认证方式 / 密码策略基线 / 数据资产 / API接口 / 合规目标 / SBOM漏洞联动。每条模板含 req_id(按 ASVS 4.0.3 章节分组)、中文描述、优先级、验收标准、建议阶段、trigger_reason 与 `{{占位符}}`。安全中心可直接修改此文件扩充规则, 无需改代码; 加载器对 id 格式、必填字段、未知触发类型做完整性校验, 出错时汇总报告全部问题。
 
-**规则引擎消费方式**: 遍历全部模板按 trigger.type 分派判定函数, 条件满足即实例化;
-同类规则命中多个实例时生成多条独立需求并分别关联各自 source_entity_id,
-满足"无来源的需求不允许存在"的追溯约束。占位符渲染为严格模式, 缺值即报错,
-用于在开发期暴露知识库缺陷。权限矩阵内置三种扫描算法:
-关键资源高危操作免审批检测、SoD 职责分离冲突检测、super_admin 特权账号检测。
+**规则引擎消费方式**: 遍历全部模板按 trigger.type 分派判定函数, 条件满足即实例化;同类规则命中多个实例时生成多条独立需求并分别关联各自 source_entity_id,满足"无来源的需求不允许存在"的追溯约束。占位符渲染为严格模式, 缺值即报错,用于在开发期暴露知识库缺陷。权限矩阵内置三种扫描算法:关键资源高危操作免审批检测、SoD 职责分离冲突检测、super_admin 特权账号检测。
 
-**种子数据**(`services/seed_data.py`): 个人网银系统 —— 12 功能(覆盖支付/上传/
-导出/第三方登录等)、6 数据资产(含机密级金融账户与生物识别)、5角色×8资源权限矩阵
-(故意构造免审批违规与 SoD 冲突)、10 技术栈组件(故意保留 log4j-core 2.14.1 供
-第二批漏洞演示)、4 API 接口(含匿名公网接口)。
+**种子数据**(`services/seed_data.py`): 个人网银系统 —— 12 功能(覆盖支付/上传/导出/第三方登录等)、6 数据资产(含机密级金融账户与生物识别)、5角色×8资源权限矩阵(故意构造免审批违规与 SoD 冲突)、10 技术栈组件(故意保留 log4j-core 2.14.1 供第二批漏洞演示)、4 API 接口(含匿名公网接口)。
 
 ### 第二批实现说明(SBOM / OSV 漏洞 / 文档)
 
 > 注: Word 文档生成已于 v2.1.0 下线(产物改为 Web 视图 + 「复制到 Word」),
 > 本节按当时实现存档。
 
-**SBOM**(`services/sbom.py`): 从组件清单构建 CycloneDX 1.5 JSON, 层级映射为
-标准 component.type(library/application/container), 录入层级与来源保留在
-`secreq:*` 自定义 properties; 未填 purl 的组件自动补 `pkg:generic/<名>@<版本>`
-并回写数据库。许可证按 SPDX id 形态校验, 无法识别的自由文本写入 `license.name`。
+**SBOM**(`services/sbom.py`): 从组件清单构建 CycloneDX 1.5 JSON, 层级映射为标准 component.type(library/application/container), 录入层级与来源保留在`secreq:*` 自定义 properties; 未填 purl 的组件自动补 `pkg:generic/<名>@<版本>`并回写数据库。许可证按 SPDX id 形态校验, 无法识别的自由文本写入 `license.name`。
 
-**OSV 漏洞查询**(`services/osv.py`): POST `api.osv.dev/v1/query` 按 purl 逐个查询,
-结果规范化后落库 `vulnerabilities` 表(唯一约束防重复)。几个关键工程细节:
-- 事件解析兼容 OSV 单键事件形态(`{"introduced":..},{"fixed":..}`), 多组
-  introduced→fixed 序列切分为多个受影响窗口;
-- **坐标过滤**: 同一漏洞常列出多个派生包坐标(如 log4shell 的 guicedee/pax 分支),
-  按精确 purl > 全限定名 > 裸名的优先级锁定本组件条目, 避免分支包污染修复建议;
-- **修复版选取**: 优先取"包含目标版本"窗口的 fixed 端点(log4j 2.14.1 → 升级到
-  2.15.0), 多线并存时兜底取数值最高的修复版;
-- severity 取 GHSA `database_specific`(含 MODERATE 别名归一), 缺失时按 CVSS
-  分数划档(≥9 critical / ≥7 high / ≥4 medium);
+**OSV 漏洞查询**(`services/osv.py`): POST `api.osv.dev/v1/query` 按 purl 逐个查询,结果规范化后落库 `vulnerabilities` 表(唯一约束防重复)。几个关键工程细节:
+- 事件解析兼容 OSV 单键事件形态(`{"introduced":..},{"fixed":..}`), 多组introduced→fixed 序列切分为多个受影响窗口;
+- **坐标过滤**: 同一漏洞常列出多个派生包坐标(如 log4shell 的 guicedee/pax 分支),按精确 purl > 全限定名 > 裸名的优先级锁定本组件条目, 避免分支包污染修复建议;
+- **修复版选取**: 优先取"包含目标版本"窗口的 fixed 端点(log4j 2.14.1 → 升级到2.15.0), 多线并存时兜底取数值最高的修复版;
+- severity 取 GHSA `database_specific`(含 MODERATE 别名归一), 缺失时按 CVSS分数划档(≥9 critical / ≥7 high / ≥4 medium);
 - 缓存: 组件维度 24h TTL(`last_osv_query_at`), 未过期直接沿用库内记录;
 - 降级: 网络/HTTP 异常仅记入 failed 并保留旧记录, 不阻塞规则引擎与文档生成。
 
 ### 第三批实现说明(API 与前端)
 
-**API 层**(`main.py` + `routers/` + `schemas/`): 项目 CRUD、定级问卷(题库来自
-`rules/grading_questions.yml`, 加权打分 + 组合规则如"敏感个人信息+资金交易直接
-三级")、向导 Step2~Step8 各数据面的整卷保存(整体替换幂等, 权限矩阵 entry 以
-提交体下标定位)、`/generate` 全流程编排(成功后项目状态置 generated)、
-`/requirements/preview` 规则引擎干跑(确认页"已触发 XX 条"不落库)。
-下载接口: `GET /export/xlsx` 输出 Jira 可导入的需求跟踪表
-(req_id/需求描述/优先级/责任方/建议阶段/验收标准/状态/备注, 第二 Sheet 附字段
-映射说明); `GET /sbom` 实时构建 CycloneDX JSON。枚举唯一来源为
-`GET /api/meta/constants`, 满足前后端共享一份常量定义的约束。
+**API 层**(`main.py` + `routers/` + `schemas/`): 项目 CRUD、定级问卷(题库来自`rules/grading_questions.yml`, 加权打分 + 组合规则如"敏感个人信息+资金交易直接三级")、向导 Step2~Step8 各数据面的整卷保存(整体替换幂等, 权限矩阵 entry 以提交体下标定位)、`/generate` 全流程编排(成功后项目状态置 generated)、`/requirements/preview` 规则引擎干跑(确认页"已触发 XX 条"不落库)。下载接口: `GET /export/xlsx` 输出 Jira 可导入的需求跟踪表(req_id/需求描述/优先级/责任方/建议阶段/验收标准/状态/备注, 第二 Sheet 附字段映射说明); `GET /sbom` 实时构建 CycloneDX JSON。枚举唯一来源为`GET /api/meta/constants`, 满足前后端共享一份常量定义的约束。
 
-**前端**(`frontend/`, React 19 + TS + Vite + AntD): 8 步向导——基本信息表单 /
-问卷(Radio+分值展示+人工修正)/ 功能与组件动态增删行 / 数据字典资产→表→字段
-三级嵌套编辑 / **权限矩阵交叉表格**(角色行×资源列, 单元格 Popover 勾选操作,
-高危操作可挂"需审批", 前端实时提示免审批违规与 SoD 冲突)/ 认证与密码
-策略设计器(按定级预填默认基线, 留空项生成时自动取 `policy.py` 同口径默认)/
-SBOM 文件上传导入(CycloneDX/SPDX)+ 常用组件自动补全 / 接口清单关联敏感数据资产。
-确认页汇总全部输入并干跑预览触发规模, 一键生成后跳转产物页: 需求清单(类目/
-优先级筛选、紧急行标红、展开看验收标准与触发原因)、漏洞清单(严重度排序)、
-跟踪表 Excel + SBOM JSON 下载。
+**前端**(`frontend/`, React 19 + TS + Vite + AntD): 8 步向导——基本信息表单 /问卷(Radio+分值展示+人工修正)/ 功能与组件动态增删行 / 数据字典资产→表→字段三级嵌套编辑 / **权限矩阵交叉表格**(角色行×资源列, 单元格 Popover 勾选操作,高危操作可挂"需审批", 前端实时提示免审批违规与 SoD 冲突)/ 认证与密码策略设计器(按定级预填默认基线, 留空项生成时自动取 `policy.py` 同口径默认)/ SBOM 文件上传导入(CycloneDX/SPDX)+ 常用组件自动补全 / 接口清单关联敏感数据资产。确认页汇总全部输入并干跑预览触发规模, 一键生成后跳转产物页: 需求清单(类目/优先级筛选、紧急行标红、展开看验收标准与触发原因)、漏洞清单(严重度排序)、跟踪表 Excel + SBOM JSON 下载。
 
 ### 种子数据实际运行结果片段
 
