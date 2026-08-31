@@ -9,4 +9,4 @@ fastapi>=0.110           # API 路由层
 uvicorn>=0.29            # ASGI 服务器
 python-docx>=1.1    # 「下载 Word 文档」产物导出
 openpyxl>=3.1            # Excel 需求跟踪表
-python-multipart>=0.0.9  # SBOM 文件上传解析
+python-multipart>=0.0.32  # SBOM 文件上传解析
