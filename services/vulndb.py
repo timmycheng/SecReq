@@ -10,7 +10,7 @@
 
 三种"查不到"必须分开(合并会制造虚假的安全感):
     not_covered   本地库未导入该生态 / 该生态本就不在 OSV 覆盖范围(如源码编译、K8s)
-    undetermined  信息不足无法判定(未指定生态与分发渠道)
+    undetermined  信息不足无法判定(组件缺少版本号等信息)
     not_found     已覆盖且已匹配, 确实没有命中
 """
 import json

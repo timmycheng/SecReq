@@ -17,14 +17,14 @@ export default function LlmTab() {
 
   return (
     <div style={{ maxWidth: 640, margin: '0 auto' }}>
+      <Alert
+        type="info" showIcon style={{ marginBottom: 12 }}
+        message="内网部署请填写行内大模型的接口地址"
+        description="平台部署于无互联网出口的内网时, 公网大模型地址不可达。请填写行内已部署的
+          OpenAI 兼容服务地址(如 https://llm-gate.corp.example.com/v1);
+          留空则直接使用关键词规则提取, 功能不受影响。"
+      />
       <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
-        <Alert
-          type="info" showIcon style={{ marginBottom: 12 }}
-          message="内网部署请填写行内大模型的接口地址"
-          description="平台部署于无互联网出口的内网时, 公网大模型地址不可达。请填写行内已部署的
-            OpenAI 兼容服务地址(如 https://llm-gate.corp.example.com/v1);
-            留空则直接使用关键词规则提取, 功能不受影响。"
-        />
         配置 OpenAI 兼容接口(/chat/completions)后, 功能清单的「粘贴需求段落自动生成」将使用大模型提取;
         未配置或调用失败时自动降级为关键词规则提取。
       </Typography.Paragraph>

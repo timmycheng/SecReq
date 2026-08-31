@@ -330,13 +330,13 @@ CNNVD_FILENAME = "cnnvd_map.sqlite"
 VULN_QUERY_STATUS = {
     "hit": "命中已知漏洞",
     "not_found": "未发现已知漏洞",
-    "undetermined": "无法判定(未指定生态/分发渠道, 需补充)",
+    "undetermined": "无法判定(组件缺少版本号等信息)",
     "not_covered": "未纳入本地漏洞库覆盖范围",
 }
 VULN_QUERY_STATUS_HINTS = {
     "hit": "已在本地漏洞库中命中, 请按修复版本升级",
     "not_found": "该组件已在本地库覆盖范围内, 且未匹配到已知漏洞",
-    "undetermined": "缺少生态或分发渠道信息, 无法精确匹配; 请补全后重新生成",
+    "undetermined": "组件缺少版本号等信息, 无法判定; 请补全后重新生成",
     "not_covered": "本地漏洞库未包含该生态数据(如源码编译、K8s), 需要其他数据源补充",
 }
 
