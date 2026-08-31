@@ -94,7 +94,7 @@ app = FastAPI(
     title="安全需求管理平台",
     description="面向开发与安全两角色的安全需求管理平台: JR/T 0197 五级数据分级、"
                 "监管合规基线映射、安全需求清单生成与确认",
-    version="2.2.0",
+    version="2.2.1",
     lifespan=lifespan,
     dependencies=[Depends(auth_guard)],  # 全局认证: 开放路径外一律要求登录
 )
