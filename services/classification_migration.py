@@ -48,6 +48,22 @@ _NEW_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("confirmed_by", "VARCHAR(50)"),
         ("confirmed_at", "DATETIME"),
     ],
+    # v2.2.0 SBOM 漏洞联动新增列: 漏登记会导致存量库升级后第一个触及
+    # SBOM 组件的请求即抛 no such column。DDL 与模型列定义逐一对应,
+    # source 为 NOT NULL, ALTER 必须带 DEFAULT 才能通过并存老行
+    "sbom_components": [
+        ("ecosystem", "VARCHAR(20)"),
+        ("distro", "VARCHAR(20)"),
+        ("osv_query_fingerprint", "VARCHAR(100)"),
+        ("vuln_status", "VARCHAR(20)"),
+        ("vuln_status_note", "VARCHAR(300)"),
+    ],
+    "vulnerabilities": [
+        ("source", "VARCHAR(20) NOT NULL DEFAULT 'osv_local'"),
+        ("external_ref", "VARCHAR(200)"),
+        ("cnnvd_id", "VARCHAR(32)"),
+        ("cn_severity", "VARCHAR(20)"),
+    ],
 }
 
 
