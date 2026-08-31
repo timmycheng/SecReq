@@ -38,6 +38,11 @@ def _bearer_token(request: Request) -> str | None:
     return None
 
 
+def client_ip(request: Request) -> str | None:
+    """客户端来源 IP(审计留痕用; 反代场景依赖后端侧 FORWARDED_ALLOW_IPS 信任解析)。"""
+    return request.client.host if request.client else None
+
+
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> PlatformUser | None:
     """按 Bearer token 解析平台用户; 未携带或会话失效返回 None。"""
     from services.session_service import resolve_session

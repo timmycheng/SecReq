@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 import shared.constants as C
 from models import AuditLog, PlatformUser
-from routers.common import get_db, require_login
+from routers.common import client_ip, get_db, require_login
 from services.audit_service import audit
 from services.auth_service import (
     SEED_DEFAULT_PASSWORD, get_user, hash_password,
@@ -38,10 +38,6 @@ def require_security(user: PlatformUser = Depends(require_login)) -> PlatformUse
     if user.role != "security":
         raise HTTPException(status_code=403, detail="仅安全角色可访问系统管理")
     return user
-
-
-def _client_ip(request: Request) -> str | None:
-    return request.client.host if request.client else None
 
 
 # ── 知识库 ────────────────────────────────────────────
@@ -74,7 +70,7 @@ def put_template(template_id: str, payload: TemplateUpdateIn, request: Request,
         row = update_template(template_id, changes)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    audit(db, user.username, "kb_update", {"template_id": template_id}, _client_ip(request))
+    audit(db, user.username, "kb_update", {"template_id": template_id}, client_ip(request))
     return row
 
 
@@ -97,7 +93,7 @@ def post_template(payload: TemplateCreateIn, request: Request,
         row = add_template(data)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    audit(db, user.username, "kb_create", {"template_id": payload.id}, _client_ip(request))
+    audit(db, user.username, "kb_create", {"template_id": payload.id}, client_ip(request))
     return row
 
 
@@ -115,7 +111,7 @@ def put_question_bank(bank: dict, request: Request,
         save_question_bank(bank)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    audit(db, user.username, "questions_update", {}, _client_ip(request))
+    audit(db, user.username, "questions_update", {}, client_ip(request))
     return {"status": "ok"}
 
 
@@ -150,7 +146,7 @@ def put_policy_baselines(payload: PolicyBaselinesIn, request: Request,
         "session_timeout_min": payload.session_timeout_min,
     })
     _apply_policy_settings(db)
-    audit(db, user.username, "policy_update", payload.baselines, _client_ip(request))
+    audit(db, user.username, "policy_update", payload.baselines, client_ip(request))
     return {"status": "ok"}
 
 
@@ -185,7 +181,7 @@ def put_llm(payload: LlmConfigIn, request: Request,
             user: PlatformUser = Depends(require_security)):
     set_setting(db, "llm", payload.model_dump())
     audit(db, user.username, "llm_update", {"base_url": payload.base_url, "model": payload.model},
-          _client_ip(request))
+          client_ip(request))
     return {"status": "ok"}
 
 
@@ -224,7 +220,7 @@ def create_user(payload: UserCreateIn, request: Request,
     ))
     db.commit()
     audit(db, user.username, "user_create", {"target": payload.username, "role": payload.role},
-          _client_ip(request))
+          client_ip(request))
     return {"status": "ok",
             "initial_password": payload.password or SEED_DEFAULT_PASSWORD}
 
@@ -244,7 +240,7 @@ def reset_password(username: str, payload: PasswordResetIn, request: Request,
     new_password = payload.password or secrets.token_urlsafe(12)
     target.password_hash = hash_password(new_password)
     revoke_user_sessions(db, username)
-    audit(db, user.username, "user_reset_password", {"target": username}, _client_ip(request))
+    audit(db, user.username, "user_reset_password", {"target": username}, client_ip(request))
     return {"status": "ok", "password": None if payload.password else new_password}
 
 
@@ -262,7 +258,7 @@ def toggle_active(username: str, request: Request,
         revoke_user_sessions(db, username)
     db.commit()
     audit(db, user.username, "user_toggle", {"target": username, "active": bool(target.active)},
-          _client_ip(request))
+          client_ip(request))
     return {"username": username, "active": bool(target.active)}
 
 
@@ -378,7 +374,7 @@ def verify_vuln_db(request: Request, db: Session = Depends(get_db),
         "match": ok,
         "size_mb": round(os.path.getsize(path) / 1e6, 2),
     }
-    audit(db, user.username, "vulndb_verify", detail, _client_ip(request))
+    audit(db, user.username, "vulndb_verify", detail, client_ip(request))
     if not ok:
         logger.error("漏洞库校验和不匹配: %s(期望 %s)", digest, expected)
     return {**detail, "cnnvd": cnnvd_stats()}
