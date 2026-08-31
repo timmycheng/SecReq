@@ -201,12 +201,18 @@ _VERSION_NUM_RE = re.compile(r"\d+")
 
 
 def _version_key(text: str | None) -> tuple:
-    """宽松版本比较键: 提取数字段补齐到4位, 预发布标记(beta/rc/-)排在同号稳定版之前。"""
+    """宽松版本比较键: 提取数字段补齐到4位, 预发布标记(beta/rc/-)排在同号稳定版之前。
+
+    预发布段内的数字不参与版本号提取 —— 否则 2.15.0-rc1 的 "1" 会被当成第 4 位
+    版本号, 永远压过同号稳定版, 窗口归属判断随之漏报(#21)。
+    """
     text = str(text or "")
-    nums = [int(n) for n in _VERSION_NUM_RE.findall(text)]
+    m = re.search(r"(?i)(beta|alpha|rc|-)", text)
+    nums_text = text[:m.start()] if m else text
+    nums = [int(n) for n in _VERSION_NUM_RE.findall(nums_text)]
     while len(nums) < 4:
         nums.append(0)
-    prerelease = 1 if re.search(r"(?i)(beta|alpha|rc|-)", text) else 0
+    prerelease = 0 if m else 1
     return tuple(nums[:4]) + (prerelease,)
 
 
@@ -229,7 +235,8 @@ def _matched_affected_entries(vuln: dict, target_purl: str | None) -> list[dict]
 
     OSV 同一漏洞常列出多个派生包坐标(guicedee/pax-logging 等分支),
     若不加过滤会污染影响范围与修复版本。匹配优先级:
-    精确 purl(忽略版本) > 'namespace:name' 全限定名 > 裸名 > 兜底全部。
+    精确 purl(忽略版本) > 'namespace:name' 全限定名 > Maven 坐标尾段(只填
+    artifact 名, group 缺失) > 裸名 > 兜底全部。
     """
     entries = vuln.get("affected") or []
     ns, name = _parse_purl(target_purl)
@@ -240,16 +247,18 @@ def _matched_affected_entries(vuln: dict, target_purl: str | None) -> list[dict]
         pkg = entry.get("package") or {}
         return str(pkg.get("purl") or ""), str(pkg.get("name") or "")
 
-    exact, qualified, bare = [], [], []
+    exact, qualified, maven, bare = [], [], [], []
     for entry in entries:
         epurl, ename = pkg_text(entry)
         if epurl and target_purl and epurl.split("@", 1)[0] == target_purl.split("@", 1)[0]:
             exact.append(entry)
         elif ns and ename == f"{ns}:{name}":
             qualified.append(entry)
+        elif not ns and ":" in ename and ename.split(":")[-1] == name:
+            maven.append(entry)
         elif not ns and ename == name:
             bare.append(entry)
-    return exact or qualified or bare or entries
+    return exact or qualified or maven or bare or entries
 
 
 def _extract_ranges(vuln: dict, target_purl: str | None = None) -> list[dict]:
@@ -349,7 +358,9 @@ def component_query(comp: SbomComponent) -> "VulnQuery":  # noqa: F821
     return VulnQuery(
         name=comp.name,
         version=comp.version,
-        purl=build_purl(comp) or comp.purl,
+        # build_purl 在 purl 非空时原样返回; 不再回退 comp.purl,
+        # 避免无生态组件把 name@version 残次 purl 带进同坐标筛选(#29)
+        purl=build_purl(comp),
         ecosystem=comp.ecosystem,
         distro=comp.distro,
     )

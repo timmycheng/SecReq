@@ -59,6 +59,60 @@ NPM_LODASH = {
     }],
 }
 
+# npm 预发布版本: 2.15.0-rc1 落在 [2.13.0, 2.15.0) 内(#21 漏报回归护栏)
+NPM_PRERELEASE = {
+    "id": "GHSA-test-prerelease",
+    "aliases": ["CVE-2099-0001"],
+    "summary": "预发布版本窗口归属回归样本",
+    "database_specific": {"severity": "HIGH"},
+    "affected": [{
+        "package": {"name": "string-width", "ecosystem": "npm", "purl": "pkg:npm/string-width"},
+        "ranges": [{"type": "SEMVER", "events": [
+            {"introduced": "2.13.0"}, {"fixed": "2.15.0"},
+        ]}],
+    }],
+}
+
+# versions-only 记录: 只有受影响版本枚举、无 ranges(#28 结构性漏报样本)
+VERSIONS_ONLY_NPM = {
+    "id": "GHSA-test-versions-only",
+    "aliases": ["CVE-2099-0002"],
+    "summary": "无 ranges 只有 versions 枚举的公告形态",
+    "database_specific": {"severity": "MEDIUM"},
+    "affected": [{
+        "package": {"name": "qs-utils", "ecosystem": "npm", "purl": "pkg:npm/qs-utils"},
+        "versions": ["1.0.0", "1.2.0"],
+    }],
+}
+
+# 同公告多包坐标: log4j-core 与 log4j-api 各有修复版本(#29 污染回归样本)
+MAVEN_MULTI_PACKAGE = {
+    "id": "GHSA-test-multi-package",
+    "aliases": ["CVE-2099-0003"],
+    "summary": "同一公告列出多个派生包坐标",
+    "database_specific": {"severity": "HIGH"},
+    "affected": [
+        {
+            "package": {
+                "name": "org.apache.logging.log4j:log4j-core", "ecosystem": "Maven",
+                "purl": "pkg:maven/org.apache.logging.log4j/log4j-core",
+            },
+            "ranges": [{"type": "ECOSYSTEM", "events": [
+                {"introduced": "2.0"}, {"fixed": "2.15.0"},
+            ]}],
+        },
+        {
+            "package": {
+                "name": "org.apache.logging.log4j:log4j-api", "ecosystem": "Maven",
+                "purl": "pkg:maven/org.apache.logging.log4j/log4j-api",
+            },
+            "ranges": [{"type": "ECOSYSTEM", "events": [
+                {"introduced": "2.0"}, {"fixed": "2.17.1"},
+            ]}],
+        },
+    ],
+}
+
 MAVEN_LOG4J = {
     "id": "GHSA-jfh8-c2jp-5v3q",
     "aliases": ["CVE-2021-44228"],
@@ -94,8 +148,8 @@ def vulndb_path(tmp_path_factory):
     groups = {
         "Bitnami": [BITNAMI_REDIS],
         "Alpine": [ALPINE_OPENSSL],
-        "npm": [NPM_LODASH],
-        "Maven": [MAVEN_LOG4J],
+        "npm": [NPM_LODASH, NPM_PRERELEASE, VERSIONS_ONLY_NPM],
+        "Maven": [MAVEN_LOG4J, MAVEN_MULTI_PACKAGE],
     }
     for ecosystem, vulns in groups.items():
         path = cache / f"{ecosystem}.zip"
@@ -104,7 +158,8 @@ def vulndb_path(tmp_path_factory):
 
     out = tmp_path_factory.mktemp("vulndb") / "vulndb.sqlite"
     stats = build(zips, out, slim=False, compress=True)
-    assert stats["total"] == 4
+    # total 按"坐标行"计数(一条公告的多个 affected 包各算一行): 7 条公告 8 个坐标
+    assert stats["total"] == 8
     return str(out)
 
 
@@ -193,6 +248,51 @@ def test_maven_tail_matches_bare_artifact_name(local):
     result = local.query(_query("log4j-core", "2.14.1", ecosystem="maven"))
     assert result.status == "hit"
     assert result.vulns[0]["id"] == "GHSA-jfh8-c2jp-5v3q"
+
+
+def test_version_key_orders_prerelease_before_release():
+    """预发布排在同号稳定版之前: 2.15.0-rc1 < 2.15.0(修复前为 False, 排序与注释相反)。"""
+    from services.vuln_match import version_key
+    assert version_key("npm", "2.15.0-rc1") < version_key("npm", "2.15.0")
+
+
+def test_prerelease_inside_window_is_not_missed(local):
+    """2.15.0-rc1 落在窗口 [2.13.0, 2.15.0) 内 → hit 且修复版 2.15.0。
+
+    修复前 2.15.0-rc1 被判 "≥ fixed, 已修复" 而漏报 —— 本用例即漏报形态回归护栏。
+    """
+    result = local.query(_query("string-width", "2.15.0-rc1", ecosystem="npm"))
+    assert result.status == "hit"
+    assert result.vulns[0]["_secreq_windows"] == [{"introduced": "2.13.0", "fixed": "2.15.0"}]
+
+
+def test_versions_only_record_is_reported_with_note(local):
+    """只有 versions 枚举、无 ranges 的记录: 枚举命中即报 hit 并说明"未提供范围"(#28)。"""
+    result = local.query(_query("qs-utils", "1.2.0", ecosystem="npm"))
+    assert result.status == "hit"
+    assert result.vulns[0]["_secreq_windows"] == [{"introduced": "1.2.0"}]
+    assert "未提供" in (result.note or "")
+
+
+def test_versions_only_record_missed_version_is_not_found(local):
+    """versions-only 记录: 枚举外的版本仍应 not_found, 伪窗口不得放宽成全命中。"""
+    result = local.query(_query("qs-utils", "1.3.0", ecosystem="npm"))
+    assert result.status == "not_found"
+
+
+def test_same_announcement_other_package_does_not_pollute_fix(local):
+    """同公告其他包坐标不得混入窗口: log4j-core 2.14.1 → [2.0, 2.15.0), 而非混入 api 的 2.17.1(#29)。"""
+    result = local.query(_query("log4j-core", "2.14.1", ecosystem="maven"))
+    assert result.status == "hit"
+    assert result.vulns[0]["_secreq_windows"] == [{"introduced": "2.0", "fixed": "2.15.0"}]
+
+
+def test_fuzzy_query_builds_purl_per_ecosystem(local):
+    """跨生态模糊匹配逐生态构造 purl: npm 类型不再抢先定义 maven 组件的同坐标筛选(#29)。"""
+    result = local.query(_query("log4j-core", "2.14.1"))
+    assert result.status == "hit"
+    assert "模糊匹配" in (result.note or "")
+    assert result.vulns[0]["_secreq_windows"] == [{"introduced": "2.0", "fixed": "2.15.0"}]
 
 
 def test_ecosystem_not_imported_is_not_covered(local):
