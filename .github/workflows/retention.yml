@@ -18,6 +18,10 @@ on:
         description: "保留最近几个 minor 版本的镜像"
         required: false
         default: "3"
+      keep_vulndb:
+        description: "保留最近几个日期版本的漏洞库 artifact"
+        required: false
+        default: "4"
       dry_run:
         description: "只报告将删除的内容(true/false)"
         required: false
@@ -31,42 +35,62 @@ jobs:
   ghcr-versions:
     name: 清理 GHCR 悬空与旧版本
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: secreq          # 应用镜像: 保留 latest + 最近 KEEP_MINORS 个 minor 的 patch
+            mode: minors
+          - package: secreq-vulndb   # 漏洞库 artifact: 保留 latest + 最近 KEEP_VULNDB 个日期版本
+            mode: dates
     steps:
-      - name: 列出待清理版本
+      - name: 列出待清理版本(${{ matrix.package }})
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE: ${{ matrix.package }}
+          MODE: ${{ matrix.mode }}
           KEEP_MINORS: ${{ inputs.keep_minors || '3' }}
+          KEEP_VULNDB: ${{ inputs.keep_vulndb || '4' }}
           # schedule 触发时 inputs 恒为空, 旧写法表达式恒 true → 周清理从未生效(#20);
           # 现定时即真实执行, 手动 dispatch 默认 dry-run
           DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || (inputs.dry_run || 'true') }}
         run: |
           set -euo pipefail
           OWNER="${{ github.repository_owner }}"
-          echo "当前 GHCR 版本:"
-          gh api --paginate "/users/${OWNER}/packages/container/secreq/versions" \
+          echo "当前 ${PACKAGE} 版本:"
+          gh api --paginate "/users/${OWNER}/packages/container/${PACKAGE}/versions" \
             --jq '.[] | "\(.id)\t\(.metadata.container.tags | join(","))"' | tee versions.tsv
 
-          # 保留 latest、最近 N 个 minor 的 patch、以及所有带日期标签的漏洞库 artifact
-          # (漏洞库 artifact 在 secreq-vulndb 包下, 不受本作业影响)
           python - <<'PY' > to_delete.txt || true
-          import os, subprocess, json, re
-          keep = int(os.environ.get("KEEP_MINORS", "3"))
+          import os, re
+          mode = os.environ.get("MODE", "minors")
+          keep = int(os.environ.get("KEEP_MINORS", "3") if mode == "minors"
+                     else os.environ.get("KEEP_VULNDB", "4"))
           rows = [l.rstrip("\n").split("\t") for l in open("versions.tsv") if l.strip()]
+
           def minor_of(tags):
               for t in tags:
                   m = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", t)
                   if m: return f"{m.group(1)}.{m.group(2)}"
               return None
-          minors = sorted({m for _, t in rows for m in [minor_of(t.split(","))] if m},
-                          key=lambda s: tuple(int(x) for x in s.split(".")), reverse=True)
-          keep_set = set(minors[:keep])
+
+          def date_of(tags):
+              for t in tags:
+                  if re.fullmatch(r"\d{8}", t): return t
+              return None
+
+          pick = minor_of if mode == "minors" else date_of
+          keys = sorted({k for _, t in rows for k in [pick(t.split(","))] if k},
+                        key=(lambda x: tuple(int(v) for v in x.split("."))) if mode == "minors" else None,
+                        reverse=True)
+          keep_set = set(keys[:keep])
           out = []
           for vid, tags in rows:
               tag_list = [t for t in tags.split(",") if t]
               if not tag_list:
                   out.append(vid); continue          # 悬空版本
               if "latest" in tag_list: continue
-              if minor_of(tag_list) in keep_set: continue
+              if pick(tag_list) in keep_set: continue
               out.append(vid)
           print("\n".join(out))
           PY
@@ -77,7 +101,7 @@ jobs:
           fi
           while read -r id; do
             [ -z "$id" ] && continue
-            gh api -X DELETE "/users/${OWNER}/packages/container/secreq/versions/${id}" \
+            gh api -X DELETE "/users/${OWNER}/packages/container/${PACKAGE}/versions/${id}" \
               || echo "::warning::删除版本 ${id} 失败"
           done < to_delete.txt
 

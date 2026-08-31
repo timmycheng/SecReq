@@ -56,18 +56,18 @@ jobs:
 
       # v2.1.0 → 镜像标签 2.1.0 / 2.1 / latest
       # 漏洞库基线走独立 OCI artifact, 绝不随 Release 附件分发(体积治理硬约束)。
-      # 拉不到时放空文件占位: 镜像照常构建, 但漏洞查询会如实标注「无法判定」,
-      # 而不是伪装成"未发现漏洞"。部署时挂载外部 vulndb.sqlite 即可覆盖。
+      # 拉取失败(含瞬时网络故障)重试一次, 仍失败即终止发版(#35) ——
+      # 静默放 0 字节占位会让离线交付包缺基线库而无人察觉。
       - uses: oras-project/setup-oras@v2
 
       - name: 拉取漏洞库基线
         run: |
-          if oras pull "${VULNDB_IMAGE}:${VULNDB_TAG:-latest}"; then
+          if oras pull "${VULNDB_IMAGE}:${VULNDB_TAG:-latest}" \
+             || oras pull "${VULNDB_IMAGE}:${VULNDB_TAG:-latest}"; then
             ls -lh vulndb.sqlite*
           else
-            echo "::warning::未拉取到漏洞库基线, 镜像将不含基线库; 部署时需挂载外部 vulndb.sqlite 覆盖"
-            : > vulndb.sqlite
-            : > vulndb.sqlite.sha256
+            echo "::error::漏洞库基线拉取失败(已重试一次), 终止发版; 请先跑 VulnDB 工作流或检查 GHCR"
+            exit 1
           fi
 
       # v2.1.0 → 镜像标签 2.1.0 / 2.1 / latest
