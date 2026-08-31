@@ -75,3 +75,5 @@ class GenerateSummary(BaseModel):
     osv_summary: str
     degraded: bool = False
     bom_file: str | None = None
+    # 配置有误被跳过的知识库模板([{template_id, reason}]; 带默认值, 老客户端向后兼容)
+    skipped_templates: list[dict] = []

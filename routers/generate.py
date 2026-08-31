@@ -124,6 +124,7 @@ def generate(payload: GenerateRequest | None = None,
         osv_summary=result.sync.summary_text() if result.sync else "离线模式未执行漏洞查询",
         degraded=bool(result.sync and result.sync.degraded),
         bom_file=result.bom_path.name if result.bom_path else None,
+        skipped_templates=result.skipped_templates,
     )
 
 

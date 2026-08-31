@@ -52,6 +52,12 @@ export default function ConfirmStep({ ws, goto }: StepProps) {
           : ''}`,
         5,
       )
+      if (summary.skipped_templates.length > 0) {
+        message.warning(
+          `有 ${summary.skipped_templates.length} 条知识库模板配置有误被跳过, 请联系安全管理员检查知识库(详见服务端日志)`,
+          6,
+        )
+      }
       navigate(`/result/${ws.project.id}`)
     } catch (e) {
       message.error((e as Error).message)

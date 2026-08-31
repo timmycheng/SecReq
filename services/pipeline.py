@@ -38,6 +38,8 @@ class PipelineResult:
     sync: OsvSyncResult | None = None
     vulnerabilities: list = field(default_factory=list)
     bom_path: Path | None = None
+    # 配置有误被跳过的知识库模板([{template_id, reason}]), 供响应透传与前端提示覆盖缺口
+    skipped_templates: list = field(default_factory=list)
 
 
 def run_full_pipeline(
@@ -77,6 +79,7 @@ def run_full_pipeline(
     # ③ 规则引擎生成安全需求并落库
     engine = engine or RuleEngine.load()
     result.requirements = engine.generate_and_save(ctx, session)
+    result.skipped_templates = list(engine.skipped)
 
     # ④ 文件产出: CycloneDX JSON(未指定 out_dir 时按 output/<编码> 落盘, 编码经清洗防穿越)
     base = Path(out_dir) if out_dir else project_output_dir(Path("output"), ctx.project.code)

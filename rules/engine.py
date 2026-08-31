@@ -5,8 +5,8 @@
 条件满足即实例化为 SecurityRequirement(渲染 {{placeholder}} 占位符),
 同类规则命中多个实例时生成多条独立需求并分别关联各自的 source_entity_id。
 
-容错口径: 单条模板配置有误(未知 rule_key / 未知 trigger_type)时跳过该模板并记入
-`skipped`, 不中断整轮生成 —— 一条坏配置不该让其余模板全部失效。
+容错口径: 单条模板配置有误(未知 rule_key / 未知 trigger_type / 占位符缺值)时跳过
+该模板并记入 `skipped`, 不中断整轮生成 —— 一条坏配置不该让其余模板全部失效。
 """
 import logging
 import re
@@ -114,7 +114,8 @@ class RuleEngine:
                     seen.add(key)
                     collected.append((tpl, match))
             except RuleEngineError as exc:
-                # 未知 rule_key / 占位符缺失等: 跳过该模板, 其余模板继续
+                # 未知 rule_key 等匹配期错误: 跳过该模板, 其余模板继续
+                # (占位符缺值属渲染期错误, 由下方实例化循环兜底)
                 self._skip(tpl, str(exc))
 
         # 稳定排序后分配 req_id 与实例序号; 监管报送类恒置顶
@@ -127,12 +128,12 @@ class RuleEngine:
         base_placeholders = self._universal_placeholders(ctx)
 
         for tpl, match in collected:
+            # 先取号、构造成功才登记: 失败的实例不消耗 -NN 序号, req_id 分配保持确定性
             seq = counters.get(tpl.id, 0) + 1
-            counters[tpl.id] = seq
             req_id = tpl.id if seq == 1 else f"{tpl.id}-{seq:02d}"
             merged = {**base_placeholders, **match.placeholders}
-            requirements.append(
-                SecurityRequirement(
+            try:
+                req = SecurityRequirement(
                     project_id=ctx.project.id,
                     req_id=req_id,
                     template_id=tpl.id,
@@ -151,7 +152,12 @@ class RuleEngine:
                     regulatory_ref=[dict(ref) for ref in tpl.regulatory_ref],
                     reg_confirmed=False,
                 )
-            )
+            except RuleEngineError as exc:
+                # 占位符缺值等渲染期错误: 跳过该模板, 其余模板继续
+                self._skip(tpl, str(exc))
+                continue
+            counters[tpl.id] = seq
+            requirements.append(req)
         return requirements
 
     def _source_label(self, ctx: RequirementContext, entity_type: str, entity_id: int) -> str:
