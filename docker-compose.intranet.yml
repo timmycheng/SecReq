@@ -21,6 +21,9 @@ services:
       SECREQ_DATABASE_URL: sqlite:////app/data/secreq.db
       TZ: Asia/Shanghai                       # 与镜像内 tzdata 配套
       SECREQ_LOG_LEVEL: INFO
+      # 审计 IP 取真实客户端: 信任来自 compose 网段的 X-Forwarded-For(由 Nginx 注入)。
+      # 缺省时 uvicorn 只信任 127.0.0.1 的 forwarded 头, 审计记录的会是代理容器 IP
+      FORWARDED_ALLOW_IPS: 172.16.0.0/12
       # 漏洞数据源链: 本地库优先。行内 SCA 接入后改成 sca,local 即可
       # (前一项不可用时自动降级到后一项, 并记日志, 不静默失败)
       SECREQ_VULN_SOURCE: local

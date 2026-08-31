@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from models import GradingSurvey, PlatformUser, Project  # noqa: F401 (类型标注用)
 from routers.common import (
-    get_db, get_project_or_404, require_login,
+    client_ip, get_db, get_project_or_404, require_login,
     require_write_roles, visible_projects_query, wizard_state,
 )
 from schemas.project import (
@@ -38,14 +38,15 @@ def _detail(db: Session, project: Project) -> ProjectDetail:
 
 
 @router.post("", response_model=ProjectDetail, status_code=201, dependencies=[_writable])
-def create(payload: ProjectCreate, db: Session = Depends(get_db),
+def create(payload: ProjectCreate, request: Request, db: Session = Depends(get_db),
            user: PlatformUser = Depends(require_write_roles("developer", "security"))):
     try:
         project = create_project(db, payload.model_dump(), owner_user_id=user.id)
     except ProjectExistsError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     audit(db, user.username, "project_create",
-          {"project_id": project.id, "code": project.code, "name": project.name})
+          {"project_id": project.id, "code": project.code, "name": project.name},
+          client_ip(request))
     return _detail(db, project)
 
 
@@ -89,8 +90,7 @@ def remove(request: Request, project: Project = Depends(get_project_or_404),
     # 先取出标识再删, 删完再留痕(确保记录的是"已发生的删除")
     snapshot = {"project_id": project.id, "code": project.code, "name": project.name}
     delete_project_cascade(db, project.id)
-    audit(db, user.username, "project_delete", snapshot,
-          request.client.host if request.client else None)
+    audit(db, user.username, "project_delete", snapshot, client_ip(request))
 
 
 @router.get("/{project_id}/wizard-state")
