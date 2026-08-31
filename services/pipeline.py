@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from models import init_db  # noqa: F401 (保证模型注册)
 from rules import RuleEngine
@@ -98,6 +98,8 @@ def _load_vulnerabilities(session: Session, components) -> list:
         return []
     rows = (
         session.query(VulnerabilityRecord)
+        # 预载组件关系: Excel 漏洞清单导出取组件名/版本, 避免 ORM 逐条 lazy load
+        .options(joinedload(VulnerabilityRecord.component))
         .filter(VulnerabilityRecord.component_id.in_(ids))
         .all()
     )

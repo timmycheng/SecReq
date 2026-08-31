@@ -58,3 +58,22 @@ def test_jira_hint_sheet_exists():
 def test_bytes_roundtrip():
     data = te.tracking_xlsx_bytes([_make_req(9)])
     assert data[:2] == b"PK"  # xlsx 本质为 zip 包
+
+
+def test_vuln_sheet_uses_orm_relationship_for_component(session):
+    """生产调用链传 ORM 记录时, 漏洞清单组件列输出 name@version 而非「—」(#14)。"""
+    from models import SbomComponent, VulnerabilityRecord
+
+    comp = SbomComponent(project_id=1, layer="runtime", name="openssl", version="1.1.1k")
+    session.add(comp)
+    session.flush()
+    session.add(VulnerabilityRecord(
+        component_id=comp.id, cve_id="CVE-2022-0778", severity="high",
+        affected_range=">= 3.0.0, < 3.0.2", fix_version="3.0.2", summary="证书解析崩溃"))
+    session.commit()
+
+    rows = session.query(VulnerabilityRecord).all()  # 与 pipeline._load_vulnerabilities 同形态
+    wb = te.build_tracking_workbook([], vulnerabilities=rows)
+    ws = wb["漏洞清单"]
+    # 组件为第 5 列: 投影属性不存在时经 ORM relationship 兜底
+    assert ws.cell(row=2, column=5).value == "openssl@1.1.1k"
