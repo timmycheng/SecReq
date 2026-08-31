@@ -58,7 +58,7 @@ jobs:
       # 漏洞库基线走独立 OCI artifact, 绝不随 Release 附件分发(体积治理硬约束)。
       # 拉不到时放空文件占位: 镜像照常构建, 但漏洞查询会如实标注「无法判定」,
       # 而不是伪装成"未发现漏洞"。部署时挂载外部 vulndb.sqlite 即可覆盖。
-      - uses: oras-project/setup-oras@v1
+      - uses: oras-project/setup-oras@v2
 
       - name: 拉取漏洞库基线
         run: |

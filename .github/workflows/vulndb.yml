@@ -74,7 +74,7 @@ jobs:
             echo "value=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: oras-project/setup-oras@v1
+      - uses: oras-project/setup-oras@v2
 
       - name: 登录 GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
