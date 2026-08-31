@@ -41,6 +41,7 @@
 
 - 缺陷用「缺陷报告」模板, 功能建议用「功能建议」模板, 流程/任务类杂项可用空白 issue。
 - 标签两组: `type: bug / feature / docs / chore / ci` 标性质, `priority: P0 / P1 / P2` 标优先级(P0 阻塞项先修, 与 docs/ 下修复方案文档的优先级口径一致)。
+- 版本修复批量(如 docs/ 下的 fix-plan)拆解为 issue 并挂对应版本 milestone(如 v2.2.1); milestone 全部关闭即具备该版本发版条件。审查方案文档降级为存档与改法细则, 完成状态以 issue/milestone 为准。
 - 每个功能/修复原则上对应一个 issue; 小改动可以先建分支, 开 PR 时补 issue。
 
 ## 质量门禁

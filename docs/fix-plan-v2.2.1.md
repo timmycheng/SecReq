@@ -1,5 +1,7 @@
 # v2.2.1 修复方案
 
+> **管理方式**: 本方案 25 项已拆解为 issue 跟踪 —— P0-1~P2-10 共 24 项挂 milestone [v2.2.1](https://github.com/timmycheng/SecReq/milestone/1)(#14~#37), P2-11 已随本方案落地不再开 issue, 「既有问题备忘」5 项为无 milestone 的 backlog issue(#38~#42)。修复按 issue 建分支 `fix|chore/<issue号>-<slug>`, **完成状态以 issue/milestone 为准**, 本文保留为审查存档与改法细则。
+>
 > 来源: 两轮代码审查合并 —— v2.1.3 审查(原 `fix-plan-v2.2.1.md`)与 v2.2.0 (commit `984dcab` "离线漏洞库与 SCA 预留")审查(原 `fix-plan-v2.2.0-review.md`)。 合并前两份方案的内容已全部吸收进本文, 原文件删除; 旧方案各条目已逐一在 v2.2.0 当前 main 上复核, 行号为当前代码位置。
 >
 > 审查结论: 两版方向与工程习惯都在线(v2.2.0 的防虚假安全感设计与数据源接缝 尤其出色), 测试 186 passed + 5 xfailed 真实通过; 但 v2.1.3 遗留三处 "功能意图未闭环", v2.2.0 引入一处存量部署升级即挂的阻断缺陷, 均需本版闭合。
