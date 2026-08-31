@@ -36,7 +36,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           KEEP_MINORS: ${{ inputs.keep_minors || '3' }}
-          DRY_RUN: ${{ inputs.dry_run || 'true' }}
+          # schedule 触发时 inputs 恒为空, 旧写法表达式恒 true → 周清理从未生效(#20);
+          # 现定时即真实执行, 手动 dispatch 默认 dry-run
+          DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || (inputs.dry_run || 'true') }}
         run: |
           set -euo pipefail
           OWNER="${{ github.repository_owner }}"
@@ -87,13 +89,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           KEEP: ${{ inputs.keep_releases || '3' }}
-          DRY_RUN: ${{ inputs.dry_run || 'true' }}
+          # schedule 触发时 inputs 恒为空, 旧写法表达式恒 true → 周清理从未生效(#20);
+          # 现定时即真实执行, 手动 dispatch 默认 dry-run
+          DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || (inputs.dry_run || 'true') }}
         run: |
           set -euo pipefail
           # 按创建时间倒序, 跳过最近 KEEP 个 Release, 删除更旧 Release 上的镜像包。
           # 代码与 tag 保留, 镜像可从 GHCR 重新导出(docker pull + docker save)。
           ids=$(gh api --paginate "repos/${{ github.repository }}/releases?per_page=100" \
-                  --jq '.[].id' | head -n -"${KEEP}")
+                  --jq '.[].id' | tail -n +$((KEEP + 1)))
           for id in $ids; do
             assets=$(gh api "repos/${{ github.repository }}/releases/${id}/assets" \
                       --jq '.[] | select(.name | startswith("secreq-image-")) | .id')
