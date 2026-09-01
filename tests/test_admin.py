@@ -18,7 +18,13 @@ def sec(api):
 
 @pytest.fixture()
 def kb_files(tmp_path, monkeypatch):
-    """知识库/题库文件替换为临时副本, 避免测试污染真实文件。"""
+    """知识库/题库文件替换为临时副本, 避免测试污染真实文件。
+
+    两条读取路径都要指向副本: kb_admin(编辑写回)与 rules.loader(列表展示),
+    生产环境两者指向同一文件, 测试里若只 patch 一边, 编辑后经 GET 读取的
+    断言会读到真实文件而非副本。
+    """
+    import rules.loader as loader
     import services.kb_admin as kb
 
     kb_copy = tmp_path / "knowledge_base.yml"
@@ -26,6 +32,7 @@ def kb_files(tmp_path, monkeypatch):
     shutil.copy(kb.DEFAULT_KB_PATH, kb_copy)
     shutil.copy(kb.QUESTION_BANK_PATH, q_copy)
     monkeypatch.setattr(kb, "DEFAULT_KB_PATH", kb_copy)
+    monkeypatch.setattr(loader, "DEFAULT_KB_PATH", kb_copy)
     monkeypatch.setattr(kb, "QUESTION_BANK_PATH", q_copy)
     yield {"kb": kb_copy, "questions": q_copy}
 
@@ -66,6 +73,29 @@ def test_knowledge_base_invalid_trigger_rolls_back(sec, kb_files):
     from rules.loader import load_knowledge_base
     from services.kb_admin import DEFAULT_KB_PATH
     assert len(load_knowledge_base(DEFAULT_KB_PATH).templates) >= 60
+
+
+def test_knowledge_base_update_regulatory_ref(sec, kb_files):
+    """编辑弹窗补齐监管出处能力(#80): 修改生效, 非法结构被回滚。"""
+    target = sec.get("/api/admin/knowledge-base").json()["templates"][0]["id"]
+
+    new_ref = [{"file": "JR/T 0197-2020", "clause": "7.1.3",
+                "summary": "测试出处", "note": "待合规部门确认"}]
+    resp = sec.put(f"/api/admin/knowledge-base/{target}", json={"regulatory_ref": new_ref})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["regulatory_ref"] == new_ref
+
+    # 重新读取回显正确(写回 YAML 后经 loader 全量校验)
+    rows = sec.get("/api/admin/knowledge-base").json()["templates"]
+    assert next(r for r in rows if r["id"] == target)["regulatory_ref"] == new_ref
+
+    # 缺 file 的条目被 loader 判为整组非法 → 必填校验失败 → 保存回滚
+    resp = sec.put(f"/api/admin/knowledge-base/{target}",
+                   json={"regulatory_ref": [{"clause": "7.1.3"}]})
+    assert resp.status_code == 400
+    assert "回滚" in resp.json()["detail"]
+    rows = sec.get("/api/admin/knowledge-base").json()["templates"]
+    assert next(r for r in rows if r["id"] == target)["regulatory_ref"] == new_ref
 
 
 def test_question_bank_roundtrip(sec, kb_files):
