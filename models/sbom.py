@@ -5,11 +5,11 @@ from datetime import datetime
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.database import Base
+from models.database import Base, UidMixin
 from models.project import Project
 
 
-class SbomComponent(Base):
+class SbomComponent(Base, UidMixin):
     """软件/框架清单条目, 同时是 CycloneDX SBOM 的数据源。"""
 
     __tablename__ = "sbom_components"

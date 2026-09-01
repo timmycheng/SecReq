@@ -3,11 +3,11 @@
 from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.database import Base
+from models.database import Base, UidMixin
 from models.project import Project
 
 
-class DataAsset(Base):
+class DataAsset(Base, UidMixin):
     """数据资产(字典一级)。
 
     classification 存 JR/T 0197-2020 五级 code(如 4级_C3鉴别信息), 与知识库条件直接匹配;

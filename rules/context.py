@@ -94,6 +94,24 @@ class RequirementContext:
         )
         return ctx
 
+    # ── uid 索引(#66) ─────────────────────────────────
+
+    def entity_by_uid(self, entity_type: str, uid: str | None):
+        """按稳定 uid 定位实体; 找不到返回 None(断链场景由引擎如实降级)。"""
+        routes = {
+            "feature": ("features",),
+            "role": ("roles",),
+            "resource": ("resources",),
+            "data_asset": ("data_assets",),
+            "api_endpoint": ("api_endpoints",),
+            "sbom_component": ("components",),
+            "external_system": ("external_systems",),
+        }
+        if not uid or entity_type not in routes:
+            return None
+        rows = getattr(self, routes[entity_type][0])
+        return next((r for r in rows if getattr(r, "uid", None) == uid), None)
+
     # ── 权限矩阵扫描辅助 ──────────────────────────────
 
     def entries_of_role(self, role_id: int) -> list[PermissionEntry]:
@@ -109,10 +127,11 @@ class RequirementContext:
             if e.role_id == role_id and e.resource_id == resource_id
         }
 
-    def sensitive_asset_names(self, asset_ids: list) -> list[str]:
+    def sensitive_asset_names(self, asset_uids: list) -> list[str]:
+        """按 uid 解析敏感资产名(#66); 旧主键数组调用方已随契约一并迁移。"""
         names = []
-        id_set = {a for a in (asset_ids or [])}
+        uid_set = {u for u in (asset_uids or [])}
         for asset in self.data_assets:
-            if asset.id in id_set:
+            if asset.uid in uid_set:
                 names.append(asset.name)
         return names

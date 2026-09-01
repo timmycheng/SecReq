@@ -23,6 +23,7 @@ _NEW_COLUMNS: dict[str, list[tuple[str, str]]] = {
     "data_assets": [
         ("legacy_classification", "VARCHAR(16)"),
         ("c3_tag", "BOOLEAN DEFAULT 0"),
+        ("uid", "VARCHAR(36)"),
     ],
     "projects": [
         ("offshore_vendor", "BOOLEAN DEFAULT 0"),
@@ -36,11 +37,14 @@ _NEW_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("os", "VARCHAR(100)"),
         ("quantity", "INTEGER"),
         ("purpose", "VARCHAR(300)"),
+        ("uid", "VARCHAR(36)"),
     ],
     "features": [
         ("description", "VARCHAR(500)"),
+        ("uid", "VARCHAR(36)"),
     ],
     "security_requirements": [
+        ("source_entity_uid", "VARCHAR(64)"),
         ("source_label", "VARCHAR(200)"),
         ("regulatory_ref", "JSON"),
         ("owner", "VARCHAR(50)"),
@@ -52,11 +56,27 @@ _NEW_COLUMNS: dict[str, list[tuple[str, str]]] = {
     # SBOM 组件的请求即抛 no such column。DDL 与模型列定义逐一对应,
     # source 为 NOT NULL, ALTER 必须带 DEFAULT 才能通过并存老行
     "sbom_components": [
+        ("uid", "VARCHAR(36)"),
         ("ecosystem", "VARCHAR(20)"),
         ("distro", "VARCHAR(20)"),
         ("osv_query_fingerprint", "VARCHAR(100)"),
         ("vuln_status", "VARCHAR(20)"),
         ("vuln_status_note", "VARCHAR(300)"),
+    ],
+    # v2.3.0 实体稳定 uid(#66): 其余整表替换实体与接口资产关联。
+    # 列补齐后由 services/entity_uid_migration.migrate_entity_uids 回填与重映射
+    "roles": [
+        ("uid", "VARCHAR(36)"),
+    ],
+    "resources": [
+        ("uid", "VARCHAR(36)"),
+    ],
+    "external_systems": [
+        ("uid", "VARCHAR(36)"),
+    ],
+    "api_endpoints": [
+        ("uid", "VARCHAR(36)"),
+        ("sensitive_asset_uids", "JSON"),
     ],
     "vulnerabilities": [
         ("source", "VARCHAR(20) NOT NULL DEFAULT 'osv_local'"),

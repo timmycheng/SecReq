@@ -95,9 +95,11 @@ def test_full_wizard_flow_and_generate_offline(api):
         assert resp.status_code == 200, resp.text
         saved_features = resp.json()
         assert [f["id"] for f in saved_features] == [1, 2, 3]
-        # 整体替换幂等: 再存一次仍是 3 行且 id 重排后仍连续
-        resp = api.post(f"/api/projects/{pid}/features", json=features[:1])
+        assert all(f["uid"] for f in saved_features)
+        # #66 uid 语义: 回传 uid 的行原样更新(主键不变), 未回传的行视为新增
+        resp = api.post(f"/api/projects/{pid}/features", json=saved_features[:1])
         assert [f["id"] for f in resp.json()] == [1]
+        assert resp.json()[0]["uid"] == saved_features[0]["uid"]
 
         # ── Step4 数据字典 ──
         assets = [{

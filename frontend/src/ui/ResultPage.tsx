@@ -272,6 +272,14 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                       ),
                     },
                     {
+                      title: '状态', dataIndex: 'status', width: 110,
+                      render: (s: string) => (s === 'obsolete'
+                        ? <Tooltip title="对应的输入在本轮生成中已不存在(已删除或修改), 需求保留供追溯">
+                            <Tag color="default">本轮未命中</Tag>
+                          </Tooltip>
+                        : <Tag color="green">有效</Tag>),
+                    },
+                    {
                       title: '合规依据', dataIndex: 'regulatory_ref', width: 180,
                       render: (refs: RequirementRow['regulatory_ref']) => (refs ?? []).length
                         ? (refs ?? []).map((ref, i) => (
@@ -283,10 +291,14 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                       title: '确认', dataIndex: 'reg_confirmed', width: 120,
                       render: (v: boolean, r) => (v
                         ? <Tag color="success">已确认{r.confirmed_by ? `·${r.confirmed_by}` : ''}</Tag>
-                        : <Button size="small" type="link" onClick={() => void doConfirmOne(r)}>确认</Button>),
+                        : (r.status === 'obsolete'
+                          ? <Typography.Text type="secondary">—</Typography.Text>
+                          : <Button size="small" type="link" onClick={() => void doConfirmOne(r)}>确认</Button>)),
                     },
                   ]}
-                  rowClassName={(r) => (r.priority === 'critical' ? 'row-critical' : '')}
+                  rowClassName={(r) => (r.status === 'obsolete'
+                    ? 'row-obsolete'
+                    : (r.priority === 'critical' ? 'row-critical' : ''))}
                 />
               </>
             ),

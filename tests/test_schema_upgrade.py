@@ -93,7 +93,8 @@ def test_legacy_db_upgrade_columns_added(legacy_engine):
     assert legacy_source == "osv_local"
 
     assert set(added["sbom_components"]) == {
-        "ecosystem", "distro", "osv_query_fingerprint", "vuln_status", "vuln_status_note",
+        "uid", "ecosystem", "distro", "osv_query_fingerprint", "vuln_status",
+        "vuln_status_note",
     }
     assert set(added["vulnerabilities"]) == {
         "source", "external_ref", "cnnvd_id", "cn_severity",

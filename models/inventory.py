@@ -3,11 +3,11 @@
 from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.database import Base
+from models.database import Base, UidMixin
 from models.project import Project
 
 
-class ApiEndpoint(Base):
+class ApiEndpoint(Base, UidMixin):
     """接口安全属性清单。sensitive_asset_ids 关联 DataAsset.id(请求/响应含敏感数据)。"""
 
     __tablename__ = "api_endpoints"
@@ -20,14 +20,17 @@ class ApiEndpoint(Base):
     auth_required: Mapped[bool] = mapped_column(Boolean, default=True, comment="是否需要认证")
     public_exposed: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否公网暴露")
     sensitive_asset_ids: Mapped[list] = mapped_column(
-        JSON, default=list, comment="关联敏感数据资产id列表"
+        JSON, default=list, comment="关联敏感数据资产主键(v2.3.0 起为兼容保留, 以 *_uids 为准)"
+    )
+    sensitive_asset_uids: Mapped[list] = mapped_column(
+        JSON, default=list, comment="关联敏感数据资产 uid 列表(跨整卷保存稳定, #66)"
     )
     rate_limit: Mapped[str | None] = mapped_column(String(50), comment="限流配置描述")
 
     project: Mapped[Project] = relationship(back_populates="api_endpoints")
 
 
-class InfraAsset(Base):
+class InfraAsset(Base, UidMixin):
     """服务器/网络设备/数据库/中间件资产。服务器需填规格; 网络设备设计期地址可预留。"""
 
     __tablename__ = "infra_assets"

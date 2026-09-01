@@ -3,11 +3,11 @@
 from sqlalchemy import Boolean, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.database import Base
+from models.database import Base, UidMixin
 from models.project import Project
 
 
-class Role(Base):
+class Role(Base, UidMixin):
     """系统角色。role_type 见 ROLE_TYPES(normal/privileged/super_admin)。"""
 
     __tablename__ = "roles"
@@ -24,7 +24,7 @@ class Role(Base):
     )
 
 
-class Resource(Base):
+class Resource(Base, UidMixin):
     """被权限管理的资源。criticality 关键性参与高危审批规则判定。"""
 
     __tablename__ = "resources"

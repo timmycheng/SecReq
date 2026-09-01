@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.database import Base
+from models.database import Base, UidMixin
 
 
 class Project(Base):
@@ -75,7 +75,7 @@ class GradingSurvey(Base):
         return self.final_level or self.suggested_level or ""
 
 
-class ExternalSystem(Base):
+class ExternalSystem(Base, UidMixin):
     """Step1 采集: 与本项目交互的外部系统清单(驱动外部交互类安全需求)。"""
 
     __tablename__ = "external_systems"

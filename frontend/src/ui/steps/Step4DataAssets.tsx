@@ -178,7 +178,8 @@ function AssetEditor({ initial, onSave, onClose }: {
           message.warning('请至少为资产录入一张数据表(可不含字段)')
           return
         }
-        onSave({ ...base, tables })
+        // 合并 initial: 保留 uid 等未注册字段, 编辑时原样回传(#66)
+        onSave({ ...initial, ...base, tables })
       }}
     >
       <Form form={form} layout="vertical" initialValues={{ ...initial }}>

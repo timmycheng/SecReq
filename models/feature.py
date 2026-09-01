@@ -3,11 +3,11 @@
 from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.database import Base
+from models.database import Base, UidMixin
 from models.project import Project
 
 
-class Feature(Base):
+class Feature(Base, UidMixin):
     """功能条目。categories 为受控枚举多选(FEATURE_CATEGORIES), 规则引擎按交集匹配。"""
 
     __tablename__ = "features"

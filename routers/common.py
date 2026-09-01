@@ -155,6 +155,7 @@ def _severity_sort_key(v: VulnerabilityRecord):
 def component_to_out(comp: SbomComponent) -> ComponentOut:
     return ComponentOut(
         id=comp.id,
+        uid=comp.uid,
         layer=comp.layer,
         name=comp.name,
         version=comp.version,
@@ -179,6 +180,7 @@ def component_to_out(comp: SbomComponent) -> ComponentOut:
 def asset_to_out(asset: DataAsset) -> DataAssetOut:
     return DataAssetOut(
         id=asset.id,
+        uid=asset.uid,
         name=asset.name,
         data_type=asset.data_type,
         classification=asset.classification,
@@ -227,7 +229,7 @@ def wizard_state(db: Session, project: Project) -> dict:
         "project": _plain_project(project),
         "survey": _plain(survey_to_out(survey, pid)),
         "external_systems": [
-            {"id": e.id, "name": e.name, "purpose": e.purpose,
+            {"id": e.id, "uid": e.uid, "name": e.name, "purpose": e.purpose,
              "direction": e.direction, "involves_sensitive": bool(e.involves_sensitive)}
             for e in db.query(ExternalSystem).filter_by(project_id=pid).order_by(ExternalSystem.id).all()
         ],
@@ -236,12 +238,12 @@ def wizard_state(db: Session, project: Project) -> dict:
         ],
         "data_assets": [_plain(asset_to_out(a)) for a in assets],
         "roles": [
-            {"id": r.id, "name": r.name, "role_type": r.role_type,
+            {"id": r.id, "uid": r.uid, "name": r.name, "role_type": r.role_type,
              "user_count_estimate": r.user_count_estimate}
             for r in roles
         ],
         "resources": [
-            {"id": r.id, "name": r.name, "resource_type": r.resource_type,
+            {"id": r.id, "uid": r.uid, "name": r.name, "resource_type": r.resource_type,
              "criticality": r.criticality}
             for r in resource_rows
         ],
@@ -255,13 +257,14 @@ def wizard_state(db: Session, project: Project) -> dict:
         "components": [_plain(component_to_out(c))
                        for c in db.query(SbomComponent).filter_by(project_id=pid).all()],
         "api_endpoints": [
-            {"id": e.id, "name": e.name, "path": e.path, "method": e.method,
+            {"id": e.id, "uid": e.uid, "name": e.name, "path": e.path, "method": e.method,
              "auth_required": e.auth_required, "public_exposed": e.public_exposed,
-             "sensitive_asset_ids": e.sensitive_asset_ids or [], "rate_limit": e.rate_limit}
+             "sensitive_asset_ids": e.sensitive_asset_ids or [],
+             "sensitive_asset_uids": e.sensitive_asset_uids or [], "rate_limit": e.rate_limit}
             for e in db.query(ApiEndpoint).filter_by(project_id=pid).order_by(ApiEndpoint.id).all()
         ],
         "infra_assets": [
-            {"id": a.id, "asset_type": a.asset_type, "name": a.name, "env": a.env,
+            {"id": a.id, "uid": a.uid, "asset_type": a.asset_type, "name": a.name, "env": a.env,
              "ip": a.ip, "owner": a.owner, "holds_sensitive": a.holds_sensitive}
             for a in db.query(InfraAsset).filter_by(project_id=pid).order_by(InfraAsset.id).all()
         ],

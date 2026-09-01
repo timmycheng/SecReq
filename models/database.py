@@ -4,14 +4,35 @@
 SQLite 开发, 模型全部使用可移植类型(JSON 代替 ARRAY), 兼容 PostgreSQL 迁移。
 """
 import os
+import uuid
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import String, create_engine, event
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 
 class Base(DeclarativeBase):
     """全项目 ORM 声明基类。"""
+
+
+def gen_uid() -> str:
+    """生成稳定业务标识(UUID4)。"""
+    return str(uuid.uuid4())
+
+
+class UidMixin:
+    """稳定业务标识列(#66)。
+
+    向导保存是整卷替换语义, 自增主键会随删除/重建漂移, 需求溯源因此断链;
+    uid 由后端在首建时生成并跨保存复用, 是需求 source_entity_uid 的锚点。
+    全局唯一性由 UUID4 保证, 不再叠加 (project_id, uid) 唯一约束
+    (存量数据回填与并发写入下约束无额外收益, 单列索引已覆盖查询路径)。
+    """
+
+    uid: Mapped[str] = mapped_column(
+        String(36), default=gen_uid, index=True,
+        comment="稳定业务标识(UUID4), 跨保存保持不变",
+    )
 
 
 def make_engine(url: str | None = None):

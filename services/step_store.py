@@ -1,16 +1,26 @@
 # -*- coding: utf-8 -*-
-"""向导各步骤数据保存(整体替换语义)。
+"""向导各步骤数据保存(按稳定 uid 的整卷 upsert, #66)。
 
-前端每次提交该步骤的完整列表, 本模块按外键顺序清旧写新, 保证幂等:
-同一项目反复保存不会产生重复行。定时级问卷在同文件 services/grading.py。
+前端每次提交该步骤的完整列表; 提交行带 uid 且库中存在 → 原行更新(主键不变),
+无 uid → 新建, 库中有而提交缺失 → 删除。这样反复保存与增删改都不再让自增主键
+漂移, 已生成需求的 source_entity_uid 溯源保持稳定。
+
+配套守卫: 项目已生成需求、提交行却全部无 uid 时抛 UidContinuityError(路由层转
+409) —— 静默接受会把"新增"当成"整卷替换", 溯源再次断裂, 宁可失败。
+
+数据资产三级结构(资产→表→字段): 资产按 uid 匹配, 资产内按 table_name、
+表内按 field_name 匹配, 同样"匹配则更新、缺失则删、新增则建"。
+定时级问卷在同文件 services/grading.py。
 """
+
 from sqlalchemy.orm import Session
 
 from models import (
     ApiEndpoint, AuthConfig, DataAsset, DataField, DataTable, Feature,
-    InfraAsset, PermissionEntry, SbomComponent, VulnerabilityRecord,
-    Resource, Role,
+    InfraAsset, PermissionEntry, SecurityRequirement, SbomComponent,
+    VulnerabilityRecord, Resource, Role,
 )
+from models.database import gen_uid
 from schemas.component import ComponentIn
 from schemas.data_dictionary import DataAssetIn
 from schemas.feature import FeatureIn
@@ -23,86 +33,184 @@ class MatrixIndexError(Exception):
     """权限矩阵 entry 引用了不存在的角色/资源下标。"""
 
 
-def replace_features(session: Session, project_id: int, items: list[FeatureIn]) -> int:
-    session.query(Feature).filter_by(project_id=project_id).delete()
-    session.add_all(
-        Feature(
-            project_id=project_id,
-            name=f.name,
-            module=f.module,
-            description=f.description,
-            categories=f.categories,
-            sensitivity=f.sensitivity,
-            involves_payment=f.involves_payment,
-            exposed_to_internet=f.exposed_to_internet,
-        )
-        for f in items
+class UidContinuityError(Exception):
+    """项目已有生成记录, 但提交行全部缺少 uid(前端版本过旧或数据被手工篡改)。"""
+
+
+def _guard_uid_continuity(session: Session, project_id: int, items: list, uid_of) -> None:
+    """已有生成记录 + 提交行全无 uid → 拒绝(路由层转 409), 不静默断链(#66)。"""
+    if not items:
+        return
+    if any(uid_of(item) for item in items):
+        return
+    has_generated = (
+        session.query(SecurityRequirement.id)
+        .filter_by(project_id=project_id)
+        .first()
+        is not None
     )
+    if has_generated:
+        raise UidContinuityError(
+            "项目已生成需求, 但本次提交的全部行都缺少稳定标识(uid): "
+            "可能是页面版本过旧, 请刷新页面重新打开向导后再保存"
+        )
+
+
+def _sync_rows(session: Session, project_id: int, model, items: list, fields_of,
+               uid_of) -> tuple[int, list]:
+    """通用 uid upsert: 返回 (保留/更新的已有行, 全部落库后的实体行)。
+
+    items 为空时表示清空该步骤(合法操作, 不受 uid 守卫约束)。
+    """
+    _guard_uid_continuity(session, project_id, items, uid_of)
+    existing = {row.uid: row for row in session.query(model).filter_by(project_id=project_id)}
+    submitted_uids: set[str] = set()
+    kept: list = []
+    for item in items:
+        uid = uid_of(item)
+        if uid and uid in existing:
+            row = existing[uid]
+            for key, value in fields_of(item).items():
+                setattr(row, key, value)
+            submitted_uids.add(uid)
+            kept.append(row)
+        else:
+            row = model(project_id=project_id, uid=uid or gen_uid(), **fields_of(item))
+            session.add(row)
+            kept.append(row)
+            if uid:
+                # 提交了 uid 但库中不存在: 视为用户新增时自带标识, 保留之
+                submitted_uids.add(uid)
+    removed = [row for uid, row in existing.items() if uid not in submitted_uids]
+    for row in removed:
+        session.delete(row)
+    return kept, removed
+
+
+def replace_features(session: Session, project_id: int, items: list[FeatureIn]) -> int:
+    def uid_of(item: FeatureIn):
+        return item.uid
+
+    def fields_of(item: FeatureIn):
+        return {
+            "name": item.name, "module": item.module, "description": item.description,
+            "categories": item.categories, "sensitivity": item.sensitivity,
+            "involves_payment": item.involves_payment,
+            "exposed_to_internet": item.exposed_to_internet,
+        }
+
+    _sync_rows(session, project_id, Feature, items, fields_of, uid_of)
     session.commit()
     return len(items)
 
 
 def replace_data_assets(session: Session, project_id: int, items: list[DataAssetIn]) -> int:
-    asset_ids = [a.id for a in session.query(DataAsset.id).filter_by(project_id=project_id)]
-    if asset_ids:
-        session.query(DataField).filter(
-            DataField.table_id.in_(session.query(DataTable.id).filter(
-                DataTable.asset_id.in_(asset_ids)))
-        ).delete(synchronize_session=False)
-        session.query(DataTable).filter(DataTable.asset_id.in_(asset_ids)).delete(
-            synchronize_session=False)
-        session.query(DataAsset).filter_by(project_id=project_id).delete(
-            synchronize_session=False)
-
+    """资产按 uid 匹配; 表按 table_name、字段按 field_name 在各自父级内匹配。"""
+    _guard_uid_continuity(session, project_id, items, lambda a: a.uid)
+    existing_assets = {
+        a.uid: a for a in session.query(DataAsset).filter_by(project_id=project_id)
+    }
+    submitted_asset_uids: set[str] = set()
     total_tables = 0
+
     for a in items:
-        asset = DataAsset(
-            project_id=project_id,
-            name=a.name, data_type=a.data_type, classification=a.classification,
-            c3_tag=a.c3_tag,
-            is_pii=a.is_pii, is_sensitive_pii=a.is_sensitive_pii,
-            storage_envs=a.storage_envs, cross_border_transfer=a.cross_border_transfer,
-        )
-        session.add(asset)
-        session.flush()
-        for t in a.tables:
-            table = DataTable(asset_id=asset.id, table_name=t.table_name)
-            session.add(table)
+        asset_fields = {
+            "name": a.name, "data_type": a.data_type, "classification": a.classification,
+            "c3_tag": a.c3_tag, "is_pii": a.is_pii, "is_sensitive_pii": a.is_sensitive_pii,
+            "storage_envs": a.storage_envs, "cross_border_transfer": a.cross_border_transfer,
+        }
+        if a.uid and a.uid in existing_assets:
+            asset = existing_assets[a.uid]
+            for key, value in asset_fields.items():
+                setattr(asset, key, value)
+        else:
+            asset = DataAsset(project_id=project_id, uid=a.uid or gen_uid(), **asset_fields)
+            session.add(asset)
             session.flush()
+        submitted_asset_uids.add(asset.uid)
+
+        # ── 表: 按 table_name 匹配 ──
+        existing_tables = {t.table_name: t for t in asset.tables}
+        submitted_tables: set[str] = set()
+        for t in a.tables:
+            table = existing_tables.get(t.table_name)
+            if table is None:
+                table = DataTable(asset_id=asset.id, table_name=t.table_name)
+                session.add(table)
+                session.flush()
+            submitted_tables.add(t.table_name)
             total_tables += 1
-            session.add_all(
-                DataField(
-                    table_id=table.id, field_name=fd.field_name, field_type=fd.field_type,
-                    need_encrypt=fd.need_encrypt, need_mask=fd.need_mask,
-                    mask_rule=fd.mask_rule,
-                )
-                for fd in t.fields
-            )
+
+            # ── 字段: 按 field_name 匹配 ──
+            existing_fields = {f.field_name: f for f in table.fields}
+            submitted_fields: set[str] = set()
+            for fd in t.fields:
+                field = existing_fields.get(fd.field_name)
+                field_attrs = {
+                    "field_type": fd.field_type, "need_encrypt": fd.need_encrypt,
+                    "need_mask": fd.need_mask, "mask_rule": fd.mask_rule,
+                }
+                if field is None:
+                    session.add(DataField(table_id=table.id, field_name=fd.field_name, **field_attrs))
+                else:
+                    for key, value in field_attrs.items():
+                        setattr(field, key, value)
+                submitted_fields.add(fd.field_name)
+            for name, field in existing_fields.items():
+                if name not in submitted_fields:
+                    session.delete(field)
+
+        for name, table in existing_tables.items():
+            if name not in submitted_tables:
+                session.delete(table)
+
+    # 删除提交中缺失的资产(cascade 清理其表/字段)
+    removed_assets = [
+        a for uid, a in existing_assets.items() if uid not in submitted_asset_uids
+    ]
+    for asset in removed_assets:
+        session.delete(asset)
     session.commit()
     return total_tables
 
 
 def replace_permission_matrix(session: Session, project_id: int, matrix: PermissionMatrixIn) -> dict:
-    """整体替换角色/资源/授权单元格。entry 用提交体下标定位角色与资源。"""
-    old_role_ids = [r.id for r in session.query(Role.id).filter_by(project_id=project_id)]
-    if old_role_ids:
-        session.query(PermissionEntry).filter(
-            PermissionEntry.role_id.in_(old_role_ids)).delete(synchronize_session=False)
-    session.query(Role).filter_by(project_id=project_id).delete(synchronize_session=False)
-    session.query(Resource).filter_by(project_id=project_id).delete(synchronize_session=False)
+    """整卷 upsert 角色/资源(按 uid)与授权单元格(身份= (role_uid, resource_uid, action))。
 
-    roles = [
-        Role(project_id=project_id, name=r.name, role_type=r.role_type,
-             user_count_estimate=r.user_count_estimate)
-        for r in matrix.roles
-    ]
-    resources = [
-        Resource(project_id=project_id, name=r.name, resource_type=r.resource_type,
-                 criticality=r.criticality)
-        for r in matrix.resources
-    ]
-    session.add_all(roles + resources)
-    session.flush()
+    entry 仍用提交体下标定位角色与资源; 角色与资源行按 uid 复用,
+    因此 PermissionEntry.role_id/resource_id 外键对已生成需求保持稳定。
+    """
+    _guard_uid_continuity(session, project_id, matrix.roles, lambda r: r.uid)
+    _guard_uid_continuity(session, project_id, matrix.resources, lambda r: r.uid)
+
+    def _upsert(model, items, fields_of):
+        existing = {r.uid: r for r in session.query(model).filter_by(project_id=project_id)}
+        submitted: set[str] = set()
+        rows: list = []
+        for item in items:
+            attrs = fields_of(item)
+            if item.uid and item.uid in existing:
+                row = existing[item.uid]
+                for key, value in attrs.items():
+                    setattr(row, key, value)
+            else:
+                row = model(project_id=project_id, uid=item.uid or gen_uid(), **attrs)
+                session.add(row)
+            submitted.add(row.uid)
+            rows.append(row)
+        for uid, row in existing.items():
+            if uid not in submitted:
+                session.delete(row)
+        session.flush()
+        return rows
+
+    roles = _upsert(Role, matrix.roles, lambda r: {
+        "name": r.name, "role_type": r.role_type,
+        "user_count_estimate": r.user_count_estimate,
+    })
+    resources = _upsert(Resource, matrix.resources, lambda r: {
+        "name": r.name, "resource_type": r.resource_type, "criticality": r.criticality,
+    })
 
     n_roles, n_res = len(roles), len(resources)
     entries = []
@@ -116,7 +224,12 @@ def replace_permission_matrix(session: Session, project_id: int, matrix: Permiss
             action=e.action,
             requires_approval=e.requires_approval,
         ))
-    # 同格子同操作去重(后端兜底, 数据库另有 UNIQUE 约束)
+    # 单元格身份 = (角色uid, 资源uid, action): 重建 entries 不影响溯源复合键
+    old_role_ids = [r.id for r in roles] + [
+        r.id for r in session.query(Role).filter_by(project_id=project_id)
+    ]
+    session.query(PermissionEntry).filter(
+        PermissionEntry.role_id.in_(old_role_ids)).delete(synchronize_session=False)
     unique = {(p.role_id, p.resource_id, p.action): p for p in entries}
     session.add_all(unique.values())
     session.commit()
@@ -148,18 +261,22 @@ def _purge_components(session: Session, component_ids: list[int]) -> None:
 def replace_components(
     session: Session, project_id: int, items: list[ComponentIn], source_type: str = "manual_input",
 ) -> int:
-    old_ids = [c.id for c in session.query(SbomComponent.id).filter_by(project_id=project_id)]
-    _purge_components(session, old_ids)
-    session.query(SbomComponent).filter_by(project_id=project_id).delete(
-        synchronize_session=False)
-    session.add_all(
-        SbomComponent(
-            project_id=project_id, layer=c.layer, name=c.name, version=c.version,
-            purl=c.purl or None, license=c.license or None, source_type=source_type,
-            ecosystem=c.ecosystem or None, distro=c.distro or None,
-        )
-        for c in items
-    )
+    """组件按 uid upsert; 被移除组件的漏洞记录随之清理, 保留组件的漏洞缓存不动。"""
+
+    def uid_of(item: ComponentIn):
+        return item.uid
+
+    def fields_of(item: ComponentIn):
+        return {
+            "layer": item.layer, "name": item.name, "version": item.version,
+            "purl": item.purl or None, "license": item.license or None,
+            "ecosystem": item.ecosystem or None, "distro": item.distro or None,
+            "source_type": source_type,
+        }
+
+    kept, removed = _sync_rows(session, project_id, SbomComponent, items, fields_of, uid_of)
+    session.flush()
+    _purge_components(session, [row.id for row in removed])
     session.commit()
     return len(items)
 
@@ -170,6 +287,7 @@ def append_components(
     """SBOM 文件导入走追加语义: 按 组件名+版本 去重跳过已有条目。
 
     返回 (新增数, 跳过的重复数)。rows 形态见 services/sbom_import.parse_sbom_file。
+    新行 uid 由模型默认值(UUID4)生成。
     """
     existing = {
         (c.name.casefold(), c.version)
@@ -202,45 +320,45 @@ def append_components(
 def replace_external_systems(
     session: Session, project_id: int, items: list,
 ) -> int:
-    """Step1 外部系统连接清单(整体替换)。items 为 schemas.project.ExternalSystemIn。"""
+    """Step1 外部系统连接清单(按 uid 整卷 upsert)。items 为 schemas.project.ExternalSystemIn。"""
     from models import ExternalSystem
 
-    session.query(ExternalSystem).filter_by(project_id=project_id).delete()
-    session.add_all(
-        ExternalSystem(
-            project_id=project_id, name=e.name, purpose=e.purpose,
-            direction=e.direction, involves_sensitive=e.involves_sensitive,
-        )
-        for e in items
-    )
+    def fields_of(item):
+        return {
+            "name": item.name, "purpose": item.purpose,
+            "direction": item.direction, "involves_sensitive": item.involves_sensitive,
+        }
+
+    _sync_rows(session, project_id, ExternalSystem, items, fields_of, lambda i: i.uid)
     session.commit()
     return len(items)
 
 
 def replace_api_endpoints(session: Session, project_id: int, endpoints: list[ApiEndpointIn]) -> int:
-    session.query(ApiEndpoint).filter_by(project_id=project_id).delete()
-    session.add_all(
-        ApiEndpoint(
-            project_id=project_id, name=e.name, path=e.path, method=e.method,
-            auth_required=e.auth_required, public_exposed=e.public_exposed,
-            sensitive_asset_ids=e.sensitive_asset_ids, rate_limit=e.rate_limit,
-        )
-        for e in endpoints
-    )
+    def fields_of(item: ApiEndpointIn):
+        return {
+            "name": item.name, "path": item.path, "method": item.method,
+            "auth_required": item.auth_required, "public_exposed": item.public_exposed,
+            "sensitive_asset_ids": item.sensitive_asset_ids,
+            "sensitive_asset_uids": item.sensitive_asset_uids,
+            "rate_limit": item.rate_limit,
+        }
+
+    _sync_rows(session, project_id, ApiEndpoint, endpoints, fields_of, lambda i: i.uid)
     session.commit()
     return len(endpoints)
 
 
 def replace_infra_assets(session: Session, project_id: int, infra_assets: list[InfraAssetIn]) -> int:
-    session.query(InfraAsset).filter_by(project_id=project_id).delete()
-    session.add_all(
-        InfraAsset(
-            project_id=project_id, asset_type=a.asset_type, name=a.name, env=a.env,
-            ip=a.ip, owner=a.owner, holds_sensitive=a.holds_sensitive,
-            cpu_cores=a.cpu_cores, memory_gb=a.memory_gb, disk_gb=a.disk_gb,
-            os=a.os, quantity=a.quantity, purpose=a.purpose,
-        )
-        for a in infra_assets
-    )
+    def fields_of(item: InfraAssetIn):
+        return {
+            "asset_type": item.asset_type, "name": item.name, "env": item.env,
+            "ip": item.ip, "owner": item.owner, "holds_sensitive": item.holds_sensitive,
+            "cpu_cores": item.cpu_cores, "memory_gb": item.memory_gb,
+            "disk_gb": item.disk_gb, "os": item.os, "quantity": item.quantity,
+            "purpose": item.purpose,
+        }
+
+    _sync_rows(session, project_id, InfraAsset, infra_assets, fields_of, lambda i: i.uid)
     session.commit()
     return len(infra_assets)
