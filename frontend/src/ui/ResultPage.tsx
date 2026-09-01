@@ -25,6 +25,29 @@ const SEVERITY_COLOR: Record<string, string> = {
   critical: 'red', high: 'volcano', medium: 'gold', low: 'default',
 }
 
+
+/** 漏洞严重度数值序(小=严重), 供汇聚取最高严重度(#95)。 */
+const SEVERITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
+
+/** 点分版本比较(宽松数字段), 无法解析时回退字符串比较。 */
+function cmpVersion(a: string, b: string): number {
+  const pa = a.split(/[.\-+_]/).map((x) => parseInt(x, 10) || 0)
+  const pb = b.split(/[.\-+_]/).map((x) => parseInt(x, 10) || 0)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0)
+    if (d) return d
+  }
+  return a.localeCompare(b)
+}
+
+interface VulnGroup {
+  name: string
+  version: string
+  rows: VulnerabilityRow[]
+  maxFix: string | null
+}
+
+
 type GradingBaseline = Awaited<ReturnType<typeof api.getGradingBaseline>>
 
 export default function ResultPage({ projectId }: { projectId: number }) {
@@ -34,6 +57,17 @@ export default function ResultPage({ projectId }: { projectId: number }) {
   const [vulns, setVulns] = useState<VulnerabilityRow[] | null>(null)
   const [vulnError, setVulnError] = useState<string | null>(null)
   const [components, setComponents] = useState<ComponentRow[]>([])
+  const vulnGroups = useMemo<VulnGroup[]>(() => {
+    const map = new Map<string, VulnGroup>()
+    for (const v of vulns ?? []) {
+      const key = `${v.component_name}@${v.component_version}`
+      const g = map.get(key) ?? { name: v.component_name, version: v.component_version, rows: [], maxFix: null }
+      g.rows.push(v)
+      if (v.fix_version && (!g.maxFix || cmpVersion(v.fix_version, g.maxFix) > 0)) g.maxFix = v.fix_version
+      map.set(key, g)
+    }
+    return [...map.values()]
+  }, [vulns])
   const [categoryFilter, setCategoryFilter] = useState<string | undefined>()
   const [priorityFilter, setPriorityFilter] = useState<string | undefined>()
   const [selectedKeys, setSelectedKeys] = useState<Key[]>([])
@@ -113,7 +147,55 @@ export default function ResultPage({ projectId }: { projectId: number }) {
   }
 
   return (
-    <div style={{ padding: 24 }}>
+    <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}>
+      {/* 生成总结块(#95): 一屏回答"这次生成了什么、风险在哪", 数字与下方清单同源 */}
+      {requirements && (
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Space size={[32, 12]} wrap style={{ justifyContent: 'center', width: '100%' }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 24, fontWeight: 600 }}>{requirements.length}</div>
+              <Typography.Text type="secondary">安全需求</Typography.Text>
+              <div style={{ fontSize: 12, color: '#888' }}>
+                {['critical', 'high', 'medium', 'low'].map((p) => {
+                  const n = requirements.filter((r) => r.priority === p).length
+                  return n ? `${priorityLabels[p] ?? p}${n}` : null
+                }).filter(Boolean).join(' · ')}
+              </div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 24, fontWeight: 600 }}>{components.length}</div>
+              <Typography.Text type="secondary">组件</Typography.Text>
+              <div style={{ fontSize: 12, color: '#888' }}>
+                {(() => {
+                  const risky = components.filter((c) => {
+                    const lic = c.license ? riskMap[c.license] : undefined
+                    return lic?.risk === 'high' || lic?.risk === 'medium'
+                  }).length
+                  return risky ? `${risky} 个许可证中高风险` : '许可证风险均可控'
+                })()}
+              </div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 24, fontWeight: 600 }}>{vulns?.length ?? 0}</div>
+              <Typography.Text type="secondary">漏洞记录</Typography.Text>
+              <div style={{ fontSize: 12, color: '#888' }}>
+                {vulns?.length ? ['critical', 'high', 'medium', 'low'].map((s) => {
+                  const n = vulns.filter((v) => v.severity === s).length
+                  return n ? `${severityLabels[s] ?? s}${n}` : null
+                }).filter(Boolean).join(' · ') || '未命中' : '未查询'}
+              </div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 24, fontWeight: 600 }}>
+                {requirements.filter((r) => (r.regulatory_ref ?? []).length > 0).length}
+              </div>
+              <Typography.Text type="secondary">含合规依据</Typography.Text>
+              <div style={{ fontSize: 12, color: '#888' }}>条目附监管文件条款引用</div>
+            </div>
+          </Space>
+        </Card>
+      )}
+
       <Breadcrumb
         items={[
           { title: <a onClick={(e) => { e.preventDefault(); navigate('/') }}>项目列表</a> },
@@ -261,12 +343,15 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                       ),
                     },
                     {
-                      title: '类目/来源', dataIndex: 'category', width: 175,
+                      title: '类目/触发来源', dataIndex: 'category', width: 230,
                       render: (c, r) => (
                         <div>
                           <div>{c}</div>
-                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                            {r.source_label ?? `${r.source_entity_type}#${r.source_entity_id}`}
+                          <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+                            {r.source_label ?? (r.source_entity_type ? `${r.source_entity_type}#${r.source_entity_id}` : '来源未定位')}
+                          </Typography.Text>
+                          <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', color: '#999' }}>
+                            {r.trigger_reason || '触发原因未记录(存量数据)'}
                           </Typography.Text>
                         </div>
                       ),
@@ -321,21 +406,58 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                     复制到 Word
                   </Button>
                 </Space>
-                <Table<VulnerabilityRow>
-                  rowKey={(r) => `${r.component_name}-${r.cve_id}`}
-                  dataSource={vulns ?? []}
+                <Table<VulnGroup>
+                  rowKey={(g) => `${g.name}@${g.version}`}
+                  dataSource={vulnGroups}
                   size="small"
                   pagination={false}
+                  expandable={{
+                    defaultExpandAllRows: false,
+                    expandedRowRender: (g) => (
+                      <Table<VulnerabilityRow>
+                        rowKey={(r) => `${r.component_name}-${r.cve_id}`}
+                        dataSource={g.rows}
+                        size="small"
+                        pagination={false}
+                        columns={[
+                          { title: '严重度', dataIndex: 'severity', width: 90,
+                            render: (s) => <Tag color={SEVERITY_COLOR[s]}>{severityLabels[s] ?? s}</Tag> },
+                          { title: <GlossaryTip term="cve_cvss">CVE</GlossaryTip>, dataIndex: 'cve_id', width: 170 },
+                          { title: <GlossaryTip term="cve_cvss">CVSS</GlossaryTip>, dataIndex: 'cvss_score', width: 80, render: (v) => v ?? '—' },
+                          { title: '受影响范围', dataIndex: 'affected_range' },
+                          { title: '修复版本', dataIndex: 'fix_version',
+                            render: (v) => v ? <Tag color="green">{v}</Tag> : '—' },
+                          { title: '简述', dataIndex: 'summary', ellipsis: true },
+                        ]}
+                      />
+                    ),
+                  }}
                   columns={[
-                    { title: '严重度', dataIndex: 'severity', width: 90,
-                      render: (s) => <Tag color={SEVERITY_COLOR[s]}>{severityLabels[s] ?? s}</Tag> },
-                    { title: <GlossaryTip term="cve_cvss">CVE</GlossaryTip>, dataIndex: 'cve_id', width: 170 },
-                    { title: '组件', render: (_v, r) => `${r.component_name}@${r.component_version}`, width: 220 },
-                    { title: <GlossaryTip term="cve_cvss">CVSS</GlossaryTip>, dataIndex: 'cvss_score', width: 80, render: (v) => v ?? '—' },
-                    { title: '受影响范围', dataIndex: 'affected_range' },
-                    { title: '修复版本', dataIndex: 'fix_version',
-                      render: (v) => v ? <Tag color="green">{v}</Tag> : '—' },
-                    { title: '简述', dataIndex: 'summary', ellipsis: true },
+                    { title: '组件', render: (_v, g) => `${g.name}@${g.version}` },
+                    { title: '漏洞数', width: 80, render: (_v, g) => g.rows.length },
+                    { title: '最高严重度', width: 110,
+                      render: (_v, g) => {
+                        const worst = g.rows.reduce((acc, r) =>
+                          (SEVERITY_RANK[r.severity] ?? 9) < (SEVERITY_RANK[acc] ?? 9) ? r.severity : acc, 'low')
+                        return <Tag color={SEVERITY_COLOR[worst]}>{severityLabels[worst] ?? worst}</Tag>
+                      } },
+                    { title: '建议目标版本', width: 220,
+                      render: (_v, g) => {
+                        if (!g.maxFix) {
+                          return <Tooltip title="各条记录均未提供修复版本(如 not_covered), 需人工评估, 不虚构目标版本">
+                            <Tag color="orange">需人工评估</Tag>
+                          </Tooltip>
+                        }
+                        const note = g.rows.some((r) => !r.fix_version) ? '(部分记录无修复版, 已取最高)' : undefined
+                        return (
+                          <Space size={4}>
+                            <Tag color="green">升级到 {g.maxFix}</Tag>
+                            {note && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{note}</Typography.Text>}
+                          </Space>
+                        )
+                      } },
+                    { title: '处置结论', render: (_v, g) =>
+                      `将 ${g.name} 从 ${g.version} 升级到 ${g.maxFix ?? '(人工评估)'}, 可消除以下 ${g.rows.length} 条已知漏洞` },
                   ]}
                 />
               </>
