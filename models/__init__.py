@@ -7,7 +7,7 @@ from models.data_dictionary import DataAsset, DataField, DataTable
 from models.permission import PermissionEntry, Resource, Role
 from models.auth import AuthConfig
 from models.sbom import SbomComponent, VulnerabilityRecord
-from models.inventory import ApiEndpoint, InfraAsset
+from models.inventory import ApiEndpoint, InfraAsset, InfraLayout, InfraLink, NetworkZone
 from models.requirement import SecurityRequirement
 from models.review import GENESIS_HASH, PlatformUser, ReviewEvidence, ReviewGate
 from models.session import UserSession
@@ -34,6 +34,9 @@ __all__ = [
     "VulnerabilityRecord",
     "ApiEndpoint",
     "InfraAsset",
+    "InfraLayout",
+    "InfraLink",
+    "NetworkZone",
     "SecurityRequirement",
     "PlatformUser",
     "ReviewGate",

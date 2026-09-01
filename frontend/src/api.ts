@@ -271,6 +271,14 @@ export const api = {
     return request<{ total: number; invalid: number; rows: { index: number; name: string; method: string; path: string; auth_required: boolean; public_exposed: boolean; error?: string | null }[] }>(
       `/api/projects/${projectId}/api-endpoints/parse`, { method: 'POST', body })
   },
+  getInfraTopology: (projectId: number, env: string) =>
+    request<{ env: string; zones: { uid: string; name: string }[]; links: { source_uid: string; target_uid: string; label: string | null }[]; layout: { nodes?: Record<string, { x: number; y: number }>; zones?: Record<string, { x: number; y: number }> } }>(
+      `/api/projects/${projectId}/infra-topology?env=${env}`),
+  saveInfraTopology: (projectId: number, payload: { env: string; zones: unknown[]; links: unknown[]; layout: unknown; assets: unknown[] }) =>
+    request<{ zones: number; assets: number; links: number; env: string }>(
+      `/api/projects/${projectId}/infra-topology`, { method: 'POST', body: JSON.stringify(payload) }),
+  getInfraAssets: (id: number) =>
+    request<InfraAssetRow[]>(`/api/projects/${id}/infra-assets`),
   getChangelog: () =>
     request<{ version: string; date: string; blocks: { kind: 'h3' | 'para' | 'list_item' | 'quote' | 'table_row'; text?: string; cells?: string[] }[] }[]>(
       '/api/admin/changelog'),
