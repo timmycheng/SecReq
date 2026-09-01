@@ -26,6 +26,7 @@ export default function PolicyTab() {
     <div style={{ maxWidth: 760, margin: '0 auto' }}>
       <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
         各定级档位的默认密码基线; 项目未显式覆盖时按此取值, 保存后对新预览与生成即时生效。
+        数值依据见仓库 <code>docs/pwd-policy-djcp-alignment.md</code>(与 GB/T 22239-2019 逐档对照, 量化值属行业惯例口径)。
       </Typography.Paragraph>
       {Object.entries(data.baselines).map(([level, base]) => (
         <Card key={level} size="small" title={`等保${level}`} style={{ marginBottom: 12 }}>
