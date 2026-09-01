@@ -263,6 +263,21 @@ def toggle_active(username: str, request: Request,
 
 
 # ── 离线漏洞库(v2.2.0) ─────────────────────────────────
+def _normalize_per_eco(raw: dict) -> dict:
+    """per_ecosystem 的 key 归一化为平台 code(#61)。
+
+    构建端 v2.2.2 起已写平台 code; 存量库 meta 里是 OSV 原始名(PyPI/Maven/crates.io…),
+    按别名表 + 小写兜底归一化, 旧库无需重建即可正确显示各生态记录数。
+    逻辑与 scripts/build_vuln_db.py 的 ecosystem_code() 保持一致。
+    """
+    out: dict = {}
+    for key, value in (raw or {}).items():
+        base = str(key).split(":")[0].strip()
+        base = C.OSV_ECOSYSTEM_ALIASES.get(base, base)
+        out[base.lower()] = value
+    return out
+
+
 def _vulndb_snapshot() -> dict:
     """本地漏洞库概况: 版本/生态/记录数/体积/校验和 + 覆盖缺口。"""
     from services.cnnvd import stats as cnnvd_stats
@@ -288,7 +303,7 @@ def _vulndb_snapshot() -> dict:
 
     per_eco: dict[str, int] = {}
     try:
-        per_eco = json.loads(meta.get("per_ecosystem") or "{}")
+        per_eco = _normalize_per_eco(json.loads(meta.get("per_ecosystem") or "{}"))
     except ValueError:
         per_eco = {}
 

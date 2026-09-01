@@ -186,6 +186,23 @@ def local(vulndb_path):
     return OsvLocalSource(VulnDb(vulndb_path))
 
 
+def test_per_ecosystem_meta_uses_platform_codes(vulndb_path):
+    """meta.per_ecosystem 的 key 必须是平台 code(#61 回归护栏)。
+
+    构建脚本曾用 OSV 原始名作 key(如 PyPI/Maven), 只有 npm 恰好两套命名一致,
+    其余生态在漏洞库管理页的记录数全部显示「—」。
+    """
+    import sqlite3
+
+    with sqlite3.connect(f"file:{vulndb_path}?mode=ro", uri=True) as conn:
+        row = conn.execute(
+            "SELECT value FROM meta WHERE key = 'per_ecosystem'"
+        ).fetchone()
+    per_eco = json.loads(row[0])
+    assert set(per_eco) == {"bitnami", "alpine", "npm", "maven"}
+    assert per_eco["alpine"] == 2  # openssl + redis 两条公告
+
+
 def _query(name, version, ecosystem=None, distro=None):
     from services.vuln_source import VulnQuery
     return VulnQuery(name=name, version=version, ecosystem=ecosystem, distro=distro)
