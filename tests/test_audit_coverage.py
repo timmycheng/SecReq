@@ -71,3 +71,30 @@ def test_export_requires_generated_baseline(api):
     resp = api.get(f"/api/projects/{pid}/export/xlsx")
     assert resp.status_code == 409
     assert "export" not in _actions(api)
+
+
+def test_audit_rows_carry_label_and_summary(api):
+    """端点统一下发中文标签与明细摘要(#65): 前端不自映射, 存量未知动作回退原文。"""
+    pid = _new_project(api)
+    resp = api.post(f"/api/projects/{pid}/features", json=[{
+        "name": "转账", "module": "支付模块", "categories": ["payment"],
+        "sensitivity": "confidential", "involves_payment": True,
+    }])
+    assert resp.status_code == 200, resp.text
+    rows = api_as(api, "sec_chen").get("/api/admin/audit-logs").json()
+
+    step_row = next(r for r in rows if r["action"] == "step_save")
+    assert step_row["action_label"] == "保存向导步骤"
+    assert step_row["summary"] == f"项目 #{pid} 保存功能清单, 共 1 条"
+
+    create_row = next(r for r in rows if r["action"] == "project_create"
+                      and r["detail"].get("project_id") == pid)
+    assert create_row["action_label"] == "创建项目"
+    assert "审计测试项目" in (create_row["summary"] or "")
+
+
+def test_audit_label_and_summary_fallback_for_unknown_action():
+    """未注册的存量 action: 标签回退原始 code, 摘要为 None(前端回退原文)。"""
+    from services.audit_service import action_label, summarize_detail
+    assert action_label("legacy_action") == "legacy_action"
+    assert summarize_detail("legacy_action", {"k": 1}) is None
