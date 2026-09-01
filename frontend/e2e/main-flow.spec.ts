@@ -88,11 +88,9 @@ test('建项目 → 8步向导 → 生成 → 批量确认 → 导出', async ({
   await page.getByRole('button', { name: '保存资产' }).click()
   await advanceTo('权限矩阵')
 
-  // ── 第 4 步: 权限矩阵(禁止空保存, 至少一个角色+资源; 授权格可留空) ──
+  // ── 第 4 步: 权限矩阵(角色已预置; 资源需至少一条, 授权格可留空) ──
   await expect(activeStep).toContainText('权限矩阵', { timeout: 20_000 })
-  await page.getByRole('button', { name: '添加' }).first().click()
-  await page.getByPlaceholder('角色名, 如 运营管理员').first().fill('E2E 管理员')
-  await page.getByRole('button', { name: '添加' }).nth(1).click()
+  await page.getByRole('button', { name: '添加' }).nth(1).click()  // 资源编辑器的「添加」
   await page.getByPlaceholder('资源名, 如 交易流水记录').fill('E2E 客户数据')
   await advanceTo('组件许可')
 
