@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""种子数据(个人网银系统)→ 规则引擎 集成测试。
+"""种子数据(示例项目)→ 规则引擎 集成测试。
 
 对应 DESIGN.md 第一批验收目标: 种子数据能生成合理的需求清单。
 """
@@ -28,21 +28,39 @@ def seeded():
 
 
 def test_seed_inputs_complete(seeded):
-    """设计要求的输入规模: 12功能/6资产/5角色8资源/10组件/4接口。"""
+    """设计要求的输入规模: 12功能/6资产/5角色8资源/3外部系统/10组件/4接口(#84)。"""
     from models import (
-        ApiEndpoint, DataAsset, Feature, Resource, Role, SbomComponent,
-        PermissionEntry,
+        ApiEndpoint, DataAsset, ExternalSystem, Feature, Resource, Role,
+        SbomComponent, PermissionEntry,
     )
     session, project, _ = seeded
     assert session.query(Feature).filter_by(project_id=project.id).count() == 12
     assert session.query(DataAsset).filter_by(project_id=project.id).count() == 6
     assert session.query(Role).filter_by(project_id=project.id).count() == 5
     assert session.query(Resource).filter_by(project_id=project.id).count() == 8
+    assert session.query(ExternalSystem).filter_by(project_id=project.id).count() == 3
     assert session.query(SbomComponent).filter_by(project_id=project.id).count() == 10
     assert session.query(ApiEndpoint).filter_by(project_id=project.id).count() == 4
     assert session.query(PermissionEntry).join(
         Role, PermissionEntry.role_id == Role.id
     ).filter(Role.project_id == project.id).count() >= 15  # 矩阵有效覆盖
+
+
+def test_seed_covers_c3_and_boundary_samples(seeded):
+    """C3 鉴别信息标记与匿名+公网接口样例必须存在(#84): 驱动对应专属规则演示。"""
+    from models import ApiEndpoint, DataAsset, ExternalSystem
+    session, project, _ = seeded
+    assert session.query(DataAsset).filter_by(project_id=project.id, c3_tag=True).count() >= 1
+    anon_pub = [
+        e for e in session.query(ApiEndpoint).filter_by(project_id=project.id)
+        if not e.auth_required and e.public_exposed
+    ]
+    assert anon_pub, "应有匿名且公网暴露的接口样例"
+    sensitive = [
+        e for e in session.query(ExternalSystem).filter_by(project_id=project.id)
+        if e.involves_sensitive
+    ]
+    assert sensitive, "应有涉敏感数据交互的外部系统样例"
 
 
 def test_log4j_component_seeded_for_vulnerability_demo(seeded):

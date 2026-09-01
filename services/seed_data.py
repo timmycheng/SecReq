@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
-"""种子数据: 演示项目「个人网银系统」。
+"""种子数据: 示例项目「个人网银系统」(对外展示名「示例项目」, #84)。
 
 对应 DESIGN.md 交付物第2条:
-12功能 / 6数据资产 / 5角色×8资源权限矩阵(含故意构造的审批缺失与SoD冲突) /
-10技术栈组件(故意包含 log4j 2.14.1 用于第二批漏洞演示) / 4 API接口。
+12功能 / 6数据资产(C3 鉴别信息标记) / 5角色×8资源权限矩阵(含故意构造的审批缺失与SoD冲突) /
+3外部系统(含敏感数据交互) / 10技术栈组件(故意包含 log4j 2.14.1 用于漏洞演示) / 4 API接口(含匿名+公网暴露组合)。
 数据分级采用 JR/T 0197-2020 五级(4级资产不触发L5报送、无外采SaaS不触发外包评定)。
 """
 from sqlalchemy.orm import Session
 
 import shared.constants as C
 from models import (
-    ApiEndpoint, AuthConfig, DataAsset, DataField, DataTable, Feature,
+    ApiEndpoint, AuthConfig, DataAsset, DataField, DataTable, ExternalSystem, Feature,
     GradingSurvey, InfraAsset, PermissionEntry, Project, Resource, Role,
     SbomComponent,
 )
@@ -27,7 +27,7 @@ def seed_demo_project(session: Session, overwrite: bool = True) -> Project:
         _delete_project(session, existing)
 
     project = Project(
-        name="个人网银系统",
+        name="示例项目",
         code=DEMO_PROJECT_CODE,
         type="web",
         industry="零售金融-个人业务条线",
@@ -271,6 +271,20 @@ def seed_demo_project(session: Session, overwrite: bool = True) -> Project:
                 ecosystem=ecosystem, distro=distro,
             )
         )
+
+    # ── Step1 外部系统连接(#84 补齐: 向导第 1 步的输入此前无样例) ──
+    external_systems = [
+        # 含敏感数据交互 → 触发 external_system sensitive_only 专属规则
+        ("行内核心系统", "账户与账务数据读写(含持卡人敏感信息)", "bidirectional", True),
+        ("运营商短信网关", "发送验证码短信(含手机号)", "outbound", True),
+        # 普通交互 → 触发 external_system 通用边界安全规则
+        ("统一运维监控平台", "上报应用运行指标与日志", "outbound", False),
+    ]
+    for name, purpose, direction, sensitive in external_systems:
+        session.add(ExternalSystem(
+            project_id=project.id, name=name, purpose=purpose,
+            direction=direction, involves_sensitive=sensitive,
+        ))
 
     # ── Step8 API 接口清单(4条)与基础设施资产 ─────────────
     asset_ids = {a.name: a.id for a in session.query(DataAsset).filter_by(project_id=project.id)}
