@@ -74,7 +74,7 @@ test('建项目 → 8步向导 → 生成 → 批量确认 → 导出', async ({
   await expect(activeStep).toContainText('数据字典', { timeout: 20_000 })
   await page.getByRole('button', { name: '新增数据资产' }).click()
   await page.getByPlaceholder('如: 银行账户信息').fill('E2E 客户信息')
-  const dtypeItem = page.locator('.ant-form-item', { hasText: '资产分类' }).first()
+  const dtypeItem = page.locator('.ant-form-item', { hasText: '数据类别' }).first()
   await dtypeItem.locator('.ant-select').click()
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Enter')
