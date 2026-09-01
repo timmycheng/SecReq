@@ -1,7 +1,7 @@
-/* 系统管理(仅安全角色): 知识库/定级题库/策略基线/大模型接入/漏洞库/用户/审计。
+/* 系统管理(仅安全角色): 知识库/定级题库/策略基线/大模型接入/漏洞库/用户/审计, 共七个 Tab。
 
-   v2.2.0: 六个 Tab 拆分为 src/ui/admin/ 下各自独立的组件, 本文件只保留外壳与路由;
-   各 Tab 经 React.lazy 按需加载, 首屏只下载知识库与漏洞库两个 Tab 的代码。 */
+   各 Tab 拆分为 src/ui/admin/ 下各自独立的组件, 本文件只保留外壳与路由;
+   Tab 组件经 React.lazy 按需加载, 切换到哪个 Tab 才下载并渲染对应代码(#40)。 */
 import { Suspense, lazy } from 'react'
 import { Card, Result, Spin, Tabs, Typography } from 'antd'
 

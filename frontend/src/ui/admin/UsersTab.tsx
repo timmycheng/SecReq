@@ -44,7 +44,9 @@ export default function UsersTab() {
                   onConfirm={async () => {
                     try {
                       const res = await api.adminResetPassword(r.username)
-                      message.success(`已重置, 新密码 ${res.password ?? '-'}`, 8)
+                      // 后端仅在未指定新密码时返回生成的随机密码; 为空不能拿"-"冒充密码展示(#39)
+                      if (res.password) message.success(`已重置, 新密码 ${res.password}`, 8)
+                      else message.success('密码已重置')
                     } catch (e) { message.error((e as Error).message) }
                   }}
                 >

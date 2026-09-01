@@ -278,6 +278,8 @@ export interface VulnerabilityRow {
 export interface VulnSourceRow {
   code: string
   name: string
+  /** 中文名(后端统一下发, 前端不自映射) */
+  label?: string
   available: boolean
   reason?: string | null
   active: boolean

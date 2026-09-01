@@ -30,6 +30,13 @@ SOURCE_LOCAL = "osv_local"
 SOURCE_ONLINE = "osv_online"
 SOURCE_SCA = "sca"
 
+#: 数据源 code → 中文名, 随 /vuln-db 快照统一下发(前端不自映射, #41)
+SOURCE_LABELS: dict[str, str] = {
+    "local": "本地漏洞库",
+    "online": "OSV.dev 在线",
+    "sca": "行内 SCA 平台",
+}
+
 ENV_VULN_SOURCE = "SECREQ_VULN_SOURCE"
 ENV_VULNDB_PATH = "SECREQ_VULNDB_PATH"
 ENV_CNNVD_PATH = "SECREQ_CNNVD_PATH"
@@ -180,13 +187,15 @@ def describe_sources() -> list[dict]:
             rows.append({
                 "code": code,
                 "name": source.name,
+                "label": SOURCE_LABELS.get(code, code),
                 "available": ok,
                 "reason": reason or None,
                 "active": False,
             })
         except VulnSourceUnavailable as exc:
             rows.append({
-                "code": code, "name": code, "available": False,
+                "code": code, "name": code, "label": SOURCE_LABELS.get(code, code),
+                "available": False,
                 "reason": str(exc), "active": False,
             })
     try:
