@@ -49,6 +49,7 @@ def run_full_pipeline(
     engine: RuleEngine | None = None,
     osv_client: OsvClient | None = None,
     skip_osv: bool = False,
+    vuln_source_override: str | None = None,
 ) -> PipelineResult:
     """对单个项目执行"需求+SBOM+漏洞+文档"全量生成。
 
@@ -70,7 +71,8 @@ def run_full_pipeline(
 
     # ② 漏洞同步(指纹缓存/失败降级); 同步后整体重载上下文以携带最新记录
     if not skip_osv:
-        _, result.sync = sync_vulnerabilities(session, ctx.components, client=osv_client)
+        _, result.sync = sync_vulnerabilities(
+            session, ctx.components, client=osv_client, source_override=vuln_source_override)
         ctx = RequirementContext.from_db(session, project_id)
 
     all_vulns = _load_vulnerabilities(session, ctx.components)
@@ -94,6 +96,7 @@ async def run_full_pipeline_async(
     engine: RuleEngine | None = None,
     osv_client: OsvClient | None = None,
     skip_osv: bool = False,
+    vuln_source_override: str | None = None,
 ) -> PipelineResult:
     """run_full_pipeline 的异步版(#71): 在线漏洞源走并发查询, 其余流程不变。
 
@@ -112,7 +115,7 @@ async def run_full_pipeline_async(
 
     if not skip_osv:
         _, result.sync = await sync_vulnerabilities_async(
-            session, ctx.components, client=osv_client)
+            session, ctx.components, client=osv_client, source_override=vuln_source_override)
         ctx = RequirementContext.from_db(session, project_id)
 
     result.vulnerabilities = _load_vulnerabilities(session, ctx.components)

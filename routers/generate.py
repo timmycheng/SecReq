@@ -46,9 +46,10 @@ XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.s
 
 
 class GenerateRequest(BaseModel):
-    """skip_osv=True 时跳过 OSV.dev 网络查询(离线演示)。"""
+    """skip_osv=True 时跳过漏洞查询(兼容保留); vuln_source 指定本次生成的数据源覆盖(#94)。"""
 
     skip_osv: bool = False
+    vuln_source: str | None = Field(default=None, pattern=r"^(local|online|sca)$")
 
 
 def _category_counts(requirements: list[SecurityRequirement]) -> list[CategoryCount]:
@@ -105,10 +106,11 @@ async def generate(payload: GenerateRequest | None = None,
     async def(#71): 在线漏洞源并发查询; 本地源毫秒级, 走同一入口无额外开销。
     """
     skip_osv = bool(payload.skip_osv) if payload else False
+    vuln_source = payload.vuln_source if payload else None
     try:
         result = await run_full_pipeline_async(
             db, project.id, out_dir=project_output_dir(ROOT_DIR / "output", project.code),
-            skip_osv=skip_osv,
+            skip_osv=skip_osv, vuln_source_override=vuln_source,
         )
     except ValueError as exc:            # 项目不存在等(业务性, 原因可回显)
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -119,7 +121,8 @@ async def generate(payload: GenerateRequest | None = None,
     project.status = "generated"
     db.commit()
     audit(db, user.username, "generate", {"project_id": project.id,
-          "requirements": len(result.requirements)})
+          "requirements": len(result.requirements),
+          **({"vuln_source": vuln_source} if vuln_source else {})})
 
     critical_vulns = sum(1 for v in result.vulnerabilities if v.severity == "critical")
     return GenerateSummary(

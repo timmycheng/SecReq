@@ -99,10 +99,8 @@ test('建项目 → 8步向导 → 生成 → 批量确认 → 导出', async ({
   }
   await advanceTo('确认生成')
 
-  // ── 第 8 步: 确认生成(跳过联网查询, 保持用例封闭) ──
+  // ── 第 8 步: 确认生成(默认本地离线库, 保持用例封闭) ──
   await expect(page.locator('.ant-steps-item-active')).toContainText('确认生成', { timeout: 20_000 })
-  const osvSwitch = page.locator('button[role="switch"]').first()
-  if (await osvSwitch.getAttribute('aria-checked') === 'true') await osvSwitch.click()
   await page.getByRole('button', { name: /生成安全基线/ }).click()
 
   // 生成完成 → 跳转产物页, 需求数量 > 0

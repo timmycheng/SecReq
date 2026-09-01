@@ -377,3 +377,42 @@ def test_async_sync_respects_total_budget(session):
     assert elapsed < 2.0, f"总预算未生效: 耗时 {elapsed:.1f}s"
     assert len(result.failed) == 3
     assert all(c.vuln_status == "undetermined" for c in comps)
+
+
+def test_sync_source_override_local_unavailable(session, monkeypatch, tmp_path):
+    """#94: 单次生成数据源覆盖 —— local 库缺失时全部 undetermined, 不静默当无漏洞。"""
+    monkeypatch.setenv("SECREQ_VULNDB_PATH", str(tmp_path / "nope.sqlite"))
+    _, comps = _seed_components(session)
+    records, result = sync_vulnerabilities(session, comps, source_override="local")
+    assert len(result.failed) == 3
+    assert all(c.vuln_status == "undetermined" for c in comps)
+
+
+def test_sync_source_override_local_uses_local_db(session, monkeypatch, tmp_path):
+    """覆盖为 local 时走本地库(在线客户端被忽略), 未覆盖组件语义为 not_found。"""
+    import json as _json
+    import zipfile
+
+    from scripts.build_vuln_db import build
+
+    sample = {
+        "id": "GHSA-test-local",
+        "aliases": ["CVE-2099-4242"],
+        "database_specific": {"severity": "HIGH"},
+        "affected": [{
+            "package": {"name": "log4j-core", "ecosystem": "Maven"},
+            "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "2.15.0"}]}],
+        }],
+    }
+    zpath = tmp_path / "Maven.zip"
+    with zipfile.ZipFile(zpath, "w") as zf:
+        zf.writestr("GHSA-test-local.json", _json.dumps(sample))
+    out = tmp_path / "vulndb.sqlite"
+    build([( "Maven", zpath)], out, slim=False, compress=True)
+    monkeypatch.setenv("SECREQ_VULNDB_PATH", str(out))
+
+    _, comps = _seed_components(session)
+    records, result = sync_vulnerabilities(session, comps, source_override="local")
+    assert result.source == "osv_local"
+    assert result.status.get("log4j-core") == "hit"  # 本地库命中(2.14.1 < 2.15.0)
+    assert set(result.status.values()) <= {"hit", "not_found", "not_covered", "undetermined"}

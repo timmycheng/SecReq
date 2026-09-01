@@ -2,7 +2,7 @@
    规则引擎试算预览触发规模 → 生成安全基线。生成读取的是各步"已保存"的数据。 */
 import { useState } from 'react'
 import {
-  Alert, App, Button, Card, Descriptions, Space, Spin, Switch, Tag, Typography,
+  Alert, App, Button, Card, Descriptions, Radio, Space, Spin, Tag, Typography,
 } from 'antd'
 import { PlayCircleOutlined } from '@ant-design/icons'
 
@@ -24,7 +24,10 @@ export default function ConfirmStep({ ws, goto }: StepProps) {
   const [preview, setPreview] = useState<PreviewResult | null>(null)
   const [previewing, setPreviewing] = useState(false)
   const [generating, setGenerating] = useState(false)
-  const [osvOnline, setOsvOnline] = useState(true)
+  // 漏洞库查询方式(#94): 默认跟随部署链; local 链锁定时在线项禁用
+  const chain = (enums['vuln_source_chain'] as string[] | undefined) ?? ['local']
+  const localLocked = chain.includes('local') && !chain.includes('online')
+  const [vulnSource, setVulnSource] = useState<'online' | 'local'>(localLocked ? 'local' : 'online')
 
   const priorityLabels = labelMapOf(enums, 'priority_labels')
 
@@ -45,7 +48,7 @@ export default function ConfirmStep({ ws, goto }: StepProps) {
   const doGenerate = async () => {
     setGenerating(true)
     try {
-      const summary = await api.generate(ws.project.id, !osvOnline)
+      const summary = await api.generate(ws.project.id, false, vulnSource)
       message.success(
         `已生成 ${summary.requirements_total} 条安全需求${summary.vulnerabilities_total
           ? `, 命中 ${summary.vulnerabilities_total} 条漏洞(其中严重 ${summary.critical_vulnerabilities} 条)`
@@ -183,13 +186,29 @@ export default function ConfirmStep({ ws, goto }: StepProps) {
         </Space>
       </Card>
 
-      <Space align="center" style={{ marginTop: 20 }}>
-        <Switch checked={osvOnline} onChange={setOsvOnline} />
-        <span><GlossaryTip term="osv">在线查询 OSV.dev 漏洞库</GlossaryTip></span>
-        <Typography.Text type="secondary">(关闭则跳过联网查询, 使用库内已有漏洞数据; 查询失败会自动降级, 不阻塞生成)</Typography.Text>
-      </Space>
+      <div style={{ marginTop: 20, textAlign: 'center' }}>
+        <Space align="center" size={12} wrap style={{ justifyContent: 'center' }}>
+          <Typography.Text>漏洞库查询方式:</Typography.Text>
+          <Radio.Group
+            value={vulnSource}
+            onChange={(e) => setVulnSource(e.target.value)}
+            optionType="button"
+            options={[
+              { value: 'online', label: '在线查询(OSV.dev)', disabled: localLocked },
+              { value: 'local', label: '本地离线库' },
+            ]}
+          />
+        </Space>
+        <div>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {localLocked
+              ? '(部署配置已锁定为本地库, 在线查询不可用; 本地库未覆盖的组件会明确标注, 不当作"确认无漏洞")'
+              : '(查询失败会自动降级, 不阻塞生成; 本地库未覆盖的组件会明确标注, 不当作"确认无漏洞")'}
+          </Typography.Text>
+        </div>
+      </div>
 
-      <div style={{ marginTop: 16 }}>
+      <div style={{ marginTop: 16, textAlign: 'center' }}>
         {generating
           ? <Spin tip="正在执行规则引擎与文档生成…"><div style={{ height: 60 }} /></Spin>
           : (

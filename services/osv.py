@@ -406,6 +406,7 @@ def sync_vulnerabilities(
     force: bool = False,
     now: datetime | None = None,
     source=None,
+    source_override: str | None = None,
 ) -> tuple[list[VulnerabilityRecord], OsvSyncResult]:
     """对组件清单执行漏洞同步(指纹缓存 + 失败降级), 返回(全部记录, 同步汇总)。
 
@@ -419,6 +420,10 @@ def sync_vulnerabilities(
     now = now or datetime.now(timezone.utc)
     result = OsvSyncResult()
 
+    if source is None and source_override:
+        # 单次生成的数据源覆盖(#94): 界面选择 在线/本地, 不改部署配置
+        from services.vuln_source import get_source_by_code
+        source = get_source_by_code(source_override)
     if source is None:
         if client is not None:
             from services.vulndb import OsvOnlineSource
@@ -505,6 +510,7 @@ async def sync_vulnerabilities_async(
     force: bool = False,
     now: datetime | None = None,
     source=None,
+    source_override: str | None = None,
     total_budget: float = 60.0,
     concurrency: int = 8,
 ) -> tuple[list[VulnerabilityRecord], OsvSyncResult]:
@@ -523,6 +529,10 @@ async def sync_vulnerabilities_async(
     now = now or datetime.now(timezone.utc)
     result = OsvSyncResult()
 
+    if source is None and source_override:
+        # 单次生成的数据源覆盖(#94): 界面选择 在线/本地, 不改部署配置
+        from services.vuln_source import get_source_by_code
+        source = get_source_by_code(source_override)
     if source is None:
         if client is not None:
             from services.vulndb import OsvOnlineSource
