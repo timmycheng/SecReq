@@ -164,6 +164,15 @@ def _apply_policy_settings(db: Session) -> None:
         set_policy_baselines(stored["baselines"])
 
 
+# ── 更新日志(#55) ─────────────────────────────────────
+@router.get("/changelog")
+def get_changelog(_: PlatformUser = Depends(require_security)):
+    """仓库根 CHANGELOG.md 解析为结构化版本列表(新版本在前); 文件缺失返回空列表。"""
+    from services.changelog import load_changelog
+
+    return load_changelog()
+
+
 # ── 项目编号规则 ──────────────────────────────────────
 class ProjectCodeRuleIn(BaseModel):
     prefix: str = Field(min_length=1, max_length=10, pattern=r"^[A-Za-z0-9]+$",

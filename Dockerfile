@@ -35,6 +35,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 COPY main.py ./
+# 更新日志页数据源(#55); 文件缺失时接口返回空列表兜底
+COPY CHANGELOG.md ./
 COPY models/ models/
 COPY schemas/ schemas/
 COPY routers/ routers/

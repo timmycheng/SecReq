@@ -446,3 +446,17 @@ def test_project_code_rule_fallback_defaults(sec, api):
     assert resp.status_code == 201
     code = resp.json()["code"]
     assert re.fullmatch(r"XM\d{4}-\d{3}", code), f"默认格式不符: {code}"
+
+
+def test_changelog_endpoint_versions_descending(sec):
+    """更新日志页数据源(#55): 按版本章节解析, 新版本在前。"""
+    rows = sec.get("/api/admin/changelog").json()
+    assert rows, "应解析出至少一个版本章节"
+    assert rows[0]["version"] == "2.3.0"
+    dates = [r["date"] for r in rows]
+    assert dates == sorted(dates, reverse=True)
+    # 结构化块: 最新版本应有正文块且行为 #66/#68 的条目
+    kinds = {b["kind"] for b in rows[0]["blocks"]}
+    assert kinds & {"h3", "para", "list_item"}
+    texts = [b.get("text", "") for b in rows[0]["blocks"]]
+    assert any("uid" in x for x in texts)
