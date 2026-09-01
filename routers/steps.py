@@ -483,9 +483,12 @@ def save_infra_assets(payload: InfraAssetListIn,
 
 
 class TopologySaveIn(BaseModel):
-    """按环境整卷保存拓扑(#93): 设备 + 区域 + 连线 + 布局。"""
+    """按环境整卷保存拓扑(#93): 设备 + 区域 + 连线 + 布局。
 
-    env: str = Field(pattern=r"^(test|prod)$")
+    dev 仅保存设备清单(无画布, zones/links 恒空)。
+    """
+
+    env: str = Field(pattern=r"^(test|prod|dev)$")
     zones: list[dict] = Field(default_factory=list)
     links: list[dict] = Field(default_factory=list)
     layout: dict = Field(default_factory=dict)
