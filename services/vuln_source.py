@@ -149,6 +149,15 @@ def _build(code: str):
     raise VulnSourceUnavailable(f"未知的漏洞数据源配置: {code}")
 
 
+def get_source_by_code(code: str):
+    """按 code 构建单个数据源(local/online/sca), 不可用抛 VulnSourceUnavailable。
+
+    供「单次生成的数据源覆盖」使用(#94): 界面选择的 在线/本地 只影响本次生成,
+    不改部署配置(SECREQ_VULN_SOURCE)。
+    """
+    return _build(code)
+
+
 def configured_chain() -> list[str]:
     """配置的数据源链(逗号分隔), 默认 local。"""
     raw = os.environ.get(ENV_VULN_SOURCE, "local")

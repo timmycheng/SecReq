@@ -8,6 +8,7 @@ from fastapi import APIRouter
 
 import shared.constants as C
 from services.grading import load_questions
+from services.vuln_source import configured_chain
 
 router = APIRouter(prefix="/api/meta", tags=["meta"])
 
@@ -64,6 +65,8 @@ def get_constants() -> dict:
             "default_session_timeout_min": C.DEFAULT_SESSION_TIMEOUT_MIN,
             "severity_labels": C.SEVERITY_LABELS,
             "kylin_proxy_note": C.KYLIN_PROXY_NOTE,
+            # 部署期数据源链(#94): 界面「漏洞库查询方式」据此定默认与可选项
+            "vuln_source_chain": configured_chain(),
         }
     )
     return payload

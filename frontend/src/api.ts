@@ -225,9 +225,10 @@ export const api = {
 
   previewRequirements: (id: number) =>
     request<PreviewResult>(`/api/projects/${id}/requirements/preview`, { method: 'POST' }),
-  generate: (id: number, skipOsv: boolean) =>
+  generate: (id: number, skipOsv: boolean, vulnSource?: 'online' | 'local') =>
     request<GenerateSummary>(`/api/projects/${id}/generate`, {
-      method: 'POST', body: JSON.stringify({ skip_osv: skipOsv }),
+      method: 'POST',
+      body: JSON.stringify({ skip_osv: skipOsv, ...(vulnSource ? { vuln_source: vulnSource } : {}) }),
     }),
 
   listRequirements: (id: number) => request<RequirementRow[]>(`/api/projects/${id}/requirements`),
