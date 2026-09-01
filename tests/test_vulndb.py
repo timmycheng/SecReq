@@ -46,6 +46,23 @@ ALPINE_OPENSSL = {
     }],
 }
 
+# Alpine Redis: 无 versions 枚举、修复版本 6.2.6(#96 目标版本=修复版本误报样本)
+ALPINE_REDIS = {
+    "id": "ALPINE-CVE-2021-32675",
+    "aliases": ["CVE-2021-32675"],
+    "summary": "Redis 整数溢出导致堆越界写",
+    "database_specific": {"severity": "HIGH"},
+    "affected": [{
+        "package": {
+            "name": "redis", "ecosystem": "Alpine:v3.15",
+            "purl": "pkg:apk/alpine/redis?arch=source",
+        },
+        "ranges": [{"type": "ECOSYSTEM", "events": [
+            {"introduced": "0"}, {"fixed": "6.2.6"},
+        ]}],
+    }],
+}
+
 NPM_LODASH = {
     "id": "GHSA-p6mc-m468-83gg",
     "aliases": ["CVE-2020-8203"],
@@ -147,7 +164,7 @@ def vulndb_path(tmp_path_factory):
     zips = []
     groups = {
         "Bitnami": [BITNAMI_REDIS],
-        "Alpine": [ALPINE_OPENSSL],
+        "Alpine": [ALPINE_OPENSSL, ALPINE_REDIS],
         "npm": [NPM_LODASH, NPM_PRERELEASE, VERSIONS_ONLY_NPM],
         "Maven": [MAVEN_LOG4J, MAVEN_MULTI_PACKAGE],
     }
@@ -158,8 +175,8 @@ def vulndb_path(tmp_path_factory):
 
     out = tmp_path_factory.mktemp("vulndb") / "vulndb.sqlite"
     stats = build(zips, out, slim=False, compress=True)
-    # total 按"坐标行"计数(一条公告的多个 affected 包各算一行): 7 条公告 8 个坐标
-    assert stats["total"] == 8
+    # total 按"坐标行"计数(一条公告的多个 affected 包各算一行): 8 条公告 9 个坐标
+    assert stats["total"] == 9
     return str(out)
 
 
@@ -241,6 +258,24 @@ def test_alpine_version_without_revision_is_conservatively_flagged(local):
     result = local.query(_query("openssl", "1.0.2h", distro="alpine"))
     assert result.status == "hit"
     assert "修订号" in (result.note or "")
+
+
+def test_target_equal_to_fixed_version_is_not_reported(local):
+    """目标版本与修复版本完全相等: 不命中(#96 误报回归护栏)。
+
+    Redis@6.2.6 与 fixed=6.2.6 原始串相同, 用户已在修复版本上;
+    疑似命中兜底只覆盖「原始串不同、归一化后相同」的场景, 不得把相等也吞进去。
+    """
+    result = local.query(_query("redis", "6.2.6", distro="alpine"))
+    assert result.status == "not_found"
+    assert result.vulns == []
+
+
+def test_target_inside_window_still_hits_normally(local):
+    """目标版本落在 [introduced, fixed) 区间内: 正常命中(#96 修复不伤及正常路径)。"""
+    result = local.query(_query("redis", "6.2.5", distro="alpine"))
+    assert result.status == "hit"
+    assert result.vulns[0]["id"] == "ALPINE-CVE-2021-32675"
 
 
 def test_maven_tail_matches_bare_artifact_name(local):
