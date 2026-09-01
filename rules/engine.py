@@ -32,11 +32,32 @@ class RuleEngineError(Exception):
 
 @dataclass
 class Match:
-    """一次命中: 渲染所需占位符 + 可追溯来源实体。"""
+    """一次命中: 渲染所需占位符 + 可追溯来源实体。
+
+    source_entity_uid 是溯源权威锚点(跨整卷保存稳定, #66);
+    source_entity_id 兼容保留(展示排序兜底), permission_entry 复合键时为 None。
+    """
 
     placeholders: dict[str, str]
     source_entity_type: str
-    source_entity_id: int
+    source_entity_id: int | None
+    source_entity_uid: str | None = None
+
+
+_REQ_SEQ_RE = re.compile(r"^(?P<base>.*?)(?:-(?P<seq>\d{2,}))?$")
+
+
+def _next_free_req_id(want: str, taken: set[str]) -> str:
+    """want 可用则原样返回; 否则 base 序号递增到首个空闲值(确定性, 不依赖遍历顺序)。"""
+    if want not in taken:
+        return want
+    m = _REQ_SEQ_RE.match(want)
+    base, seq = m.group("base"), int(m.group("seq") or 1)
+    while True:
+        seq += 1
+        candidate = f"{base}-{seq:02d}"
+        if candidate not in taken:
+            return candidate
 
 
 def render(text: str, placeholders: dict[str, str], template_id: str) -> str:
@@ -108,7 +129,7 @@ class RuleEngine:
                 continue
             try:
                 for match in handler(tpl, ctx):
-                    key = (tpl.id, match.source_entity_id)
+                    key = (tpl.id, match.source_entity_uid or match.source_entity_id)
                     if key in seen:  # 同一模板对同一来源只生成一条
                         continue
                     seen.add(key)
@@ -119,9 +140,11 @@ class RuleEngine:
                 self._skip(tpl, str(exc))
 
         # 稳定排序后分配 req_id 与实例序号; 监管报送类恒置顶
+        # 按来源 uid 稳定排序(#66): 自增 id 会随整卷替换漂移, 会让 req_id 序号不稳定
         collected.sort(key=lambda pair: (
             0 if pair[0].trigger_type == "regulatory_trigger" else 1,
-            pair[1].source_entity_id,
+            pair[1].source_entity_uid or "",
+            pair[1].source_entity_id or 0,
         ))
         counters: dict[str, int] = {}
         requirements: list[SecurityRequirement] = []
@@ -145,9 +168,10 @@ class RuleEngine:
                     acceptance_criteria=render(tpl.acceptance_criteria, merged, tpl.id),
                     suggested_phase=tpl.suggested_phase,
                     source_entity_type=match.source_entity_type,
-                    source_entity_id=match.source_entity_id,
+                    source_entity_id=match.source_entity_id or 0,
+                    source_entity_uid=match.source_entity_uid,
                     trigger_reason=render(tpl.trigger_reason, merged, tpl.id),
-                    source_label=self._source_label(ctx, match.source_entity_type, match.source_entity_id),
+                    source_label=self._source_label(ctx, match.source_entity_type, match.source_entity_uid),
                     status="open",
                     regulatory_ref=[dict(ref) for ref in tpl.regulatory_ref],
                     reg_confirmed=False,
@@ -160,33 +184,35 @@ class RuleEngine:
             requirements.append(req)
         return requirements
 
-    def _source_label(self, ctx: RequirementContext, entity_type: str, entity_id: int) -> str:
-        """来源溯源中文名(展示用, 替代 data_asset#3 形态)。"""
+    def _source_label(self, ctx: RequirementContext, entity_type: str, entity_uid: str | None) -> str:
+        """来源溯源中文名(展示用, 替代 data_asset#3 形态); 按 uid 查实体(#66)。"""
         label = C.label(C.SOURCE_TYPE_LABELS, entity_type, entity_type)
         if entity_type == "feature":
-            found = next((f for f in ctx.features if f.id == entity_id), None)
+            found = ctx.entity_by_uid("feature", entity_uid)
             return f"{label}:{found.name}" if found else label
         if entity_type == "role":
-            found = next((r for r in ctx.roles if r.id == entity_id), None)
+            found = ctx.entity_by_uid("role", entity_uid)
             return f"{label}:{found.name}" if found else label
         if entity_type == "permission_entry":
-            entry = next((e for e in ctx.permission_entries if e.id == entity_id), None)
-            if entry:
-                role = self._entry_role(ctx, entry)
-                res = ctx.resource_by_id(entry.resource_id)
-                return f"权限授权:{role.name if role else '?'}→{res.name if res else '?'}({C.label(C.PERMISSION_ACTIONS, entry.action)})"
+            # 复合键: role_uid|resource_uid|action
+            if entity_uid:
+                role_uid, res_uid, action = entity_uid.split("|", 2)
+                role = ctx.entity_by_uid("role", role_uid)
+                res = ctx.entity_by_uid("resource", res_uid)
+                if role and res:
+                    return f"权限授权:{role.name}→{res.name}({C.label(C.PERMISSION_ACTIONS, action)})"
             return label
         if entity_type == "data_asset":
-            found = next((a for a in ctx.data_assets if a.id == entity_id), None)
+            found = ctx.entity_by_uid("data_asset", entity_uid)
             return f"{label}:{found.name}" if found else label
         if entity_type == "api_endpoint":
-            found = next((e for e in ctx.api_endpoints if e.id == entity_id), None)
+            found = ctx.entity_by_uid("api_endpoint", entity_uid)
             return f"{label}:{found.name}" if found else label
         if entity_type == "sbom_component":
-            found = next((c for c in ctx.components if c.id == entity_id), None)
+            found = ctx.entity_by_uid("sbom_component", entity_uid)
             return f"{label}:{found.name}@{found.version}" if found else label
         if entity_type == "external_system":
-            found = next((s for s in ctx.external_systems if s.id == entity_id), None)
+            found = ctx.entity_by_uid("external_system", entity_uid)
             return f"{label}:{found.name}" if found else label
         if entity_type == "compliance_target":
             return label
@@ -195,10 +221,43 @@ class RuleEngine:
         return label
 
     def generate_and_save(self, ctx: RequirementContext, session) -> list[SecurityRequirement]:
-        """生成并持久化(供后续 POST /generate 路由复用); 重复执行先清空旧需求。"""
-        session.query(SecurityRequirement).filter_by(project_id=ctx.project.id).delete()
-        requirements = self.generate(ctx)
-        session.add_all(requirements)
+        """生成并持久化: 按 (template_id, source_entity_uid) upsert(#66, P0-1)。
+
+        - 命中已有行 → 更新标题/描述等派生字段, 保留 reg_confirmed/confirmed_by/
+          confirmed_at 与 status(此前被标 obsolete 的行复活时回到 open);
+        - 未命中 → 新增;
+        - 本轮未命中的旧行 → 不硬删, 标 status="obsolete"(输入已变更/风险已消除),
+          保留 source_label, 不伪造映射。
+
+        req_id 唯一性: 保留行的 req_id 原样占位(确认记录与外部引用不漂移),
+        新增行撞号时递增序号, obsolete 行撞号时加 -OBS 后缀。
+        """
+        existing = session.query(SecurityRequirement).filter_by(project_id=ctx.project.id).all()
+        index = {(r.template_id, r.source_entity_uid): r for r in existing}
+        requirements: list[SecurityRequirement] = []
+        taken: set[str] = set()
+        for req in self.generate(ctx):
+            old = index.pop((req.template_id, req.source_entity_uid), None)
+            if old is not None:
+                for field in ("title", "description", "category", "priority", "asvs_ref",
+                              "acceptance_criteria", "suggested_phase", "trigger_reason",
+                              "source_entity_type", "source_entity_id", "source_label",
+                              "regulatory_ref"):
+                    setattr(old, field, getattr(req, field))
+                if old.status == "obsolete":
+                    old.status = "open"
+                requirements.append(old)
+                taken.add(old.req_id)
+            else:
+                req.req_id = _next_free_req_id(req.req_id, taken)
+                taken.add(req.req_id)
+                requirements.append(req)
+                session.add(req)
+        for old in index.values():
+            old.status = "obsolete"
+            if old.req_id in taken:
+                old.req_id = _next_free_req_id(f"{old.req_id}-OBS", taken)
+            taken.add(old.req_id)
         session.commit()
         return requirements
 
@@ -231,6 +290,7 @@ class RuleEngine:
                         },
                         source_entity_type="feature",
                         source_entity_id=feature.id,
+                        source_entity_uid=feature.uid,
                     )
                 )
         return matches
@@ -276,7 +336,8 @@ class RuleEngine:
                             "role_name": role.name,
                         },
                         source_entity_type="permission_entry",
-                        source_entity_id=entry.id,
+                        source_entity_id=None,
+                        source_entity_uid=f"{role.uid}|{resource.uid}|{entry.action}",
                     )
                 )
         return matches
@@ -310,6 +371,7 @@ class RuleEngine:
                         },
                         source_entity_type="role",
                         source_entity_id=role.id,
+                        source_entity_uid=role.uid,
                     )
                 )
         return matches
@@ -321,6 +383,7 @@ class RuleEngine:
                 placeholders={"user_count": str(role.user_count_estimate)},
                 source_entity_type="role",
                 source_entity_id=role.id,
+                source_entity_uid=role.uid,
             )
             for role in ctx.roles
             if role.role_type == "super_admin"
@@ -385,7 +448,7 @@ class RuleEngine:
         if "classification" in condition:
             for asset in ctx.data_assets:
                 if asset.classification == condition["classification"]:
-                    matches.append(Match({"asset_name": asset.name}, "data_asset", asset.id))
+                    matches.append(Match({"asset_name": asset.name}, "data_asset", asset.id, asset.uid))
 
         elif "level" in condition or "min_level" in condition:
             threshold = C.level_rank(condition.get("level") or condition.get("min_level"))
@@ -395,17 +458,17 @@ class RuleEngine:
                 if rank <= 0:
                     continue
                 if (rank == threshold) if exact else (rank >= threshold):
-                    matches.append(Match({"asset_name": asset.name}, "data_asset", asset.id))
+                    matches.append(Match({"asset_name": asset.name}, "data_asset", asset.id, asset.uid))
 
         elif condition.get("c3_tag"):
             for asset in ctx.data_assets:
                 if asset.c3_tag:
-                    matches.append(Match({"asset_name": asset.name}, "data_asset", asset.id))
+                    matches.append(Match({"asset_name": asset.name}, "data_asset", asset.id, asset.uid))
 
         elif condition.get("is_sensitive_pii"):
             for asset in ctx.data_assets:
                 if asset.is_sensitive_pii:
-                    matches.append(Match({"asset_name": asset.name}, "data_asset", asset.id))
+                    matches.append(Match({"asset_name": asset.name}, "data_asset", asset.id, asset.uid))
 
         elif "mask_fields_any_of" in condition:
             # 与字段名正则匹配, 命中任一需脱敏字段类型的资产出一条需求
@@ -418,18 +481,19 @@ class RuleEngine:
                             {"asset_name": asset.name, "matched_field_types": labels},
                             "data_asset",
                             asset.id,
+                            asset.uid,
                         )
                     )
 
         elif condition.get("has_log_leakage_risk"):
             for asset in ctx.data_assets:
                 if "log" in (asset.storage_envs or []):
-                    matches.append(Match({"asset_name": asset.name}, "data_asset", asset.id))
+                    matches.append(Match({"asset_name": asset.name}, "data_asset", asset.id, asset.uid))
 
         elif condition.get("cross_border"):
             for asset in ctx.data_assets:
                 if asset.cross_border_transfer:
-                    matches.append(Match({"asset_name": asset.name}, "data_asset", asset.id))
+                    matches.append(Match({"asset_name": asset.name}, "data_asset", asset.id, asset.uid))
 
         return matches
 
@@ -462,7 +526,7 @@ class RuleEngine:
             if "auth_required" in condition and ep.auth_required == bool(condition["auth_required"]):
                 hit = True
             if condition.get("touches_sensitive_asset"):
-                asset_names = ctx.sensitive_asset_names(ep.sensitive_asset_ids)
+                asset_names = ctx.sensitive_asset_names(ep.sensitive_asset_uids)
                 if asset_names:
                     hit = True
 
@@ -477,6 +541,7 @@ class RuleEngine:
                         },
                         source_entity_type="api_endpoint",
                         source_entity_id=ep.id,
+                        source_entity_uid=ep.uid,
                     )
                 )
         return matches
@@ -598,6 +663,7 @@ class RuleEngine:
                 },
                 source_entity_type="external_system",
                 source_entity_id=system.id,
+                source_entity_uid=system.uid,
             )
 
     def _match_license_risk(self, tpl: RequirementTemplate, ctx: RequirementContext) -> list[Match]:
@@ -622,6 +688,7 @@ class RuleEngine:
                 },
                 source_entity_type="sbom_component",
                 source_entity_id=component.id,
+                source_entity_uid=component.uid,
             )
 
     def _match_vulnerabilities(self, tpl: RequirementTemplate, ctx: RequirementContext) -> list[Match]:
@@ -659,6 +726,7 @@ class RuleEngine:
                     },
                     source_entity_type="sbom_component",
                     source_entity_id=component.id,
+                    source_entity_uid=component.uid,
                 )
             )
         return matches

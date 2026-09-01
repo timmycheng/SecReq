@@ -37,6 +37,7 @@ from services.sbom_import import SbomParseError, import_sbom_file
 from services.settings_service import get_llm_config
 from services.step_store import (
     MatrixIndexError, replace_api_endpoints, replace_components,
+    UidContinuityError,
     replace_data_assets, replace_external_systems, replace_features,
     replace_infra_assets, replace_permission_matrix, upsert_auth_config,
 )
@@ -140,7 +141,10 @@ def save_external_systems(payload: list[ExternalSystemIn],
                           project: Project = Depends(get_writable_project),
                           db: Session = Depends(get_db),
                           user: PlatformUser = Depends(require_login)):
-    replace_external_systems(db, project.id, payload)
+    try:
+        replace_external_systems(db, project.id, payload)
+    except UidContinuityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     rows = db.query(ExternalSystem).filter_by(project_id=project.id).order_by(ExternalSystem.id).all()
     _audit_step(db, user, project, "external_systems", len(rows))
     return [ExternalSystemOut.model_validate(r) for r in rows]
@@ -194,7 +198,10 @@ def save_features(payload: list[dict], project: Project = Depends(get_writable_p
                   user: PlatformUser = Depends(require_login)):
     from schemas.feature import FeatureIn
     items = [FeatureIn(**row) for row in payload]
-    replace_features(db, project.id, items)
+    try:
+        replace_features(db, project.id, items)
+    except UidContinuityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     rows = db.query(Feature).filter_by(project_id=project.id).order_by(Feature.id).all()
     _audit_step(db, user, project, "features", len(rows))
     return [FeatureOut.model_validate(f) for f in rows]
@@ -229,7 +236,10 @@ def save_data_assets(payload: list[dict], project: Project = Depends(get_writabl
                      user: PlatformUser = Depends(require_login)):
     from schemas.data_dictionary import DataAssetIn
     items = [DataAssetIn(**row) for row in payload]
-    replace_data_assets(db, project.id, items)
+    try:
+        replace_data_assets(db, project.id, items)
+    except UidContinuityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     assets = db.query(DataAsset).filter_by(project_id=project.id).order_by(DataAsset.id).all()
     _audit_step(db, user, project, "data_assets", len(assets))
     return [asset_to_out(a) for a in assets]
@@ -302,6 +312,8 @@ def save_matrix(payload: PermissionMatrixIn, project: Project = Depends(get_writ
         stats = replace_permission_matrix(db, project.id, payload)
     except MatrixIndexError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except UidContinuityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     _audit_step(db, user, project, "permission_matrix", stats.get("entries", 0))
     return _matrix_out(db, project.id, extra=stats)
 
@@ -321,9 +333,9 @@ def _matrix_out(db: Session, pid: int, extra: dict | None = None) -> dict:
         .order_by(PermissionEntry.id).all()
     )
     body = PermissionMatrixOut(
-        roles=[{"id": r.id, "name": r.name, "role_type": r.role_type,
+        roles=[{"id": r.id, "uid": r.uid, "name": r.name, "role_type": r.role_type,
                 "user_count_estimate": r.user_count_estimate} for r in roles],
-        resources=[{"id": r.id, "name": r.name, "resource_type": r.resource_type,
+        resources=[{"id": r.id, "uid": r.uid, "name": r.name, "resource_type": r.resource_type,
                     "criticality": r.criticality} for r in resources],
         entries=[{"id": e.id, "role_id": e.role_id, "resource_id": e.resource_id,
                   "action": e.action, "requires_approval": bool(e.requires_approval)}
@@ -374,7 +386,10 @@ def get_components(project: Project = Depends(get_accessible_project), db: Sessi
 def save_components(payload: ComponentsSaveIn, project: Project = Depends(get_writable_project),
                     db: Session = Depends(get_db),
                     user: PlatformUser = Depends(require_login)):
-    replace_components(db, project.id, payload.components)
+    try:
+        replace_components(db, project.id, payload.components)
+    except UidContinuityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     comps = db.query(SbomComponent).filter_by(project_id=project.id).order_by(SbomComponent.id).all()
     _audit_step(db, user, project, "components", len(comps))
     return [component_to_out(c) for c in comps]
@@ -404,7 +419,10 @@ def save_api_endpoints(payload: list[ApiEndpointIn],
                        project: Project = Depends(get_writable_project),
                        db: Session = Depends(get_db),
                        user: PlatformUser = Depends(require_login)):
-    replace_api_endpoints(db, project.id, payload)
+    try:
+        replace_api_endpoints(db, project.id, payload)
+    except UidContinuityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     rows = db.query(ApiEndpoint).filter_by(project_id=project.id).order_by(ApiEndpoint.id).all()
     _audit_step(db, user, project, "api_endpoints", len(rows))
     return [ApiEndpointOut.model_validate(e) for e in rows]
@@ -423,7 +441,10 @@ def save_infra_assets(payload: InfraAssetListIn,
                       project: Project = Depends(get_writable_project),
                       db: Session = Depends(get_db),
                       user: PlatformUser = Depends(require_login)):
-    replace_infra_assets(db, project.id, payload.assets)
+    try:
+        replace_infra_assets(db, project.id, payload.assets)
+    except UidContinuityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     rows = db.query(InfraAsset).filter_by(project_id=project.id).order_by(InfraAsset.id).all()
     _audit_step(db, user, project, "infra_assets", len(rows))
     return [InfraAssetOut.model_validate(a) for a in rows]

@@ -283,7 +283,9 @@ function ComponentModal({ value, onOk, onCancel }: {
       title="软件/框架组件"
       open={value !== null}
       onCancel={onCancel}
-      onOk={() => form.validateFields().then(onOk).catch(() => { /* 校验失败, 留在弹窗 */ })}
+      onOk={() => form.validateFields()
+        .then((v) => onOk({ ...(value ?? {}), ...v }))
+        .catch(() => { /* 校验失败, 留在弹窗 */ })}
       forceRender
     >
       {/* value 恒非空才可见; initialValues 兜底仅作用于关闭态, 置 undefined 即可 */}

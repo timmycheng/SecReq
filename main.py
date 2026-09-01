@@ -49,11 +49,15 @@ async def lifespan(_: FastAPI):
 
     init_db(engine)
     ensure_schema_upgrade(engine)
+    from services.entity_uid_migration import migrate_entity_uids
     db = SessionLocal()
     try:
         stats = migrate_legacy_classification(db)
         if stats["migrated"]:
             logger.info("老四级分级已迁移为 JR/T 0197 五级: %s", stats)
+        uid_stats = migrate_entity_uids(db)
+        if uid_stats.get("uid_backfilled") or uid_stats.get("mapped") or uid_stats.get("obsolete"):
+            logger.info("实体 uid 迁移(回填/重映射/断链标记): %s", uid_stats)
         ensure_seed_users(db)
         populate_project_types(db)
         moved = assign_legacy_projects(db)

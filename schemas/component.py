@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 
 class ComponentIn(BaseModel):
+    uid: str | None = Field(default=None, max_length=36, description="稳定标识; 新增行留空由后端生成(#66)")
     layer: str
     name: str = Field(min_length=1, max_length=200)
     version: str = Field(min_length=1, max_length=50)
@@ -34,6 +35,7 @@ class ComponentVulnInline(BaseModel):
 
 class ComponentOut(BaseModel):
     id: int
+    uid: str
     layer: str
     name: str
     version: str

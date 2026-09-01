@@ -4,3 +4,6 @@ body { margin: 0; font-family: -apple-system, 'Segoe UI', 'Microsoft YaHei', san
 
 /* 严重级需求行高亮 */
 .row-critical > td { background: #fff1f0 !important; }
+
+/* 本轮未命中(obsolete): 输入已变更/风险已消除, 保留追溯但置灰区分(#66) */
+.row-obsolete > td { color: #999 !important; background: #fafafa !important; }

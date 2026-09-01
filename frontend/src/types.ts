@@ -48,6 +48,8 @@ export interface GradingQuestion {
 
 export interface FeatureRow {
   id?: number
+  /** 稳定业务标识(#66): 保存时原样回传, 新增行留空由后端生成 */
+  uid?: string
   name: string
   module?: string | null
   description?: string | null
@@ -74,6 +76,8 @@ export interface DataTableRow {
 
 export interface DataAssetRow {
   id?: number
+  /** 稳定业务标识(#66): 保存时原样回传, 新增行留空由后端生成 */
+  uid?: string
   name: string
   data_type: string
   classification: string
@@ -88,12 +92,16 @@ export interface DataAssetRow {
 
 export interface RoleRow {
   id?: number
+  /** 稳定业务标识(#66): 保存时原样回传, 新增行留空由后端生成 */
+  uid?: string
   name: string
   role_type: string
 }
 
 export interface ExternalSystemRow {
   id?: number
+  /** 稳定业务标识(#66): 保存时原样回传, 新增行留空由后端生成 */
+  uid?: string
   name: string
   purpose?: string | null
   direction: string
@@ -102,6 +110,8 @@ export interface ExternalSystemRow {
 
 export interface ResourceRow {
   id?: number
+  /** 稳定业务标识(#66): 保存时原样回传, 新增行留空由后端生成 */
+  uid?: string
   name: string
   resource_type: string
   criticality: string
@@ -147,6 +157,8 @@ export interface ComponentVulnInline {
 
 export interface ComponentRow {
   id?: number
+  /** 稳定业务标识(#66): 保存时原样回传, 新增行留空由后端生成 */
+  uid?: string
   layer: string
   name: string
   version: string
@@ -165,17 +177,24 @@ export interface ComponentRow {
 
 export interface ApiEndpointRow {
   id?: number
+  /** 稳定业务标识(#66): 保存时原样回传, 新增行留空由后端生成 */
+  uid?: string
   name: string
   path: string
   method: string
   auth_required: boolean
   public_exposed: boolean
-  sensitive_asset_ids: number[]
+  /** @deprecated v2.3.0 起以 sensitive_asset_uids 为准 */
+  sensitive_asset_ids?: number[]
+  /** 关联敏感数据资产 uid 列表(#66) */
+  sensitive_asset_uids: string[]
   rate_limit?: string | null
 }
 
 export interface InfraAssetRow {
   id?: number
+  /** 稳定业务标识(#66): 保存时原样回传, 新增行留空由后端生成 */
+  uid?: string
   asset_type: string
   name: string
   env: string
@@ -250,6 +269,8 @@ export interface RequirementRow {
   suggested_phase: string
   source_entity_type: string
   source_entity_id: number
+  /** 来源实体稳定标识(#66) */
+  source_entity_uid?: string | null
   source_label?: string | null
   trigger_reason: string
   status: string

@@ -32,7 +32,10 @@ class SecurityRequirement(Base):
     source_entity_type: Mapped[str] = mapped_column(
         String(40), comment="来源实体类型(feature/data_asset/api_endpoint/vulnerability等)"
     )
-    source_entity_id: Mapped[int] = mapped_column(Integer, comment="来源实体主键")
+    source_entity_id: Mapped[int] = mapped_column(
+        Integer, comment="来源实体主键(v2.3.0 起为兼容保留, 溯源以 source_entity_uid 为准)")
+    source_entity_uid: Mapped[str | None] = mapped_column(
+        String(64), index=True, comment="来源实体稳定标识(与 source_entity_type 联合定位)")
     source_label: Mapped[str | None] = mapped_column(
         String(200), comment="来源中文名(如: 数据资产:客户信息表), 生成时写入"
     )

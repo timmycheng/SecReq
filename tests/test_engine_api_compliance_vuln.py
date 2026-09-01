@@ -48,7 +48,7 @@ def test_sensitive_asset_association_renders_names(session, engine):
     session.flush()
     session.add(ApiEndpoint(project_id=project.id, name="客户信息查询",
                             path="/api/v1/customers", method="GET",
-                            sensitive_asset_ids=[asset.id]))
+                            sensitive_asset_uids=[asset.uid]))
 
     (req,) = [r for r in gen_for(session, project, engine) if r.template_id == "SEC-V8-405"]
     assert "银行账户信息" in req.description

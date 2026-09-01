@@ -4,12 +4,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class RoleIn(BaseModel):
+    uid: str | None = Field(default=None, max_length=36, description="稳定标识; 新增行留空由后端生成(#66)")
     name: str = Field(min_length=1, max_length=100)
     role_type: str = "normal"
     user_count_estimate: int = Field(default=0, ge=0)
 
 
 class ResourceIn(BaseModel):
+    uid: str | None = Field(default=None, max_length=36, description="稳定标识; 新增行留空由后端生成(#66)")
     name: str = Field(min_length=1, max_length=200)
     resource_type: str
     criticality: str = "medium"
@@ -34,6 +36,7 @@ class RoleOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    uid: str
     name: str
     role_type: str
     user_count_estimate: int
@@ -43,6 +46,7 @@ class ResourceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    uid: str
     name: str
     resource_type: str
     criticality: str

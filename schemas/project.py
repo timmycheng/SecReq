@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ExternalSystemIn(BaseModel):
+    uid: str | None = Field(default=None, max_length=36, description="稳定标识; 新增行留空由后端生成(#66)")
     name: str = Field(min_length=1, max_length=200)
     purpose: str | None = Field(default=None, max_length=500)
     direction: str = "bidirectional"
@@ -16,6 +17,7 @@ class ExternalSystemOut(ExternalSystemIn):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    uid: str
 
 
 class ProjectCreate(BaseModel):

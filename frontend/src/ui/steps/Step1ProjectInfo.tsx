@@ -414,7 +414,9 @@ function ExternalSystemModal({ value, onOk, onCancel, enums }: {
   return (
     <Modal
       title="外部系统连接" open={value !== null} onCancel={onCancel}
-      onOk={() => form.validateFields().then(onOk).catch(() => { /* 校验失败留在弹窗 */ })}
+      onOk={() => form.validateFields()
+        .then((v) => onOk({ ...(value ?? EMPTY_EXT), ...v }))
+        .catch(() => { /* 校验失败留在弹窗 */ })}
       forceRender
     >
       <Form form={form} layout="vertical" initialValues={value ?? EMPTY_EXT}>

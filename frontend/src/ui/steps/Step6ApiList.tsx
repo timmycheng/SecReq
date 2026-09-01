@@ -16,7 +16,7 @@ import type { StepProps } from '../WizardPage'
 
 const EMPTY_EP: ApiEndpointRow = {
   name: '', path: '', method: 'GET', auth_required: true,
-  public_exposed: false, sensitive_asset_ids: [], rate_limit: null,
+  public_exposed: false, sensitive_asset_uids: [], rate_limit: null,
 }
 
 const METHOD_COLOR: Record<string, string> = {
@@ -29,7 +29,8 @@ export default function Step6ApiList({ ws, patch }: StepProps) {
   const [editIndex, setEditIndex] = useState(-1)
   const savedRef = useRef(JSON.stringify(endpoints))
 
-  const assetNameById = new Map(ws.data_assets.map((a) => [a.id as number, a.name]))
+  // 关联按资产 uid 取值(#66), 跨整卷保存稳定
+  const assetNameByUid = new Map(ws.data_assets.map((a) => [a.uid as string, a.name]))
 
   const save = async (): Promise<boolean> => {
     try {
@@ -79,8 +80,8 @@ export default function Step6ApiList({ ws, patch }: StepProps) {
             )) },
           { title: '公网暴露', dataIndex: 'public_exposed', width: 90,
             render: (v) => (v ? <Tag color="orange">是</Tag> : '否') },
-          { title: '关联敏感数据资产', dataIndex: 'sensitive_asset_ids',
-            render: (ids: number[]) => ids.map((id) => assetNameById.get(id))
+          { title: '关联敏感数据资产', dataIndex: 'sensitive_asset_uids',
+            render: (uids: string[]) => uids.map((u) => assetNameByUid.get(u))
               .filter(Boolean).map((n) => <Tag key={n as string} color="purple">{n}</Tag>) },
           { title: '限流配置', dataIndex: 'rate_limit', render: (v) => v || '—' },
           {
@@ -102,7 +103,7 @@ export default function Step6ApiList({ ws, patch }: StepProps) {
         <EndpointModal
           key={`ep-${editIndex}-${editing.name}`}
           value={editing}
-          dataAssets={ws.data_assets.map((a) => ({ id: a.id as number, name: a.name, classification: a.classification }))}
+          dataAssets={ws.data_assets.map((a) => ({ uid: a.uid as string, name: a.name, classification: a.classification }))}
           onCancel={() => setEditing(null)}
           onOk={(next) => {
             const copy = [...endpoints]
@@ -121,7 +122,7 @@ function EndpointModal({ value, onOk, onCancel, dataAssets }: {
   value: ApiEndpointRow | null
   onOk: (row: ApiEndpointRow) => void
   onCancel: () => void
-  dataAssets: { id: number; name: string; classification: string }[]
+  dataAssets: { uid: string; name: string; classification: string }[]
 }) {
   const enums = useEnums()
   const [form] = Form.useForm<ApiEndpointRow>()
@@ -152,7 +153,7 @@ function EndpointModal({ value, onOk, onCancel, dataAssets }: {
           </Form.Item>
         </Space>
         <Form.Item
-          name="sensitive_asset_ids"
+          name="sensitive_asset_uids"
           label={dataAssets.length ? '请求/响应包含的敏感数据资产(关联数据字典)' : '请求/响应包含的敏感数据资产'}
           extra={dataAssets.length ? undefined : '数据字典尚未录入资产, 可先完成数据字典再回来关联'}
         >
@@ -160,7 +161,7 @@ function EndpointModal({ value, onOk, onCancel, dataAssets }: {
             mode="multiple"
             placeholder={dataAssets.length ? '选择数据资产' : '无可选资产(数据字典为空)'}
             disabled={!dataAssets.length}
-            options={dataAssets.map((a) => ({ value: a.id, label: `${a.name}(${a.classification})` }))}
+            options={dataAssets.map((a) => ({ value: a.uid, label: `${a.name}(${a.classification})` }))}
           />
         </Form.Item>
         <Form.Item name="rate_limit" label="限流配置">

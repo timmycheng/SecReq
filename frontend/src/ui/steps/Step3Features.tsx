@@ -272,7 +272,9 @@ function FeatureModal({ value, onOk, onCancel }: {
       title="功能条目"
       open={value !== null}
       onCancel={onCancel}
-      onOk={() => form.validateFields().then(onOk).catch(() => { /* 校验失败, 留在弹窗 */ })}
+      onOk={() => form.validateFields()
+        .then((v) => onOk({ ...(value ?? EMPTY), ...v }))
+        .catch(() => { /* 校验失败, 留在弹窗 */ })}
       forceRender
     >
       <Form form={form} layout="vertical" initialValues={value ?? EMPTY}>

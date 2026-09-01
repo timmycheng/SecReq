@@ -123,7 +123,9 @@ function InfraModal({ value, onOk, onCancel, enums }: {
   return (
     <Modal
       title="基础设施资产" open={value !== null} onCancel={onCancel}
-      onOk={() => form.validateFields().then(onOk).catch(() => { /* 校验失败, 留在弹窗 */ })}
+      onOk={() => form.validateFields()
+        .then((v) => onOk({ ...(value ?? EMPTY_ASSET), ...v }))
+        .catch(() => { /* 校验失败, 留在弹窗 */ })}
       forceRender
     >
       <Form form={form} layout="vertical" initialValues={value ?? EMPTY_ASSET}>

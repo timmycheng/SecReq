@@ -27,6 +27,7 @@ class RequirementOut(BaseModel):
     suggested_phase: str
     source_entity_type: str
     source_entity_id: int
+    source_entity_uid: str | None = None
     source_label: str | None = None
     trigger_reason: str
     status: str
