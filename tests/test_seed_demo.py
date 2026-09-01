@@ -66,6 +66,29 @@ def test_grading_baseline_propagates_into_requirements(seeded):
     assert "10" in strength.description and "60" in strength.description
 
 
+def test_seed_survey_answers_usable_by_grading_api(seeded):
+    """种子问卷答案必须是 {question_id, option_id} 当前形态(#98 回归护栏)。
+
+    旧 {question_id, answer} 形态缺 option_id: 前端 Step1 整卷提交会被
+    SurveyAnswerIn 必填校验 422 拦下, 演示流程第一步就卡死。
+    """
+    from models import GradingSurvey
+    from services.grading import grade_survey, load_questions
+    session, project, _ = seeded
+    survey = session.query(GradingSurvey).filter_by(project_id=project.id).one()
+    valid_options = {q.id: {o["id"] for o in q.options} for q in load_questions()}
+    answers = survey.answers_json
+    assert answers, "种子项目应有问卷答案"
+    for a in answers:
+        assert set(a) >= {"question_id", "option_id"}, f"答案缺字段: {a}"
+        assert a["option_id"] in valid_options.get(a["question_id"], set()), \
+            f"option_id 不在题库选项中: {a}"
+    result = grade_survey([
+        {"question_id": a["question_id"], "option_id": a["option_id"]} for a in answers
+    ])
+    assert result.suggested_level == "三级"
+
+
 def test_generates_reasonable_requirement_volume(seeded):
     """首批(未接OSV漏洞查询)应产出约50-70条需求。"""
     _, _, reqs = seeded
