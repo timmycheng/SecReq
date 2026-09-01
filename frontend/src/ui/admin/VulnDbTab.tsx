@@ -13,10 +13,6 @@ import { ReloadOutlined, SafetyCertificateOutlined } from '@ant-design/icons'
 import { api } from '../../api'
 import type { VulnDbStatus, VulnDbVerifyResult, VulnSourceRow } from '../../types'
 
-const SOURCE_LABELS: Record<string, string> = {
-  local: '本地漏洞库', online: 'OSV.dev 在线', sca: '行内 SCA 平台',
-}
-
 export default function VulnDbTab() {
   const [status, setStatus] = useState<VulnDbStatus | null>(null)
   const [loading, setLoading] = useState(false)
@@ -133,12 +129,16 @@ export default function VulnDbTab() {
           rowKey="code" dataSource={status.sources ?? []} pagination={false} size="small"
           columns={[
             { title: '数据源', dataIndex: 'code', width: 160,
-              render: (v: string) => (
-                <Space>
-                  {SOURCE_LABELS[v] ?? v}
-                  {status.sources?.find((s) => s.code === v)?.active && <Tag color="blue">当前生效</Tag>}
-                </Space>
-              ) },
+              render: (v: string) => {
+                const row = status.sources?.find((s) => s.code === v)
+                // 中文标签由后端统一下发(#41), 缺 label 的旧响应回退 code
+                return (
+                  <Space>
+                    {row?.label ?? v}
+                    {row?.active && <Tag color="blue">当前生效</Tag>}
+                  </Space>
+                )
+              } },
             { title: '状态', dataIndex: 'available', width: 100,
               render: (v: boolean) => (v ? <Tag color="green">可用</Tag> : <Tag color="orange">不可用</Tag>) },
             { title: '说明', dataIndex: 'reason', render: (v) => v || '—' },
