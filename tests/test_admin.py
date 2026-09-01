@@ -378,3 +378,41 @@ def test_vuln_db_missing_ecosystems_excludes_other(sec, monkeypatch, vulndb_file
 
     body = sec.get("/api/admin/vuln-db").json()
     assert "other" not in {m["code"] for m in body["missing_ecosystems"]}
+
+
+def test_llm_test_connection_requires_key(api, sec):
+    """api_key 留空且无已保存配置时, 测试连接直接 400(#62)。"""
+    resp = sec.post("/api/admin/llm-config/test", json={
+        "base_url": "https://llm-gate.corp.example.com/v1", "api_key": "", "model": "glm-4"})
+    assert resp.status_code == 400
+    assert "API Key" in resp.json()["detail"]
+
+
+def test_llm_test_connection_reports_gateway_error(sec, monkeypatch):
+    """只测不存: 网关 4xx 归类为可读原因, 不落盘配置(#62)。"""
+    import httpx
+
+    def fake_post(url, **kwargs):
+        return httpx.Response(401, request=httpx.Request("POST", url), json={"error": "bad key"})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    resp = sec.post("/api/admin/llm-config/test", json={
+        "base_url": "https://llm-gate.corp.example.com/v1", "api_key": "sk-x", "model": "glm-4"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is False and "凭据无效" in body["reason"]
+
+
+def test_llm_test_connection_success(sec, monkeypatch):
+    import httpx
+
+    def fake_post(url, **kwargs):
+        return httpx.Response(200, request=httpx.Request("POST", url), json={
+            "choices": [{"message": {"content": "pong"}}]})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    resp = sec.post("/api/admin/llm-config/test", json={
+        "base_url": "https://llm-gate/v1", "api_key": "sk-x", "model": "glm-4"})
+    body = resp.json()
+    assert body["ok"] is True and body["reply"] == "pong"
+    assert body["latency_ms"] >= 0

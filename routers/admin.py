@@ -178,6 +178,63 @@ class LlmConfigIn(BaseModel):
     model: str = Field(max_length=100)
 
 
+class LlmTestIn(BaseModel):
+    """测试连接提交值; api_key 留空表示沿用已保存的 Key(掩码回显场景)。"""
+
+    base_url: str = Field(max_length=300)
+    api_key: str = Field(default="", max_length=300)
+    model: str = Field(max_length=100)
+
+
+@router.post("/llm-config/test")
+def test_llm(payload: LlmTestIn, _: PlatformUser = Depends(require_security),
+             db: Session = Depends(get_db)):
+    """用本次提交值向网关发一次最小真实请求, 只测不存(#62)。
+
+    内网地址不可达是常态, 超时取短(8s); 失败原因归类为可读文案, 不抛裸异常。
+    """
+    import time
+
+    import httpx
+
+    api_key = payload.api_key or get_llm_config(db).get("api_key") or ""
+    if not api_key:
+        raise HTTPException(status_code=400, detail="API Key 为空且无已保存配置, 无法测试")
+    url = payload.base_url.rstrip("/") + "/chat/completions"
+    started = time.monotonic()
+    try:
+        resp = httpx.post(
+            url,
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={"model": payload.model,
+                  "messages": [{"role": "user", "content": "ping"}],
+                  "max_tokens": 1},
+            timeout=8.0,
+        )
+    except httpx.ConnectError:
+        return {"ok": False, "reason": "地址不可达(连接失败), 请检查网关地址与网络"}
+    except httpx.TimeoutException:
+        return {"ok": False, "reason": "请求超时(8s), 网关无响应或网络不通"}
+    except httpx.HTTPError as exc:
+        return {"ok": False, "reason": f"请求失败: {exc.__class__.__name__}"}
+    latency_ms = int((time.monotonic() - started) * 1000)
+    if resp.status_code in (401, 403):
+        return {"ok": False, "latency_ms": latency_ms, "reason": "凭据无效(API Key 被拒绝)"}
+    if resp.status_code == 404:
+        return {"ok": False, "latency_ms": latency_ms,
+                "reason": "接口路径或模型不存在(404), 请核对地址与 /v1 路径"}
+    if resp.status_code >= 400:
+        return {"ok": False, "latency_ms": latency_ms,
+                "reason": f"网关返回 {resp.status_code}: {resp.text[:120]}"}
+    reply = ""
+    try:
+        reply = str(resp.json()["choices"][0]["message"].get("content") or "")[:80]
+    except (ValueError, KeyError, IndexError, TypeError):
+        reply = "(响应非标准 chat/completions 结构, 但网关已连通)"
+    return {"ok": True, "latency_ms": latency_ms, "reply": reply,
+            "model": payload.model}
+
+
 @router.put("/llm-config")
 def put_llm(payload: LlmConfigIn, request: Request,
             db: Session = Depends(get_db),
