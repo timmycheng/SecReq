@@ -95,9 +95,11 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
       const detail = await api.patchProject(ws.project.id, values)
       const ext = await api.saveExternalSystems(ws.project.id, extRows)
       // 定级: 已答完问卷则走打分; 未答完但显式选了等级则直接指定; 两者皆无则跳过
+      // 旧形态 answers_json 可能缺 option_id(存量数据), 过滤避免整卷提交被 422 拦下(#98)
       const answeredAll = questions ? questions.every((q) => answers[q.id]) : false
-      const surveyPayload: SurveyAnswer[] =
-        Object.entries(answers).map(([question_id, option_id]) => ({ question_id, option_id }))
+      const surveyPayload: SurveyAnswer[] = Object.entries(answers)
+        .filter(([, option_id]) => option_id)
+        .map(([question_id, option_id]) => ({ question_id, option_id }))
       let level = finalLevel ?? null
       if (questions && surveyPayload.length > 0 && !answeredAll && !level) {
         message.warning('定级问卷未答完: 请答完全部题目, 或清空答案后直接指定等级')
@@ -300,7 +302,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
           style={{ marginTop: 12 }}
           items={[{
             key: 'survey',
-            label: `定级问卷(${Object.keys(answers).length}/${questions.length} 题已答, 答完自动计算建议等级)`,
+            label: `定级问卷(${Object.values(answers).filter(Boolean).length}/${questions.length} 题已答, 答完自动计算建议等级)`,
             children: (
               <Space direction="vertical" size={12} style={{ width: '100%' }}>
                 {questions.map((q, idx) => (

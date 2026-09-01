@@ -47,12 +47,14 @@ def seed_demo_project(session: Session, overwrite: bool = True) -> Project:
     session.add(
         GradingSurvey(
             project_id=project.id,
+            # 形态须与 schemas/survey.py 的 SurveyAnswerIn 一致(question_id+option_id):
+            # 前端 Step1 整卷提交依赖 option_id, 旧 {question_id, answer} 形态会 422(#98)
             answers_json=[
-                {"question_id": "Q1", "answer": "处理公民个人信息且含敏感个人信息(金融账户/身份信息)"},
-                {"question_id": "Q2", "answer": "涉及资金交易"},
-                {"question_id": "Q3", "answer": "服务对象为社会公众"},
-                {"question_id": "Q4", "answer": "破坏后全行业务受影响"},
-                {"question_id": "Q5", "answer": "是渠道类系统的依赖底座之一"},
+                {"question_id": "Q1", "option_id": "C"},  # 含敏感个人信息(金融账户/身份信息)
+                {"question_id": "Q2", "option_id": "C"},  # 直接涉及资金交易
+                {"question_id": "Q3", "option_id": "C"},  # 服务对象为社会公众
+                {"question_id": "Q4", "option_id": "C"},  # 破坏后全行业务受影响
+                {"question_id": "Q5", "option_id": "B"},  # 是渠道类系统的依赖底座之一
             ],
             suggested_level="三级",
             suggested_reason=(
