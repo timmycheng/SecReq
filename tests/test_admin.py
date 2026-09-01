@@ -460,3 +460,60 @@ def test_changelog_endpoint_versions_descending(sec):
     # 结构化块: 最新版本应有正文块(小标题/段落/列表)
     kinds = {b["kind"] for b in rows[0]["blocks"]}
     assert kinds & {"h3", "para", "list_item"}
+
+
+def test_api_import_parse_text_and_file(api, sec):
+    """#92: 批量导入解析 —— 文本/xlsx 两段式, 非法行不阻塞合法行。"""
+    import io
+
+    from openpyxl import Workbook
+
+    pid = api.post("/api/projects", json={"name": "导入项目"}).json()["id"]
+
+    # 文本: 合法行 + 布尔容错 + 非法行
+    text = "\n".join([
+        "# 注释行跳过",
+        "转账接口,POST,/api/v1/transfers,是,是",
+        "牌价查询,GET,/api/v1/rates,true,0",
+        "坏行,PUTT,/x,,",
+    ])
+    resp = sec.post(f"/api/projects/{pid}/api-endpoints/parse",
+                    files={"text": (None, text)})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["total"] == 3 and body["invalid"] == 1
+    good = [r for r in body["rows"] if not r["error"]]
+    assert len(good) == 2
+    assert good[0]["method"] == "POST" and good[0]["public_exposed"] is True
+    assert good[1]["auth_required"] is True and good[1]["public_exposed"] is False
+    assert "/api/v1" in (body["rows"][2]["error"] or "") or "PUTT" in (body["rows"][2]["error"] or "")
+
+    # xlsx: 表头自动跳过
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["名称", "方法", "路径", "需要认证", "公网暴露"])
+    ws.append(["客户查询", "GET", "/api/v1/customers", "是", "否"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    resp = sec.post(f"/api/projects/{pid}/api-endpoints/parse",
+                    files={"file": ("apis.xlsx", buf.getvalue(),
+                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert resp.status_code == 200, resp.text
+    rows = resp.json()["rows"]
+    assert len(rows) == 1 and rows[0]["name"] == "客户查询" and rows[0]["auth_required"] is True
+
+    # 确认导入: 合法行走既有整体保存
+    save = api.post(f"/api/projects/{pid}/api-endpoints", json=[
+        {"name": g["name"], "method": g["method"], "path": g["path"],
+         "auth_required": g["auth_required"], "public_exposed": g["public_exposed"]}
+        for g in good
+    ])
+    assert save.status_code == 200, save.text
+    assert len(save.json()) == 2
+
+
+def test_api_import_parse_requires_input(sec, api):
+    pid = api.post("/api/projects", json={"name": "空导入项目"}).json()["id"]
+    resp = sec.post(f"/api/projects/{pid}/api-endpoints/parse",
+                    files={"text": (None, "   ")})
+    assert resp.status_code == 400
