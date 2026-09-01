@@ -751,8 +751,8 @@ templates:
     trigger_reason: "定级结果与用户规模达到MFA强制线"
     regulatory_ref:
       - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
-        clause: 第三级安全通用要求
-        summary: 身份鉴别(两种或以上鉴别技术之一为密码技术)
+        clause: 第三级安全通用要求 8.1.4.1 d)
+        summary: 身份鉴别(采用两种或两种以上组合的鉴别技术, 其中一种至少使用密码技术)
       - file: 网上银行系统信息安全通用规范
         clause: 参考(JR/T 0068-2020)
         summary: 双因素认证要求
@@ -772,8 +772,8 @@ templates:
     trigger_reason: "依据当前密码策略与定级默认基线"
     regulatory_ref:
       - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
-        clause: 第三级安全通用要求
-        summary: 会话管理(登录超时自动退出)
+        clause: 第三级安全通用要求 8.1.4.1 b)
+        summary: 登录失败处理(登录连接超时自动退出)
 
   # ────────────────────────────────────────────
   # 四、密码策略类 (V2/V6) —— 参数来自 Step6 密码策略设计器
@@ -798,8 +798,8 @@ templates:
         summary: 口令强度与定期更换要求
         note: 待合规部门确认具体条文
       - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
-        clause: 第三级安全通用要求
-        summary: 身份鉴别(口令复杂度与更换周期)
+        clause: 第三级安全通用要求 8.1.4.1 a)
+        summary: 身份鉴别(鉴别信息具有复杂度检查要求)
 
   - id: SEC-V2-006
     trigger: {type: policy_baseline, rule_key: lockout_threshold}
@@ -815,8 +815,8 @@ templates:
     trigger_reason: "Step6密码策略设计器输出值"
     regulatory_ref:
       - file: 信息安全技术 网络安全等级保护基本要求(GB/T 22239-2019)
-        clause: 第三级安全通用要求
-        summary: 登录失败处理功能
+        clause: 第三级安全通用要求 8.1.4.1 b)
+        summary: 登录失败处理(限制非法登录次数)
       - file: 网上银行系统信息安全通用规范
         clause: 参考(JR/T 0068-2020)
         summary: 登录失败锁定策略
