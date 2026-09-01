@@ -31,7 +31,7 @@ jobs:
           python-version: "3.12"
 
       # 与 ci.yml 同口径: uv 大版本一致, 测试跑在锁文件精确复现的依赖树上
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           version: "0.7"
           enable-cache: true

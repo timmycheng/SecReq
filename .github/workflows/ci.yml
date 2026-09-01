@@ -27,7 +27,7 @@ jobs:
           python-version: "3.12"
 
       # uv 大版本与 Dockerfile COPY 的 uv 镜像保持一致
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           version: "0.7"
           enable-cache: true
@@ -62,7 +62,7 @@ jobs:
           python-version: "3.12"
 
       # 后端经 uv 运行(playwright webServer 启动 uvicorn), 与其他 job 同口径
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           version: "0.7"
           enable-cache: true
