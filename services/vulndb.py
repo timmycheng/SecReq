@@ -327,3 +327,19 @@ class OsvOnlineSource:
         return VulnQueryResult(
             vulns=vulns, status="hit" if vulns else "not_found",
         )
+
+    async def query_async(self, q: VulnQuery) -> VulnQueryResult:
+        """异步查询(#71): 并发漏洞同步专用; 复用注入的 client 以共享连接池。
+
+        自建 client 时由调用方(sync_vulnerabilities_async)负责 aclose。
+        """
+        from services.osv import OsvClient
+
+        client = self._client or OsvClient()
+        purl = q.purl or _match_purl(q, q.ecosystem or "npm")
+        vulns = await client.query_purl_async(purl)
+        if vulns is None:
+            raise VulnSourceUnavailable(f"OSV 在线查询失败: {q.name}")
+        return VulnQueryResult(
+            vulns=vulns, status="hit" if vulns else "not_found",
+        )

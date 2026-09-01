@@ -29,7 +29,10 @@ from services.errors import server_error
 from schemas.requirement import (
     CategoryCount, GenerateSummary, PreviewResult, RequirementOut, VulnerabilityOut,
 )
-from services.pipeline import _load_vulnerabilities, project_output_dir, run_full_pipeline
+from services.pipeline import (
+    _load_vulnerabilities, project_output_dir, run_full_pipeline,  # noqa: F401 (run_full_pipeline 保留给脚本)
+    run_full_pipeline_async,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -94,13 +97,16 @@ def preview_requirements(project: Project = Depends(get_writable_project),
 
 
 @router.post("/generate", response_model=GenerateSummary)
-def generate(payload: GenerateRequest | None = None,
-             project: Project = Depends(get_writable_project), db: Session = Depends(get_db),
-             user: PlatformUser = Depends(require_login)):
-    """全量生成。成功后项目状态置为 generated, 文档写入 output/<项目编码>/。"""
+async def generate(payload: GenerateRequest | None = None,
+                   project: Project = Depends(get_writable_project), db: Session = Depends(get_db),
+                   user: PlatformUser = Depends(require_login)):
+    """全量生成。成功后项目状态置为 generated, 文档写入 output/<项目编码>/。
+
+    async def(#71): 在线漏洞源并发查询; 本地源毫秒级, 走同一入口无额外开销。
+    """
     skip_osv = bool(payload.skip_osv) if payload else False
     try:
-        result = run_full_pipeline(
+        result = await run_full_pipeline_async(
             db, project.id, out_dir=project_output_dir(ROOT_DIR / "output", project.code),
             skip_osv=skip_osv,
         )

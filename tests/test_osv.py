@@ -15,7 +15,7 @@ from rules import RuleEngine
 from rules.context import RequirementContext
 from services.osv import (
     OsvClient, _extract_ranges, _render_range, _score_to_severity,
-    _resolve_severity, sync_vulnerabilities,
+    _resolve_severity, sync_vulnerabilities, sync_vulnerabilities_async,
 )
 
 LOG4J_PURL = "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"
@@ -332,3 +332,48 @@ def test_vulnerability_engine_rule_fires_after_sync(session):
     log4j_req = by_comp[names["log4j-core"]]
     assert log4j_req.priority == "critical"     # 知识库模板优先级
     assert "CVE-2021-44228" in log4j_req.trigger_reason
+
+
+def test_async_sync_concurrent_queries(session):
+    """#71: 在线源并发查询 —— 多组件同时在途, 结果全部落库。"""
+    import asyncio
+
+    inflight = 0
+    max_inflight = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal inflight, max_inflight
+        inflight += 1
+        max_inflight = max(max_inflight, inflight)
+        await asyncio.sleep(0.05)
+        purl = json.loads(request.content)["package"]["purl"]
+        payload = {"vulns": [GHSA_LOG4J]} if "log4j" in purl else {}
+        inflight -= 1
+        return httpx.Response(200, json=payload)
+
+    fake = OsvClient(transport=httpx.MockTransport(handler))
+    _, comps = _seed_components(session)
+    records, result = asyncio.run(sync_vulnerabilities_async(session, comps, client=fake))
+    assert max_inflight >= 2, f"查询未并发: max_inflight={max_inflight}"
+    assert len(result.updated) == 3
+    assert len(records) > 0
+
+
+def test_async_sync_respects_total_budget(session):
+    """#71: 整轮超预算 → 未完成组件计入 failed 降级, 不无限等待。"""
+    import asyncio
+    import time
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(2.0)
+        return httpx.Response(200, json={})
+
+    fake = OsvClient(transport=httpx.MockTransport(handler))
+    _, comps = _seed_components(session)
+    started = time.monotonic()
+    records, result = asyncio.run(
+        sync_vulnerabilities_async(session, comps, client=fake, total_budget=1.0))
+    elapsed = time.monotonic() - started
+    assert elapsed < 2.0, f"总预算未生效: 耗时 {elapsed:.1f}s"
+    assert len(result.failed) == 3
+    assert all(c.vuln_status == "undetermined" for c in comps)
