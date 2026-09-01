@@ -25,14 +25,20 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-          cache: pip
 
-      - name: 安装依赖
-        run: pip install -r requirements.txt
+      # uv 大版本与 Dockerfile COPY 的 uv 镜像保持一致
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.7"
+          enable-cache: true
+
+      # 锁文件与顶层声明必须同步: 改了 pyproject.toml 忘记 uv lock 会在这里失败
+      - name: 校验锁文件同步
+        run: uv lock --check
 
       # OSV 查询使用 MockTransport, 测试不出网
       - name: 运行测试
-        run: python -m pytest tests -q
+        run: uv run --frozen pytest tests -q
 
   backend-lint:
     name: 后端 Lint

@@ -1,0 +1,28 @@
+[project]
+name = "secreq"
+version = "2.2.2"
+description = "面向开发与安全两角色的安全需求管理平台: JR/T 0197 五级数据分级、监管合规基线映射、安全需求清单生成与确认"
+readme = "README.md"
+requires-python = ">=3.11"
+# 顶层依赖沿用原 requirements.txt 的下限声明语义; 全量依赖树由 uv.lock 锁定(#68),
+# 改动此处后必须 `uv lock` 并连锁文件一起提交(CI 有 uv lock --check 护栏)。
+dependencies = [
+    "sqlalchemy>=2.0",
+    "pyyaml>=6.0.3",
+    "httpx>=0.27",             # OSV.dev 漏洞查询客户端
+    "fastapi>=0.110",          # API 路由层
+    "uvicorn>=0.52.4",         # ASGI 服务器
+    "python-docx>=1.2.0",      # 「下载 Word 文档」产物导出
+    "openpyxl>=3.1",           # Excel 需求跟踪表
+    "python-multipart>=0.0.32", # SBOM 文件上传解析
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",           # 测试不进运行镜像(Dockerfile 用 --no-dev)
+    "ruff>=0.8",               # 本地 lint 与 CI ruff-action 同口径
+]
+
+[tool.uv]
+# 应用仓库而非可发布包: uv sync 只安装依赖, 不把 secreq 本身作为包装进环境
+package = false

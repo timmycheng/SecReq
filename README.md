@@ -133,14 +133,11 @@ pm/developer → 开发; security_reviewer/security_lead → 安全; 风管/审�
 ### 本地开发
 
 ```bash
-python -m venv .venv
-.venv/Scripts/pip install -r requirements.txt   # Linux/macOS 用 .venv/bin/pip
-
-# 运行全部测试(OSV 查询使用 MockTransport, 不出网)
-.venv/Scripts/python -m pytest tests -q
+uv sync                # 按 uv.lock 创建 .venv 并安装依赖(dev 组含 pytest/ruff; 无 uv 先装 uv)
+uv run pytest tests -q # 运行全部测试(OSV 查询使用 MockTransport, 不出网)
 
 # 后端 API(默认 sqlite:///项目根/secreq.db, 可用 SECREQ_DATABASE_URL 覆盖)
-.venv/Scripts/python -m uvicorn main:app --reload --port 8000
+uv run uvicorn main:app --reload --port 8000
 
 # 前端开发服务器(Vite, 已代理 /api → 127.0.0.1:8000)
 cd frontend && npm install && npm run dev   # http://localhost:5173
