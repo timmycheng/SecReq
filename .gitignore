@@ -30,3 +30,8 @@ dist/
 # Workbuddy 工具产物
 .workbuddy/
 
+
+# E2E(#72)
+e2e-secreq.db
+frontend/test-results/
+frontend/playwright-report/
