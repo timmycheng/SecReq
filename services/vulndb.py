@@ -214,8 +214,15 @@ def _windows_including(vuln: dict, purl: str, ecosystem: str, version: str) -> t
         return inside, None
 
     # 疑似命中: 版本号与某个 fixed 端点在剥离修订号后相同
+    # 前置排除原始串相等(#96): 目标版本与修复版本写的是同一个串, 用户就在修复版本上,
+    # 与「缺修订号无法判断」是两回事; 只兜底 1.0.2h vs 1.0.2h-r0 这类原始串不同的场景
     for w in windows:
-        if w.get("fixed") and canonical(ecosystem, w["fixed"]) == canonical(ecosystem, version):
+        fixed = w.get("fixed")
+        if not fixed:
+            continue
+        if str(fixed).strip().lower() == str(version).strip().lower():
+            continue
+        if canonical(ecosystem, fixed) == canonical(ecosystem, version):
             if enumerated and not in_versions(ecosystem, version, enumerated):
                 continue
             return [w], AMBIGUOUS_REVISION_NOTE

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Key } from 'react'
 import {
   Alert, Breadcrumb, Button, Card, Descriptions, Select, Space, Spin,
-  Statistic, Table, Tabs, Tag, Typography, message,
+  Statistic, Table, Tabs, Tag, Tooltip, Typography, message,
 } from 'antd'
 import { CopyOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
 
@@ -363,11 +363,18 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                       } },
                     { title: '来源', dataIndex: 'source_type', width: 110,
                       render: (v) => (v === 'sbom_file' ? <Tag color="purple">SBOM文件</Tag> : <Tag>手工录入</Tag>) },
-                    { title: '漏洞', width: 90, render: (_v, r) => {
+                    { title: '漏洞', width: 140, render: (_v, r) => {
                       const all = r.vulnerabilities ?? []
                       const high = all.filter((v) => v.severity === 'critical' || v.severity === 'high').length
+                      const ambiguous = r.vuln_status === 'hit' && Boolean(r.vuln_status_note)
                       if (!all.length) return '—'
-                      return high ? <Tag color="red">{high} 高危</Tag> : <Tag>{all.length}</Tag>
+                      return (
+                        <Space size={4}>
+                          {high ? <Tag color="red">{high} 高危</Tag> : <Tag>{all.length}</Tag>}
+                          {/* 疑似命中(带说明)与普通命中区分展示, 避免误导(#96 附带核查) */}
+                          {ambiguous && <Tooltip title={r.vuln_status_note}><Tag color="orange">疑似</Tag></Tooltip>}
+                        </Space>
+                      )
                     } },
                   ]}
                 />
