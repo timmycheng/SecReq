@@ -1,16 +1,7 @@
 version: 2
 updates:
-  # 后端依赖
-  - package-ecosystem: pip
-    directory: "/"
-    schedule:
-      interval: weekly
-    groups:
-      python-minor-patch:
-        update-types:
-          - "minor"
-          - "patch"
-
+  # 后端依赖已迁移 uv 锁定(#68): Dependabot 的 pip 生态不支持 pyproject.toml/uv.lock,
+  # 升级改为手动 `uv lock --upgrade` 连锁文件提交(见 docs/dev-workflow.md 依赖更新)。
   # 前端依赖
   - package-ecosystem: npm
     directory: "/frontend"

@@ -52,8 +52,8 @@
 本地复现 CI 三件事:
 
 ```bash
-.venv/Scripts/python -m pytest tests -q        # Linux/macOS 用 .venv/bin/python
-.venv/Scripts/python -m ruff check .           # 宽松口径见 ruff.toml
+uv run pytest tests -q         # 环境来自 uv sync(按 uv.lock 精确安装)
+uv run ruff check .            # 宽松口径见 ruff.toml
 cd frontend && npm run lint && npm run build   # build 内含 tsc 类型检查
 ```
 
@@ -62,9 +62,9 @@ cd frontend && npm run lint && npm run build   # build 内含 tsc 类型检查
 SemVer: 新功能升 MINOR, 缺陷修复升 PATCH, 不兼容变更升 MAJOR。发版清单:
 
 1. 确认对应版本 milestone 已全部关闭, main CI 全绿。
-2. 修改 `main.py` 中 FastAPI 的 `version="X.Y.Z"`。
+2. 修改 `main.py` 中 FastAPI 的 `version="X.Y.Z"` 与 `pyproject.toml` 的 `project.version`。
 3. 在 `CHANGELOG.md` 顶部新增 `## [X.Y.Z] - 日期` 章节, 遵守一条/一段独占一行(会被 release.yml 原样抽取为 Release 正文)。
-4. 本地校验: `python scripts/check_version.py vX.Y.Z`(tag ↔ main.py 版本 ↔ CHANGELOG 章节三者一致, CI 在 tag 推送后会再校验一次)。
+4. 本地校验: `python scripts/check_version.py vX.Y.Z`(tag ↔ main.py 版本 ↔ pyproject.toml 版本 ↔ CHANGELOG 章节四者一致, CI 在 tag 推送后会再校验一次)。
 5. 打 tag 并推送: `git tag vX.Y.Z && git push origin vX.Y.Z`。
 6. release.yml 自动跑测试 → 构建 GHCR 镜像(`X.Y.Z`/`X.Y`/`latest` 三标签)→ 创建 GitHub Release(正文取 CHANGELOG 对应章节)并附离线镜像包。
 
@@ -72,7 +72,8 @@ README 不维护硬编码版本号, 以 CHANGELOG 顶部章节为准。
 
 ## 依赖更新(Dependabot)
 
-- pip / frontend npm / github-actions 三处 weekly, minor+patch 分组降噪; PR 开出即自动跑 CI。
+- 后端依赖经 uv 锁定(#68): 顶层声明在 `pyproject.toml`, 全量依赖树锁在 `uv.lock`(入库)。**改声明必须重新锁** —— `uv lock` 后连锁文件一起提交, CI 的 `uv lock --check` 会拦截只改声明忘记重锁的变更。本地环境入口是 `uv sync`, 运行命令用 `uv run <cmd>`。
+- Dependabot 现管 frontend npm 与 github-actions 两处 weekly, minor+patch 分组降噪; PR 开出即自动跑 CI。npm 锁文件是 `package-lock.json`(`npm ci` 安装)。
 - 处理套路: CI 绿的看一眼 diff 即合; 红的点开失败 job 看日志。同类依赖 PR 互相冲突无需处理, 合掉一个后 Dependabot 自动 rebase 其余。
 - 两类多想一步: CI 测不到运行层的升级(如 uvicorn 的 HTTP 层)合并后补本地冒烟; 与运行时绑定的依赖(如 @types/node 应跟随实际 Node 大版本)不符合策略就带理由关闭。
 

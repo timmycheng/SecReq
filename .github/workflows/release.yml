@@ -29,14 +29,19 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-          cache: pip
 
-      - name: 安装依赖
-        run: pip install -r requirements.txt
+      # 与 ci.yml 同口径: uv 大版本一致, 测试跑在锁文件精确复现的依赖树上
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.7"
+          enable-cache: true
+
+      - name: 校验锁文件同步
+        run: uv lock --check
 
       # OSV 查询使用 MockTransport, 测试不出网
       - name: 运行测试
-        run: python -m pytest tests -q
+        run: uv run --frozen pytest tests -q
 
   docker:
     name: 构建并推送镜像
