@@ -1,16 +1,18 @@
-/* 用户管理: 新增 / 重置密码 / 启停。角色固定两个, 越权一律 404。 */
+/* 用户管理: 新增 / 编辑 / 重置密码 / 启停。角色固定两个, 越权一律 404。 */
 import { useCallback, useEffect, useState } from 'react'
 import {
   Button, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
 } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { EditOutlined, PlusOutlined } from '@ant-design/icons'
 
 import { api, type AdminUserRow } from '../../api'
 
 export default function UsersTab() {
   const [rows, setRows] = useState<AdminUserRow[]>([])
   const [createOpen, setCreateOpen] = useState(false)
+  const [editing, setEditing] = useState<AdminUserRow | null>(null)
   const [form] = Form.useForm()
+  const [editForm] = Form.useForm()
 
   const reload = useCallback(() => {
     api.adminListUsers().then(setRows).catch((e: Error) => message.error(e.message))
@@ -36,9 +38,11 @@ export default function UsersTab() {
           { title: '状态', dataIndex: 'active', width: 90,
             render: (v: boolean) => (v ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>) },
           {
-            title: '操作', width: 220,
+            title: '操作', width: 260,
             render: (_v, r) => (
               <Space>
+                <Button size="small" icon={<EditOutlined />}
+                  onClick={() => { setEditing(r); editForm.setFieldsValue(r) }}>编辑</Button>
                 <Popconfirm
                   title={`重置 ${r.display_name} 的密码? 将生成随机密码。`}
                   onConfirm={async () => {
@@ -66,6 +70,45 @@ export default function UsersTab() {
           },
         ]}
       />
+      <Modal
+        title={`编辑用户 ${editing?.username ?? ''}`}
+        open={editing !== null}
+        onCancel={() => setEditing(null)}
+        onOk={async () => {
+          if (!editing) return
+          const values = await editForm.validateFields()
+          try {
+            await api.adminUpdateUser(editing.username, values)
+            message.success('用户资料已更新')
+            setEditing(null)
+            reload()
+          } catch (e) {
+            message.error((e as Error).message)
+          }
+        }}
+      >
+        {/* username 建后不可改: 审计留痕与项目归属等多处逻辑按 username 引用(#63) */}
+        <Form form={editForm} layout="vertical">
+          <Form.Item label="用户名">
+            <Input value={editing?.username} disabled />
+          </Form.Item>
+          <Form.Item name="display_name" label="姓名" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="employee_id" label="工号(可选)">
+            <Input />
+          </Form.Item>
+          <Form.Item
+            name="role" label="角色" rules={[{ required: true }]}
+            extra="修改自己的角色会被拒绝; 角色变更即时影响数据可见范围"
+          >
+            <Select options={[
+              { value: 'developer', label: '开发' },
+              { value: 'security', label: '安全' },
+            ]} />
+          </Form.Item>
+        </Form>
+      </Modal>
       <Modal
         title="新增用户" open={createOpen} onCancel={() => setCreateOpen(false)}
         onOk={async () => {

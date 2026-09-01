@@ -13,7 +13,7 @@ from services.auth_service import SEED_DEFAULT_PASSWORD
 @pytest.fixture()
 def sec(api):
     """安全角色客户端。"""
-    return api_as(api, "sec_chen")
+    return api_as(api, "sec_admin")
 
 
 @pytest.fixture()
@@ -167,6 +167,60 @@ def test_llm_config_roundtrip_masks_key(sec):
 
 
 # ── 离线漏洞库(v2.2.0) ────────────────────────────────
+
+def test_user_update_and_guards(sec):
+    """用户编辑(#63): 资料可改, username 不可改, 角色变更留审计。"""
+    sec.post("/api/admin/users", json={
+        "username": "dev_edit", "display_name": "待编辑", "role": "developer"})
+
+    resp = sec.put("/api/admin/users/dev_edit", json={
+        "display_name": "已编辑", "employee_id": "E9001", "role": "security"})
+    assert resp.status_code == 200, resp.text
+    rows = {r["username"]: r for r in sec.get("/api/admin/users").json()}
+    assert rows["dev_edit"]["display_name"] == "已编辑"
+    assert rows["dev_edit"]["employee_id"] == "E9001"
+    assert rows["dev_edit"]["role"] == "security"
+
+    # 不能修改自己的角色(防止最后一个安全账号自降锁死系统管理)
+    resp = sec.put("/api/admin/users/sec_admin", json={"role": "developer"})
+    assert resp.status_code == 400
+    # 未知角色拒绝
+    resp = sec.put("/api/admin/users/dev_edit", json={"role": "admin"})
+    assert resp.status_code == 400
+    # 不存在的用户 404
+    assert sec.put("/api/admin/users/nobody", json={"display_name": "x"}).status_code == 404
+    # 审计留痕
+    actions = [r["action"] for r in sec.get("/api/admin/audit-logs").json()]
+    assert "user_update" in actions
+
+
+def test_legacy_demo_accounts_deactivated_and_projects_reassigned(session):
+    """存量库收敛(#63): 旧演示账号停用, 名下项目转归 dev_admin。"""
+    from models import PlatformUser, Project
+    from services.auth_service import ensure_seed_users
+
+    legacy = PlatformUser(
+        username="dev_li", display_name="李开发", employee_id="E1002",
+        role="developer", password_hash="legacy-hash",
+    )
+    session.add(legacy)
+    session.flush()
+    project = Project(
+        name="存量项目", code="PRJ-OLD1", type="web",
+        user_scale="1k_to_100k", deploy_env=["private_cloud"], is_public=False,
+        owner_user_id=legacy.id,
+    )
+    session.add(project)
+    session.flush()
+
+    ensure_seed_users(session)
+
+    users = {u.username: u for u in session.query(PlatformUser).all()}
+    assert users["dev_li"].active is False
+    assert users["dev_admin"].active is True
+    assert users["sec_admin"].active is True
+    assert project.owner_user_id == users["dev_admin"].id
+
 
 def test_vuln_db_requires_security_role(api, sec):
     assert api.get("/api/admin/vuln-db").status_code == 403

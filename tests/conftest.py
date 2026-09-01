@@ -52,8 +52,8 @@ def api(tmp_path):
 
     TestClient 在独立线程执行请求, 内存库须用 StaticPool 共享单连接,
     否则每个线程各见一个空库。
-    默认身份为开发 dev_li(存量用例的写操作均以其执行);
-    需要其他身份时用 api_as(api, "sec_chen") 取对应身份的客户端。
+    默认身份为开发 dev_admin(存量用例的写操作均以其执行);
+    需要其他身份时用 api_as(api, "sec_admin") 取对应身份的客户端。
     """
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
@@ -83,7 +83,7 @@ def api(tmp_path):
             db.close()
 
     main.app.dependency_overrides[get_db] = _override_get_db
-    client = login_as(TestClient(main.app), "dev_li")
+    client = login_as(TestClient(main.app), "dev_admin")
     yield client
     main.app.dependency_overrides.clear()
 

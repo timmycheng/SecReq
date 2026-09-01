@@ -261,6 +261,9 @@ export const api = {
     request<{ status: string; password: string | null }>(`/api/admin/users/${username}/reset-password`, {
       method: 'POST', body: JSON.stringify(password ? { password } : {}),
     }),
+  adminUpdateUser: (username: string, data: { display_name: string; employee_id?: string; role: string }) =>
+    request<{ username: string; display_name: string; employee_id?: string | null; role: string }>(
+      `/api/admin/users/${username}`, { method: 'PUT', body: JSON.stringify(data) }),
   adminToggleUser: (username: string) =>
     request<{ username: string; active: boolean }>(`/api/admin/users/${username}/toggle-active`, { method: 'POST' }),
   listAuditLogs: () => request<AuditLogRow[]>('/api/admin/audit-logs'),
