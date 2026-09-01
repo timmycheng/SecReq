@@ -4,7 +4,7 @@ import {
   Alert, Button, Checkbox, Form, Input, Modal, Popconfirm, Select, Space, Spin,
   Switch, Table, Tag, Tooltip, Typography, message,
 } from 'antd'
-import { DeleteOutlined, EditOutlined, PlusOutlined, SnippetsOutlined } from '@ant-design/icons'
+import { DeleteOutlined, EditOutlined, PlusOutlined, QuestionCircleOutlined, SnippetsOutlined } from '@ant-design/icons'
 
 import { api } from '../../api'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
