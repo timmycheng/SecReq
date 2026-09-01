@@ -33,5 +33,7 @@ dist/
 
 # E2E(#72)
 e2e-secreq.db
+e2e-secreq.db-shm
+e2e-secreq.db-wal
 frontend/test-results/
 frontend/playwright-report/
