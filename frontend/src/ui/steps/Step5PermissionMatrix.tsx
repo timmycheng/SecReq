@@ -26,7 +26,16 @@ const EMPTY_RESOURCE: ResourceRow = { name: '', resource_type: 'data_record', cr
 
 export default function Step5PermissionMatrix({ ws, patch }: StepProps) {
   const enums = useEnums()
-  const [roles, setRoles] = useState<RoleRow[]>(ws.roles)
+  // 新项目首次进入本步时预置三个可编辑角色(可改名/改类型/增删; 引擎按 super_admin 枚举扫描, 文案可自由调整)(#90)
+  const [roles, setRoles] = useState<RoleRow[]>(
+    ws.roles.length
+      ? ws.roles
+      : [
+          { name: '普通用户', role_type: 'normal' },
+          { name: '特权用户', role_type: 'privileged' },
+          { name: '系统管理员', role_type: 'super_admin' },
+        ],
+  )
   const [resources, setResources] = useState<ResourceRow[]>(ws.resources)
   const [grants, setGrants] = useState<CellGrants>(() => initGrants(ws))
   const savedRef = useRef(JSON.stringify({ roles, resources, grants }))
@@ -201,6 +210,9 @@ export default function Step5PermissionMatrix({ ws, patch }: StepProps) {
                   <th key={ci} style={cellStyle('#2f5597', '#fff')}>
                     {r.name}
                     <div>
+                      <Tag style={{ marginRight: 0 }}>
+                        {labelMapOf(enums, 'resource_types')[r.resource_type] ?? r.resource_type}
+                      </Tag>
                       <Tag color={CRITICALITY_COLOR[labelMapOf(enums, 'criticality_levels')[r.criticality]]}>
                         {labelMapOf(enums, 'criticality_levels')[r.criticality] ?? r.criticality}
                       </Tag>
@@ -231,7 +243,7 @@ export default function Step5PermissionMatrix({ ws, patch }: StepProps) {
                           onToggleApproval={(a, needs) => updateApproval(ri, ci, a, needs)}
                         >
                           {granted.length === 0
-                            ? <span style={{ color: '#bbb' }}>＋ 点击授权</span>
+                            ? <span style={{ color: '#bbb' }}>＋ 点击赋权</span>
                             : granted.map((a) => `${actionsMap[a] ?? a}${cell[a] ? '*' : ''}`).join('、')}
                         </MatrixCellPopover>
                       </td>

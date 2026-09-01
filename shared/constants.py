@@ -169,9 +169,9 @@ MASK_RULES = {
 
 # ── Step5 权限矩阵 ────────────────────────────────────
 ROLE_TYPES = {
-    "normal": "普通角色",
-    "privileged": "特权角色",
-    "super_admin": "超级管理员",
+    "normal": "普通",
+    "privileged": "特权",
+    "super_admin": "管理员",
 }
 
 RESOURCE_TYPES = {
