@@ -9,7 +9,7 @@ from conftest import api_as
 
 def _actions(api) -> list[str]:
     """以安全角色读取审计日志, 返回动作列表(按 id 倒序)。"""
-    resp = api_as(api, "sec_chen").get("/api/admin/audit-logs")
+    resp = api_as(api, "sec_admin").get("/api/admin/audit-logs")
     assert resp.status_code == 200, resp.text
     return [row["action"] for row in resp.json()]
 
@@ -22,7 +22,7 @@ def _new_project(api) -> int:
 
 def test_login_failure_is_audited(api):
     resp = api.post("/api/auth/login",
-                    json={"username": "dev_li", "password": "definitely-wrong"})
+                    json={"username": "dev_admin", "password": "definitely-wrong"})
     assert resp.status_code == 401
     assert "login_failed" in _actions(api)
 
@@ -56,7 +56,7 @@ def test_step_save_records_step_name_and_count(api):
         {"name": "登录", "categories": ["auth_login"]},
         {"name": "转账", "categories": ["payment"]},
     ])
-    rows = api_as(api, "sec_chen").get("/api/admin/audit-logs").json()
+    rows = api_as(api, "sec_admin").get("/api/admin/audit-logs").json()
     entry = next(r for r in rows if r["action"] == "step_save")
     assert entry["detail"]["step"] == "features"
     assert entry["detail"]["count"] == 2
@@ -81,7 +81,7 @@ def test_audit_rows_carry_label_and_summary(api):
         "sensitivity": "confidential", "involves_payment": True,
     }])
     assert resp.status_code == 200, resp.text
-    rows = api_as(api, "sec_chen").get("/api/admin/audit-logs").json()
+    rows = api_as(api, "sec_admin").get("/api/admin/audit-logs").json()
 
     step_row = next(r for r in rows if r["action"] == "step_save")
     assert step_row["action_label"] == "保存向导步骤"

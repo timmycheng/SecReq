@@ -247,6 +247,36 @@ def reset_password(username: str, payload: PasswordResetIn, request: Request,
     return {"status": "ok", "password": None if payload.password else new_password}
 
 
+class UserUpdateIn(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=50)
+    employee_id: str | None = Field(default=None, max_length=30)
+    role: str | None = None
+
+
+@router.put("/users/{username}")
+def update_user(username: str, payload: UserUpdateIn, request: Request,
+                db: Session = Depends(get_db),
+                user: PlatformUser = Depends(require_security)):
+    """编辑用户资料(姓名/工号/角色; username 不可改, 审计留痕与权限引用均按 username)。"""
+    target = db.query(PlatformUser).filter_by(username=username).first()
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"用户不存在: {username}")
+    changes = payload.model_dump(exclude_none=True)
+    if "role" in changes:
+        if changes["role"] not in C.PLATFORM_ROLES:
+            raise HTTPException(status_code=400, detail=f"未知角色: {changes['role']}")
+        if target.username == user.username and changes["role"] != user.role:
+            raise HTTPException(status_code=400, detail="不能修改自己的角色")
+    for key, value in changes.items():
+        setattr(target, key, value)
+    db.commit()
+    audit(db, user.username, "user_update",
+          {"target": username, "role": target.role, "display_name": target.display_name},
+          client_ip(request))
+    return {"username": username, "display_name": target.display_name,
+            "employee_id": target.employee_id, "role": target.role}
+
+
 @router.post("/users/{username}/toggle-active")
 def toggle_active(username: str, request: Request,
                   db: Session = Depends(get_db),
