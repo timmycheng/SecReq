@@ -143,6 +143,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
         layout="vertical"
         initialValues={{
           name: ws.project.name,
+          code: ws.project.code,
           types: ws.project.types ?? (ws.project.type ? [ws.project.type] : []),
           user_scale: ws.project.user_scale || undefined,
           is_public: ws.project.is_public,
@@ -333,23 +334,8 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
         />
       )}
 
-      {/* ── 定级后的基线要求(即时反馈) ── */}
-      {baseline && baseline.requirements.length > 0 && (
-        <Card
-          size="small"
-          style={{ marginTop: 16 }}
-          title={`按当前定级与合规目标, 生成时将包含 ${baseline.requirements.length} 条基线要求(预览)`}
-        >
-          <Space direction="vertical" size={4} style={{ width: '100%' }}>
-            {baseline.requirements.map((r) => (
-              <div key={r.req_id} style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
-                <Tag style={{ flexShrink: 0 }}>{r.category}</Tag>
-                <Typography.Text>{r.title}</Typography.Text>
-              </div>
-            ))}
-          </Space>
-        </Card>
-      )}
+      {/* 基线要求预览已收敛到第 8 步「试算预览」与结果页, 此处不再逐条重复(#87);
+          baseline 仍用于下方「认证与密码策略」卡片的默认档位展示 */}
 
       {/* ── 认证与密码策略(默认基线, 可展开覆盖) ── */}
       <Card
