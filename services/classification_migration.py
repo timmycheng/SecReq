@@ -31,6 +31,7 @@ _NEW_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("types", "JSON"),
     ],
     "infra_assets": [
+        ("zone_id", "INTEGER"),
         ("cpu_cores", "INTEGER"),
         ("memory_gb", "INTEGER"),
         ("disk_gb", "INTEGER"),

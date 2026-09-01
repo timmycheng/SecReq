@@ -482,6 +482,53 @@ def save_infra_assets(payload: InfraAssetListIn,
     return [InfraAssetOut.model_validate(a) for a in rows]
 
 
+class TopologySaveIn(BaseModel):
+    """按环境整卷保存拓扑(#93): 设备 + 区域 + 连线 + 布局。
+
+    dev 仅保存设备清单(无画布, zones/links 恒空)。
+    """
+
+    env: str = Field(pattern=r"^(test|prod|dev)$")
+    zones: list[dict] = Field(default_factory=list)
+    links: list[dict] = Field(default_factory=list)
+    layout: dict = Field(default_factory=dict)
+    assets: list[dict] = Field(default_factory=list)
+
+
+@router.post("/infra-topology")
+def save_infra_topology(payload: TopologySaveIn,
+                        project: Project = Depends(get_writable_project),
+                        db: Session = Depends(get_db),
+                        user: PlatformUser = Depends(require_login)):
+    from services.step_store import save_infra_topology
+
+    stats = save_infra_topology(
+        db, project.id, payload.env, payload.zones, payload.links,
+        payload.layout, payload.assets,
+    )
+    _audit_step(db, user, project, f"infra_topology_{payload.env}", stats["assets"])
+    return {**stats, "env": payload.env}
+
+
+@router.get("/infra-topology")
+def get_infra_topology(env: str = "prod",
+                       project: Project = Depends(get_accessible_project),
+                       db: Session = Depends(get_db)):
+    from models import InfraLayout, InfraLink, NetworkZone
+
+    zones = [
+        {"uid": z.uid, "name": z.name}
+        for z in db.query(NetworkZone).filter_by(project_id=project.id, env=env).all()
+    ]
+    links = [
+        {"source_uid": lk.source_uid, "target_uid": lk.target_uid, "label": lk.label}
+        for lk in db.query(InfraLink).filter_by(project_id=project.id, env=env).all()
+    ]
+    layout_row = db.query(InfraLayout).filter_by(project_id=project.id, env=env).first()
+    layout = layout_row.layout if layout_row else {}
+    return {"env": env, "zones": zones, "links": links, "layout": layout}
+
+
 @router.get("/infra-assets", response_model=list[InfraAssetOut])
 def get_infra_assets(project: Project = Depends(get_accessible_project),
                      db: Session = Depends(get_db)):

@@ -195,6 +195,8 @@ export interface InfraAssetRow {
   id?: number
   /** 稳定业务标识(#66): 保存时原样回传, 新增行留空由后端生成 */
   uid?: string
+  /** 所属网络区域 uid(拓扑画布一期, #93) */
+  zone_uid?: string | null
   asset_type: string
   name: string
   env: string

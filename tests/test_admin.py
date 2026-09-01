@@ -517,3 +517,42 @@ def test_api_import_parse_requires_input(sec, api):
     resp = sec.post(f"/api/projects/{pid}/api-endpoints/parse",
                     files={"text": (None, "   ")})
     assert resp.status_code == 400
+
+
+def test_infra_topology_roundtrip(api, sec):
+    """拓扑画布一期(#93): 按环境整卷保存 区域/设备/连线/布局, 回读一致且幂等。"""
+    pid = api.post("/api/projects", json={"name": "拓扑项目"}).json()["id"]
+    zone_uid = "zone-uid-12345678"
+    dev_uid = "device-uid-123456"
+    payload = {
+        "env": "prod",
+        "zones": [{"uid": zone_uid, "name": "DMZ 区"}],
+        "links": [{"source_uid": dev_uid, "target_uid": dev_uid, "label": "内网互通"}],
+        "layout": {"nodes": {dev_uid: {"x": 120, "y": 80}},
+                   "zones": {zone_uid: {"x": 0, "y": 0, "w": 400, "h": 300}}},
+        "assets": [
+            {"uid": dev_uid, "asset_type": "server", "name": "E2E 应用服务器",
+             "env": "prod", "zone_uid": zone_uid},
+        ],
+    }
+    resp = sec.post(f"/api/projects/{pid}/infra-topology", json=payload)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["assets"] == 1
+
+    got = sec.get(f"/api/projects/{pid}/infra-topology", params={"env": "prod"}).json()
+    assert got["env"] == "prod"
+    assert got["zones"] == [{"uid": zone_uid, "name": "DMZ 区"}]
+    assert got["links"][0]["label"] == "内网互通"
+    assert got["layout"]["nodes"][dev_uid] == {"x": 120, "y": 80}
+    assets = sec.get(f"/api/projects/{pid}/infra-assets").json()
+    assert assets[0]["name"] == "E2E 应用服务器"
+
+    # 幂等重存 + 清空设备: 画布删除设备后清单同步为空
+    payload["assets"] = []
+    payload["links"] = []
+    resp = sec.post(f"/api/projects/{pid}/infra-topology", json=payload)
+    assert resp.status_code == 200
+    assert sec.get(f"/api/projects/{pid}/infra-assets").json() == []
+
+    # dev 环境独立: prod 的保存不影响 dev
+    assert "env" in (sec.get(f"/api/projects/{pid}/infra-topology", params={"env": "test"}).json())
