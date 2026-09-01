@@ -66,11 +66,12 @@ export default function Step4DataAssets({ ws, patch }: StepProps) {
       <Space style={{ marginBottom: 12 }} wrap>
         <Button icon={<PlusOutlined />} onClick={openAdd}>新增数据资产</Button>
         <Button type="primary" ghost icon={<ImportOutlined />} onClick={() => setImportOpen(true)}>
-          粘贴/上传数据字典自动分级
+          粘贴/上传数据字典(自动分级, 推荐)
         </Button>
         <Typography.Text type="secondary">
           本步描述系统处理了哪些数据。共 {rows.length} 个资产 ·
-          贴入表/字段清单可自动分级并建议脱敏字段, 分级与敏感个人信息标记决定加密/脱敏/合规需求
+          推荐用「粘贴/上传数据字典」贴入表与字段清单, 自动完成安全分级并建议脱敏字段;
+          分级与敏感个人信息标记决定加密/脱敏/合规需求
         </Typography.Text>
       </Space>
 
@@ -174,12 +175,12 @@ function AssetEditor({ initial, onSave, onClose }: {
       okText="保存资产"
       onOk={async () => {
         const base = await form.validateFields()
-        if (!tables.length) {
-          message.warning('请至少为资产录入一张数据表(可不含字段)')
-          return
-        }
+        // 表结构允许后补(#89): 只填资产属性即可保存
         // 合并 initial: 保留 uid 等未注册字段, 编辑时原样回传(#66)
         onSave({ ...initial, ...base, tables })
+        if (!tables.length) {
+          message.info('已保存资产(表结构为空), 可稍后在列表中「编辑」补建表, 或用「粘贴/上传数据字典」自动分级导入')
+        }
       }}
     >
       <Form form={form} layout="vertical" initialValues={{ ...initial }}>
@@ -190,7 +191,10 @@ function AssetEditor({ initial, onSave, onClose }: {
             </Form.Item>
           </Col>
           <Col span={7}>
-            <Form.Item name="data_type" label="资产分类" rules={[{ required: true }]}>
+            <Form.Item
+              name="data_type" label="数据类别" rules={[{ required: true }]}
+              extra="回答「这是什么数据」: 按业务形态选(如客户信息/交易/日志)"
+            >
               <Select options={optionsOf(enums, 'data_asset_types')} />
             </Form.Item>
           </Col>
@@ -198,8 +202,8 @@ function AssetEditor({ initial, onSave, onClose }: {
             <Form.Item
               name="classification"
               label={(
-                <Tooltip title="JR/T 0197-2020《金融数据安全 数据安全分级指南》五级体系">
-                  分级(?)
+                <Tooltip title="JR/T 0197-2020《金融数据安全 数据安全分级指南》五级体系, 决定加密/脱敏/合规需求的档位">
+                  安全分级(?)
                 </Tooltip>
               )}
               rules={[{ required: true }]}
@@ -235,13 +239,19 @@ function AssetEditor({ initial, onSave, onClose }: {
         </Row>
         <Row gutter={16}>
           <Col span={6}>
-            <Form.Item name="is_pii" label="是否个人信息" valuePropName="checked"><Checkbox /></Form.Item>
+            <Form.Item name="is_pii" label="是否个人信息" valuePropName="checked" extra="是否处理可识别自然人的信息">
+            <Checkbox>是</Checkbox>
+          </Form.Item>
           </Col>
           <Col span={7}>
-            <Form.Item name="is_sensitive_pii" label="是否敏感个人信息" valuePropName="checked"><Checkbox /></Form.Item>
+            <Form.Item name="is_sensitive_pii" label="是否敏感个人信息" valuePropName="checked" extra="勾选会触发个人信息保护事前评估类需求">
+            <Checkbox>是</Checkbox>
+          </Form.Item>
           </Col>
           <Col span={5}>
-            <Form.Item name="cross_border_transfer" label="是否跨境传输" valuePropName="checked"><Checkbox /></Form.Item>
+            <Form.Item name="cross_border_transfer" label="是否跨境传输" valuePropName="checked" extra="勾选会触发数据出境安全评估类需求">
+            <Checkbox>是</Checkbox>
+          </Form.Item>
           </Col>
           <Col span={6}>
             <Form.Item name="storage_envs" label="存储位置(多选)">
