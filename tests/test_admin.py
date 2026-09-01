@@ -247,6 +247,34 @@ def vulndb_file(tmp_path):
     return str(out)
 
 
+def test_vuln_db_per_ecosystem_keys_normalized(sec, monkeypatch, vulndb_file):
+    """生态记录数按平台 code 读取: 新库 key 已归一化, 旧库 OSV 原始名也要兜底(#61)。"""
+    import json
+    import sqlite3
+
+    import services.cnnvd as cnnvd
+
+    monkeypatch.setenv("SECREQ_VULNDB_PATH", vulndb_file)
+    monkeypatch.setattr(cnnvd, "stats", lambda path=None: {"available": False, "total": 0})
+
+    def declared_records():
+        body = sec.get("/api/admin/vuln-db").json()
+        return {row["code"]: row["records"] for row in body["declared_ecosystems"]}
+
+    # 新库: 构建端已写平台 code, 各生态记录数可见
+    assert declared_records() == {"bitnami": 1, "alpine": 1, "npm": 1, "maven": 1}
+
+    # 存量库: meta 里是 OSV 原始名(PyPI/crates.io…), 读取端按别名表兜底归一化
+    legacy = json.dumps({"PyPI": 10, "Maven": 20, "crates.io": 30, "npm": 40})
+    with sqlite3.connect(vulndb_file) as conn:
+        conn.execute("UPDATE meta SET value = ? WHERE key = 'per_ecosystem'", (legacy,))
+        conn.commit()
+    records = declared_records()
+    # declared 生态以库的 ecosystems 字段为准: pypi/crates 未声明, 不出现在列表
+    assert records["maven"] == 20 and records["npm"] == 40
+    assert "pypi" not in records and "crates" not in records
+
+
 def test_vuln_db_verify_without_sidecar_reports_null_match(sec, monkeypatch, vulndb_file):
     """无 sidecar 校验文件时 match 为 null(无可比对), 不再冒充"校验和一致"(#22)。"""
     monkeypatch.setenv("SECREQ_VULNDB_PATH", vulndb_file)

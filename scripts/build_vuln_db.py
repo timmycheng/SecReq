@@ -202,7 +202,8 @@ def build(zips: list[tuple[str, Path]], out_path: Path, slim: bool, compress: bo
                         eco_count += 1
                     if idx % REPORT_EVERY == 0:
                         print(f"    … {ecosystem}: 已处理 {idx}/{len(members)}")
-            stats[ecosystem] = eco_count
+            # key 归一化为平台 code(#61): 读取端按 code 取数, 原始名(如 PyPI)会显示「—」
+            stats[ecosystem_code(ecosystem)] = eco_count
             total += eco_count
             print(f"  · {ecosystem}: {eco_count} 条(去重后坐标行)")
 
