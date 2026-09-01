@@ -1,6 +1,7 @@
 /* 项目列表: 全部项目表格(按角色过滤), 新建直通向导第一步; 空状态带首次使用引导。 */
 import { useCallback, useEffect, useState } from 'react'
-import { Button, Card, Empty, Popconfirm, Space, Table, Tag, message } from 'antd'
+import { Button, Card, Empty, Popconfirm, Space, Table, Tag, message, Typography
+} from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 
 import { api, getStoredUser } from '../api'
@@ -74,16 +75,7 @@ export default function ProjectListPage() {
             ),
           }}
           expandable={{
-            expandedRowRender: (record) => (
-              <Space size={[24, 8]} wrap>
-                {Object.entries(record.counts).map(([key, count]) => (
-                  <span key={key}>
-                    <Tag>{count}</Tag>
-                    {COUNT_LABELS[key] ?? key}
-                  </span>
-                ))}
-              </Space>
-            ),
+            expandedRowRender: (record) => <CountsGrid counts={record.counts} />,
           }}
           columns={[
             { title: '项目名称', dataIndex: 'name' },
@@ -149,4 +141,47 @@ const COUNT_LABELS: Record<string, string> = {
   external_systems: '外部系统',
   requirements: '安全需求',
   vulnerabilities: '漏洞记录',
+}
+
+/** 展开区分组(#86): 项目输入 / 生成产出, 各配 preset 色; 0 值项弱化不隐藏(空项目不突兀)。 */
+const COUNT_GROUPS: { title: string; color: string; keys: string[] }[] = [
+  {
+    title: '项目输入',
+    color: 'geekblue',
+    keys: ['features', 'data_assets', 'roles', 'resources', 'permission_entries',
+      'components', 'api_endpoints', 'infra_assets', 'external_systems'],
+  },
+  { title: '生成产出', color: 'green', keys: ['requirements', 'vulnerabilities'] },
+]
+
+/** 展开区统计网格: 居中分布, 数字放大、标签缩小, 分组一眼可辨(#86)。 */
+function CountsGrid({ counts }: { counts: Record<string, number> }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', gap: 32, flexWrap: 'wrap', padding: '8px 0' }}>
+      {COUNT_GROUPS.map((group) => {
+        const items = group.keys
+          .map((key) => ({ key, count: counts[key] ?? 0 }))
+          .filter((it) => COUNT_LABELS[it.key])
+        return (
+          <div key={group.title}>
+            <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+              {group.title}
+            </Typography.Text>
+            <Space size={[8, 8]} wrap style={{ maxWidth: 520 }}>
+              {items.map(({ key, count }) => (
+                <Tag
+                  key={key}
+                  color={count > 0 ? group.color : 'default'}
+                  style={{ marginRight: 0, borderRadius: 12, paddingInline: 10 }}
+                >
+                  <span style={{ fontSize: 15, fontWeight: 600, marginInlineEnd: 4 }}>{count}</span>
+                  {COUNT_LABELS[key]}
+                </Tag>
+              ))}
+            </Space>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
