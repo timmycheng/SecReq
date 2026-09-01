@@ -2,9 +2,9 @@
 import { useRef, useState } from 'react'
 import {
   Alert, Button, Checkbox, Form, Input, Modal, Popconfirm, Select, Space, Spin,
-  Switch, Table, Tag, Typography, message,
+  Switch, Table, Tag, Tooltip, Typography, message,
 } from 'antd'
-import { DeleteOutlined, EditOutlined, PlusOutlined, SnippetsOutlined } from '@ant-design/icons'
+import { DeleteOutlined, EditOutlined, PlusOutlined, QuestionCircleOutlined, SnippetsOutlined } from '@ant-design/icons'
 
 import { api } from '../../api'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
@@ -40,6 +40,15 @@ const CATEGORY_HINTS: Record<string, string> = {
   audit_log: '审计日志完整性保护',
   search: '搜索防 SQL 注入与参数化查询',
   sms_email: '短信/邮件验证码发送频控与防轰炸',
+}
+
+
+/** 敏感级别判定口径(#88): 当前仅落库展示与 LLM 提取归一化, 不直接参与规则引擎; 文案不承诺影响生成。 */
+const SENSITIVITY_HINTS: Record<string, string> = {
+  public: '对外公开发布, 不含任何敏感内容(如产品介绍页)',
+  internal: '仅内部员工日常使用, 不含个人信息(默认档)',
+  sensitive: '涉及个人信息或业务敏感数据(如客户联系方式)',
+  confidential: '核心数据或泄露危害大(如资金操作、鉴别信息)',
 }
 
 export default function Step3Features({ ws, patch }: StepProps) {
@@ -313,8 +322,31 @@ function FeatureModal({ value, onOk, onCancel }: {
             }}
           />
         </Form.Item>
-        <Form.Item name="sensitivity" label="敏感级别">
-          <Select options={optionsOf(enums, 'sensitivity_levels')} />
+        <Form.Item
+          name="sensitivity"
+          label={(
+            <span>
+              敏感级别
+              <Tooltip title="这是项目内的业务敏感标注(公开/内部/敏感/机密), 与第 3 步数据资产的 JR/T 0197 五级「安全分级」相互独立; 拿不准时按更保守的档位选择">
+                <QuestionCircleOutlined style={{ marginLeft: 4, color: '#999' }} />
+              </Tooltip>
+            </span>
+          )}
+          initialValue="internal"
+          extra="功能本身处理的数据敏感程度; 拿不准选更保守的一档"
+        >
+          <Select
+            options={Object.entries(labelMapOf(enums, 'sensitivity_levels')).map(([value, label]) => ({
+              value,
+              label,
+              optionRender: () => (
+                <div>
+                  <div>{label}</div>
+                  <div style={{ fontSize: 12, color: '#999' }}>{SENSITIVITY_HINTS[value] ?? ''}</div>
+                </div>
+              ),
+            }))}
+          />
         </Form.Item>
         <Space size={32}>
           <Form.Item name="involves_payment" label="是否涉及资金" valuePropName="checked">
