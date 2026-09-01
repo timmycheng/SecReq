@@ -22,6 +22,8 @@ data
 tests
 .github
 *.md
+# 例外: 更新日志页(#55)在运行时读取 CHANGELOG.md, 必须进镜像
+!CHANGELOG.md
 
 # 例外: CI 用 oras 拉取的漏洞库基线必须进入构建上下文
 !vulndb.sqlite
