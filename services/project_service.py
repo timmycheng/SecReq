@@ -20,16 +20,24 @@ class ProjectExistsError(Exception):
 
 
 def generate_project_code(session: Session) -> str:
-    """自动生成项目编码: XM<年份>-<三位序号>, 冲突时序号递增。"""
-    year = datetime.now().year
-    prefix = f"XM{year}-"
+    """自动生成项目编码: {前缀}{可选年份}{自增序号}, 冲突时序号递增(#85)。
+
+    规则存 system_settings(key=project_code_rule), 未配置时回退历史格式
+    XM<年份>-<三位序号>(老项目编号不受影响)。prefix 校验为字母数字,
+    编码兼作产物输出目录名, 防路径穿越。
+    """
+    from services.settings_service import get_project_code_rule
+
+    rule = get_project_code_rule(session)
+    prefix = rule["prefix"] + (str(datetime.now().year) if rule["include_year"] else "")
+    body_prefix = f"{prefix}-"
     used = {
-        row[0] for row in session.query(Project.code).filter(Project.code.like(f"{prefix}%")).all()
+        row[0] for row in session.query(Project.code).filter(Project.code.like(f"{body_prefix}%")).all()
     }
     seq = 1
-    while f"{prefix}{seq:03d}" in used:
+    while f"{body_prefix}{seq:0{rule['digits']}d}" in used:
         seq += 1
-    return f"{prefix}{seq:03d}"
+    return f"{body_prefix}{seq:0{rule['digits']}d}"
 
 
 def create_project(session: Session, data: dict, owner_user_id: int | None = None) -> Project:

@@ -14,6 +14,7 @@ const LlmTab = lazy(() => import('./admin/LlmTab'))
 const VulnDbTab = lazy(() => import('./admin/VulnDbTab'))
 const UsersTab = lazy(() => import('./admin/UsersTab'))
 const AuditTab = lazy(() => import('./admin/AuditTab'))
+const SystemSettingsTab = lazy(() => import('./admin/SystemSettingsTab'))
 
 /** Tab 切换时的加载态: 统一占位, 避免各 Tab 自己写一遍 Spin。 */
 function TabLoading() {
@@ -40,7 +41,7 @@ export default function AdminPage() {
       <div style={{ marginBottom: 16 }}>
         <Typography.Title level={4} style={{ marginBottom: 4 }}>系统管理</Typography.Title>
         <Typography.Text type="secondary">
-          知识库、定级题库、密码策略基线、大模型接入、离线漏洞库与用户、审计日志的统一维护入口(仅安全角色)
+          知识库、定级题库、密码策略基线、大模型接入、离线漏洞库、用户、审计日志与系统设置(编号规则)的统一维护入口(仅安全角色)
         </Typography.Text>
       </div>
       <Card>
@@ -54,6 +55,7 @@ export default function AdminPage() {
               { key: 'llm', label: '大模型接入', children: <LlmTab /> },
               { key: 'users', label: '用户管理', children: <UsersTab /> },
               { key: 'audit', label: '审计日志', children: <AuditTab /> },
+              { key: 'settings', label: '系统设置', children: <SystemSettingsTab /> },
             ]}
           />
         </Suspense>

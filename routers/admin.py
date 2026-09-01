@@ -26,7 +26,9 @@ from services.kb_admin import (
     save_question_bank, update_template,
 )
 from services.session_service import revoke_user_sessions
-from services.settings_service import get_llm_config, get_setting, set_setting
+from services.settings_service import (
+    get_llm_config, get_project_code_rule, get_setting, set_setting,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +162,30 @@ def _apply_policy_settings(db: Session) -> None:
     stored = get_setting(db, "policy_baselines")
     if stored.get("baselines"):
         set_policy_baselines(stored["baselines"])
+
+
+# ── 项目编号规则 ──────────────────────────────────────
+class ProjectCodeRuleIn(BaseModel):
+    prefix: str = Field(min_length=1, max_length=10, pattern=r"^[A-Za-z0-9]+$",
+                        description="前缀, 仅字母数字(编号兼作产物目录名, 防路径穿越)")
+    include_year: bool = True
+    digits: int = Field(ge=1, le=6)
+
+
+@router.get("/project-code-rule")
+def get_code_rule(_: PlatformUser = Depends(require_security), db: Session = Depends(get_db)):
+    return get_project_code_rule(db)
+
+
+@router.put("/project-code-rule")
+def put_code_rule(payload: ProjectCodeRuleIn, request: Request,
+                  db: Session = Depends(get_db),
+                  user: PlatformUser = Depends(require_security)):
+    value = payload.model_dump()
+    set_setting(db, "project_code_rule", value)
+    audit(db, user.username, "code_rule_update", {"prefix": value["prefix"]},
+          client_ip(request))
+    return value
 
 
 # ── LLM 接入配置 ──────────────────────────────────────

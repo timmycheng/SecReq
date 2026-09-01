@@ -416,3 +416,33 @@ def test_llm_test_connection_success(sec, monkeypatch):
     body = resp.json()
     assert body["ok"] is True and body["reply"] == "pong"
     assert body["latency_ms"] >= 0
+
+
+def test_project_code_rule_roundtrip_and_generation(sec, api):
+    """编号规则可配置(#85): 保存→按新格式生成; 非法前缀拒绝; 审计留痕。"""
+    resp = sec.put("/api/admin/project-code-rule", json={
+        "prefix": "PRJ", "include_year": False, "digits": 4})
+    assert resp.status_code == 200
+    assert resp.json() == {"prefix": "PRJ", "include_year": False, "digits": 4}
+
+    resp = api.post("/api/projects", json={"name": "自定义编号项目"})
+    assert resp.status_code == 201
+    assert resp.json()["code"].startswith("PRJ-") and len(resp.json()["code"].split("-")[1]) == 4
+
+    # 非法前缀(含路径字符)被拦截
+    resp = sec.put("/api/admin/project-code-rule", json={
+        "prefix": "../etc", "include_year": False, "digits": 3})
+    assert resp.status_code == 422  # pydantic pattern 校验
+    # 审计
+    actions = [r["action"] for r in sec.get("/api/admin/audit-logs").json()]
+    assert "code_rule_update" in actions
+
+
+def test_project_code_rule_fallback_defaults(sec, api):
+    """未配置规则时回退历史格式 XM<年份>-<三位序号>(#85 回退路径)。"""
+    import re
+
+    resp = api.post("/api/projects", json={"name": "默认格式项目"})
+    assert resp.status_code == 201
+    code = resp.json()["code"]
+    assert re.fullmatch(r"XM\d{4}-\d{3}", code), f"默认格式不符: {code}"

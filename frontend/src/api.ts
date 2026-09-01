@@ -258,6 +258,11 @@ export const api = {
   testLlmConfig: (data: { base_url: string; api_key?: string; model: string }) =>
     request<{ ok: boolean; latency_ms?: number; reply?: string; reason?: string }>(
       '/api/admin/llm-config/test', { method: 'POST', body: JSON.stringify(data) }),
+  getProjectCodeRule: () =>
+    request<{ prefix: string; include_year: boolean; digits: number }>('/api/admin/project-code-rule'),
+  saveProjectCodeRule: (data: { prefix: string; include_year: boolean; digits: number }) =>
+    request<{ prefix: string; include_year: boolean; digits: number }>(
+      '/api/admin/project-code-rule', { method: 'PUT', body: JSON.stringify(data) }),
   adminListUsers: () => request<AdminUserRow[]>('/api/admin/users'),
   adminCreateUser: (data: { username: string; display_name: string; employee_id?: string; role: string; password?: string }) =>
     request<{ status: string; initial_password: string }>('/api/admin/users', { method: 'POST', body: JSON.stringify(data) }),

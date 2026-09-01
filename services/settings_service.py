@@ -39,3 +39,23 @@ def get_llm_config(session: Session) -> dict:
     if base_url and api_key and model:
         return {"base_url": base_url, "api_key": api_key, "model": model}
     return {}
+
+
+PROJECT_CODE_RULE_KEY = "project_code_rule"
+#: 与前端预览一致的默认格式: XM2026-001(#85)
+DEFAULT_PROJECT_CODE_RULE = {"prefix": "XM", "include_year": True, "digits": 3}
+
+
+def get_project_code_rule(session: Session) -> dict:
+    """读取项目编号规则, 未配置或字段非法时逐项回退默认(老库零影响)。"""
+    raw = get_setting(session, PROJECT_CODE_RULE_KEY)
+    prefix = raw.get("prefix") if isinstance(raw.get("prefix"), str) else None
+    if not prefix or not prefix.isalnum() or not (1 <= len(prefix) <= 10):
+        prefix = DEFAULT_PROJECT_CODE_RULE["prefix"]
+    include_year = raw.get("include_year")
+    if not isinstance(include_year, bool):
+        include_year = DEFAULT_PROJECT_CODE_RULE["include_year"]
+    digits = raw.get("digits")
+    if not isinstance(digits, int) or not (1 <= digits <= 6):
+        digits = DEFAULT_PROJECT_CODE_RULE["digits"]
+    return {"prefix": prefix, "include_year": include_year, "digits": digits}
