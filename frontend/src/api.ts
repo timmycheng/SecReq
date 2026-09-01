@@ -254,6 +254,10 @@ export const api = {
   getLlmConfig: () => request<LlmConfig>('/api/admin/llm-config'),
   saveLlmConfig: (data: LlmConfig) =>
     request<{ status: string }>('/api/admin/llm-config', { method: 'PUT', body: JSON.stringify(data) }),
+  /** 只测不存: api_key 留空表示沿用已保存的 Key(#62) */
+  testLlmConfig: (data: { base_url: string; api_key?: string; model: string }) =>
+    request<{ ok: boolean; latency_ms?: number; reply?: string; reason?: string }>(
+      '/api/admin/llm-config/test', { method: 'POST', body: JSON.stringify(data) }),
   adminListUsers: () => request<AdminUserRow[]>('/api/admin/users'),
   adminCreateUser: (data: { username: string; display_name: string; employee_id?: string; role: string; password?: string }) =>
     request<{ status: string; initial_password: string }>('/api/admin/users', { method: 'POST', body: JSON.stringify(data) }),
