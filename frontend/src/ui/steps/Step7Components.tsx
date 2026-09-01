@@ -8,7 +8,7 @@
    未指定生态的组件走跨生态模糊匹配, 结果标注「待确认」, 绝不静默显示"无漏洞"。 */
 import { useRef, useState } from 'react'
 import {
-  Alert, Button, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag,
+  Alert, AutoComplete, Button, Collapse, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag,
   Tooltip, Typography, Upload, message,
 } from 'antd'
 import { DeleteOutlined, EditOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons'
@@ -53,7 +53,6 @@ export default function Step7Components({ ws, patch }: StepProps) {
 
   const layerMap = labelMapOf(enums, 'sbom_layers')
   const riskMap = labelMapOf(enums, 'license_risk') as unknown as Record<string, { risk: string; label: string; note: string }>
-  const commonComponents = (enums['common_components'] ?? {}) as unknown as Record<string, KnownComponent[]>
   const statusMap = labelMapOf(enums, 'vuln_query_status')
   const statusHints = labelMapOf(enums, 'vuln_query_status_hints')
 
@@ -64,22 +63,6 @@ export default function Step7Components({ ws, patch }: StepProps) {
     name: '', version: '', purl: null, license: null,
     source_type: 'manual_input', ecosystem: null, distro: null,
   })
-
-  const addKnown = (layer: string, comp: KnownComponent) => {
-    if (rows.some((r) => r.name === comp.name)) {
-      message.info(`${comp.name} 已在清单中`)
-      return
-    }
-    setRows([...rows, {
-      ...emptyRow(),
-      layer,
-      name: comp.name,
-      license: comp.license,
-      ecosystem: comp.ecosystem ?? null,
-      version: '',
-    }])
-    message.info(`已添加 ${comp.name}, 请补全版本号`)
-  }
 
   const save = async (): Promise<boolean> => {
     const missingVersion = rows.find((r) => !r.version?.trim())
@@ -138,34 +121,6 @@ export default function Step7Components({ ws, patch }: StepProps) {
           </span>
         )}
       />
-
-      {/* 常用组件库: 按层级分组点选 */}
-      <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
-        <Typography.Text strong>常用组件库(点选添加, 再补版本号)</Typography.Text>
-        {Object.entries(commonComponents).map(([layer, comps]) => (
-          <div key={layer} style={{ marginTop: 8 }}>
-            <Tag color="blue" style={{ marginRight: 8 }}>{layerMap[layer] ?? layer}</Tag>
-            {comps.map((comp: KnownComponent) => {
-              const info = riskOf(comp.license)
-              const added = rows.some((r) => r.name === comp.name)
-              return (
-                <Tag.CheckableTag
-                  key={comp.name}
-                  checked={false}
-                  style={{
-                    border: '1px solid #d9d9d9', margin: '2px 6px 2px 0',
-                    opacity: added ? 0.45 : 1, cursor: added ? 'not-allowed' : 'pointer',
-                  }}
-                  onChange={() => !added && addKnown(layer, comp)}
-                >
-                  {comp.name}
-                  {info && <span style={{ color: info.risk === 'high' ? '#cf1322' : info.risk === 'medium' ? '#d46b08' : '#52c41a' }}> · {info.label}</span>}
-                </Tag.CheckableTag>
-              )
-            })}
-          </div>
-        ))}
-      </div>
 
       <Space style={{ marginBottom: 12 }} wrap>
         <Button icon={<PlusOutlined />} onClick={() => openModal(emptyRow(), -1)}>新增组件</Button>
@@ -271,8 +226,20 @@ function ComponentModal({ value, onOk, onCancel }: {
   const enums = useEnums()
   const riskMap = labelMapOf(enums, 'license_risk') as unknown as Record<string, { risk: string; label: string; note: string }>
   const commonComponents = (enums['common_components'] ?? {}) as unknown as Record<string, KnownComponent[]>
+  const riskOf = (license?: string | null) => (license ? riskMap[license] : undefined)
   const licenseOptions = Object.values(commonComponents).flat().map((c) => c.license)
   const uniqueLicenses = Array.from(new Set(licenseOptions)).filter(Boolean)
+  // 名称 → 常用组件(带层级), 供 AutoComplete 过滤与自动回填(#91)
+  const knownByName = new Map<string, KnownComponent & { layer: string }>()
+  for (const [layer, comps] of Object.entries(commonComponents)) {
+    for (const c of comps) {
+      if (!knownByName.has(c.name)) knownByName.set(c.name, { ...c, layer })
+    }
+  }
+  const nameOptions = [...knownByName.values()].map((c) => ({
+    value: c.name,
+    label: `${c.name}(${labelMapOf(enums, 'sbom_layers')[c.layer] ?? c.layer})`,
+  }))
   const [form] = Form.useForm<DraftRow>()
   const license = Form.useWatch('license', form)
   const risk = license ? riskMap[license] : undefined
@@ -290,16 +257,68 @@ function ComponentModal({ value, onOk, onCancel }: {
     >
       {/* value 恒非空才可见; initialValues 兜底仅作用于关闭态, 置 undefined 即可 */}
       <Form form={form} layout="vertical" initialValues={value ?? undefined}>
+        {/* 常用组件快捷区收进弹窗(#91): 点选自动带出层级/许可证/生态 */}
+        <Collapse
+          size="small" style={{ marginBottom: 12 }}
+          items={[{
+            key: 'common',
+            label: '常用组件库(点选自动带出许可证与生态)',
+            children: (
+              <div>
+                {Object.entries(commonComponents).map(([layer, comps]) => (
+                  <div key={layer} style={{ marginBottom: 4 }}>
+                    <Tag color="blue" style={{ marginRight: 8 }}>{labelMapOf(enums, 'sbom_layers')[layer] ?? layer}</Tag>
+                    {comps.map((comp: KnownComponent) => {
+                      const info = riskOf(comp.license)
+                      return (
+                        <Tag.CheckableTag
+                          key={comp.name}
+                          checked={false}
+                          style={{ border: '1px solid #d9d9d9', margin: '2px 6px 2px 0' }}
+                          onChange={() => {
+                            form.setFieldsValue({
+                              layer,
+                              name: comp.name,
+                              license: comp.license,
+                              ecosystem: comp.ecosystem ?? null,
+                            })
+                            message.info(`已带入 ${comp.name}, 请补全版本号`)
+                          }}
+                        >
+                          {comp.name}
+                          {info && <span style={{ color: info.risk === 'high' ? '#cf1322' : info.risk === 'medium' ? '#d46b08' : '#52c41a' }}> · {info.label}</span>}
+                        </Tag.CheckableTag>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+            ),
+          }]}
+        />
         <Space size={12} style={{ display: 'flex' }}>
           <Form.Item name="layer" label="层级" rules={[{ required: true }]} style={{ width: 180 }}>
             <Select options={optionsOf(enums, 'sbom_layers')} />
           </Form.Item>
           <Form.Item name="name" label="组件名" rules={[{ required: true }]} style={{ flex: 1 }}>
-            <Input placeholder="如 Spring Boot" list="known-components" />
+            <AutoComplete
+              placeholder="输入过滤常用组件, 或手输自定义组件"
+              options={nameOptions}
+              filterOption={(input, opt) =>
+                String(opt?.value ?? '').toLowerCase().includes(input.toLowerCase())}
+              onChange={(v) => {
+                // 手输命中常用组件时自动回填(与点选行为一致, 均可修改)
+                const hit = knownByName.get(String(v))
+                if (hit) {
+                  form.setFieldsValue({
+                    layer: hit.layer,
+                    license: hit.license,
+                    ecosystem: hit.ecosystem ?? null,
+                  })
+                }
+              }}
+            />
           </Form.Item>
-          <datalist id="known-components">
-            {Object.entries(commonComponents).flatMap(([, comps]) => comps).map((c) => <option key={c.name} value={c.name} />)}
-          </datalist>
         </Space>
         <Form.Item name="version" label="版本号" rules={[{ required: true, message: '版本号用于漏洞匹配, 必填' }]} extra="版本号务必准确, 它决定漏洞匹配结果">
           <Input placeholder="如 2.14.1" />
