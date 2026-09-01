@@ -26,10 +26,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # 依赖安装: uv 按锁文件精确复现依赖树(#68), 任何时点构建结果一致。
 # uv 大版本与 CI 的 setup-uv 保持一致; pytest 在 dev 组, --no-dev 不进运行镜像;
 # cache mount 只加速重复构建, 不会把缓存带进镜像层。
+# uv sync 不支持 --system(uv 0.7 实测): 走标准 venv, PATH 指向 venv 的解释器。
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
+    PATH="/app/.venv/bin:$PATH"
 COPY --from=ghcr.io/astral-sh/uv:0.7 /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --system
+    uv sync --frozen --no-dev
 
 COPY main.py ./
 COPY models/ models/
