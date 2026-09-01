@@ -59,6 +59,9 @@ class TemplateUpdateIn(BaseModel):
     trigger_reason: str | None = None
     trigger: dict | None = None
     enabled: bool | None = None
+    # 监管出处(每项 {file, clause, summary, note}), 编辑与新建能力对齐(#80);
+    # 结构合法性由写回后的 loader 全量校验兜底, 不合法自动回滚
+    regulatory_ref: list[dict] | None = None
 
 
 @router.put("/knowledge-base/{template_id}")

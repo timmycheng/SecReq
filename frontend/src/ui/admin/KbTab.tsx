@@ -1,10 +1,13 @@
-/* 知识库管理: 模板启停与编辑(写回 YAML 自动备份, 保存时全量校验)。 */
+/* 知识库管理: 模板启停与编辑(写回 YAML 自动备份, 保存时全量校验)。
+   编辑弹窗含监管出处增删排序(#80); 下拉一律用 meta 下发的中文映射(#82)。 */
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Button, Col, Form, Input, Modal, Row, Select, Space, Switch, Table, Tag,
+  Button, Col, Form, Input, Modal, Popconfirm, Row, Select, Space, Switch, Table, Tag,
   Typography, message,
 } from 'antd'
-import { ReloadOutlined } from '@ant-design/icons'
+import {
+  ArrowDownOutlined, ArrowUpOutlined, DeleteOutlined, PlusOutlined, ReloadOutlined,
+} from '@ant-design/icons'
 
 import { api, type KbTemplateRow } from '../../api'
 import { labelMapOf, useEnums } from '../../enums'
@@ -86,8 +89,14 @@ function KbEditModal({ row, onClose, onSaved }: {
   onClose: () => void
   onSaved: () => void
 }) {
+  const enums = useEnums()
   const [form] = Form.useForm()
   const [saving, setSaving] = useState(false)
+  // 中文标签来自 meta 统一下发(#82), 保存值仍为英文枚举
+  const priorityOptions = Object.entries(labelMapOf(enums, 'priority_labels'))
+    .map(([value, label]) => ({ value, label }))
+  const phaseOptions = Object.entries(labelMapOf(enums, 'requirement_phases'))
+    .map(([value, label]) => ({ value, label }))
   return (
     <Modal
       title={`编辑知识库模板 ${row.id}`} open onCancel={onClose} width={760}
@@ -102,6 +111,10 @@ function KbEditModal({ row, onClose, onSaved }: {
             message.error('触发条件不是合法 JSON, 请检查后重试')
             return
           }
+        }
+        if (!values.regulatory_ref?.length) {
+          message.error('监管出处至少保留一条(每条必须含文件名)')
+          return
         }
         setSaving(true)
         try {
@@ -134,12 +147,12 @@ function KbEditModal({ row, onClose, onSaved }: {
         <Row gutter={16}>
           <Col span={8}>
             <Form.Item name="priority" label="优先级">
-              <Select options={['critical', 'high', 'medium', 'low'].map((v) => ({ value: v, label: v }))} />
+              <Select options={priorityOptions} />
             </Form.Item>
           </Col>
           <Col span={8}>
             <Form.Item name="suggested_phase" label="建议阶段">
-              <Select options={['design', 'development', 'test'].map((v) => ({ value: v, label: v }))} />
+              <Select options={phaseOptions} />
             </Form.Item>
           </Col>
           <Col span={8}>
@@ -155,6 +168,55 @@ function KbEditModal({ row, onClose, onSaved }: {
         >
           <Input.TextArea rows={4} style={{ fontFamily: 'monospace', fontSize: 12 }} />
         </Form.Item>
+        <Form.Item
+          label="监管出处(合规依据)" required style={{ marginBottom: 8 }}
+          extra="条款号不确定时写「参考《文件名》」并在备注标注「待合规部门确认」, 严禁编造条款号"
+        />
+        <Form.List name="regulatory_ref">
+          {(fields, { add, remove, move }) => (
+            <Space direction="vertical" size={8} style={{ width: '100%', marginBottom: 16 }}>
+              {fields.map((field, index) => (
+                <Space
+                  key={field.key}
+                  direction="vertical" size={4}
+                  style={{
+                    width: '100%', border: '1px solid #f0f0f0', borderRadius: 6,
+                    padding: '8px 12px',
+                  }}
+                >
+                  <Space size={8} wrap style={{ width: '100%' }}>
+                    <Form.Item name={[field.name, 'file']} noStyle
+                      rules={[{ required: true, message: '文件名必填' }]}>
+                      <Input placeholder="文件名(如 JR/T 0197-2020)" style={{ width: 230 }} />
+                    </Form.Item>
+                    <Form.Item name={[field.name, 'clause']} noStyle>
+                      <Input placeholder="条款号(如 7.1.3, 可空)" style={{ width: 170 }} />
+                    </Form.Item>
+                    <Space.Compact>
+                      <Button size="small" icon={<ArrowUpOutlined />} disabled={index === 0}
+                        onClick={() => move(index, index - 1)} />
+                      <Button size="small" icon={<ArrowDownOutlined />} disabled={index === fields.length - 1}
+                        onClick={() => move(index, index + 1)} />
+                      <Popconfirm title="删除该出处?" onConfirm={() => remove(index)}>
+                        <Button size="small" danger icon={<DeleteOutlined />} />
+                      </Popconfirm>
+                    </Space.Compact>
+                  </Space>
+                  <Form.Item name={[field.name, 'summary']} noStyle>
+                    <Input placeholder="摘要(该条款与本需求的关联)" />
+                  </Form.Item>
+                  <Form.Item name={[field.name, 'note']} noStyle>
+                    <Input placeholder="备注(如: 待合规部门确认)" />
+                  </Form.Item>
+                </Space>
+              ))}
+              <Button size="small" icon={<PlusOutlined />}
+                onClick={() => add({ file: '', clause: '', summary: '', note: '' })}>
+                新增出处
+              </Button>
+            </Space>
+          )}
+        </Form.List>
       </Form>
     </Modal>
   )

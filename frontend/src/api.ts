@@ -291,6 +291,13 @@ export interface GradingBaseline {
 }
 
 /* ── 系统管理数据形态 ── */
+export interface KbRegulatoryRef {
+  file: string
+  clause?: string
+  summary?: string
+  note?: string
+}
+
 export interface KbTemplateRow {
   id: string
   trigger_type: string
@@ -302,6 +309,7 @@ export interface KbTemplateRow {
   description?: string
   acceptance_criteria?: string
   trigger_reason?: string
+  regulatory_ref?: KbRegulatoryRef[]
 }
 
 export interface QuestionBank {
