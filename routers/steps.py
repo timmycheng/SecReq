@@ -6,7 +6,7 @@ GET 读取当前值。枚举选项一律由 /api/meta/constants 提供, 本文�
 """
 import logging
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -414,6 +414,38 @@ async def import_sbom_file_route(project: Project = Depends(get_writable_project
 
 
 # ── API 接口清单(独立步骤) ────────────────────────────
+class ApiImportTextIn(BaseModel):
+    """粘贴文本批量导入: 每行 名称,方法,路径[,需要认证,公网暴露](#92)。"""
+
+    text: str = Field(max_length=200_000)
+
+
+@router.post("/api-endpoints/parse")
+async def parse_api_endpoints(project: Project = Depends(get_writable_project),
+                              db: Session = Depends(get_db),
+                              user: PlatformUser = Depends(require_login),
+                              file: UploadFile | None = File(None),
+                              text: str | None = Form(None)):
+    """批量导入第一段: 解析预览, 不落库(#92)。
+
+    统一 multipart: file(xlsx/csv/txt)或 text 字段(粘贴文本)二选一;
+    返回逐行数组, 非法行标 error 不阻塞合法行; 确认导入由前端合并后走既有整体保存。
+    """
+    from services.api_import import parse_text, parse_upload
+
+    rows: list[dict] = []
+    if file is not None and file.filename:
+        content = await _read_limited(file)
+        rows = parse_upload(file.filename, content)
+    elif text and text.strip():
+        rows = parse_text(text)
+    else:
+        raise HTTPException(status_code=400, detail="请上传 xlsx/csv 文件或提供粘贴文本")
+    invalid = sum(1 for r in rows if r.get("error"))
+    _audit_step(db, user, project, "api_import", len(rows))
+    return {"total": len(rows), "invalid": invalid, "rows": rows}
+
+
 @router.post("/api-endpoints", response_model=list[ApiEndpointOut])
 def save_api_endpoints(payload: list[ApiEndpointIn],
                        project: Project = Depends(get_writable_project),

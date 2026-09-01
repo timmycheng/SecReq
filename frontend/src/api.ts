@@ -259,6 +259,18 @@ export const api = {
   testLlmConfig: (data: { base_url: string; api_key?: string; model: string }) =>
     request<{ ok: boolean; latency_ms?: number; reply?: string; reason?: string }>(
       '/api/admin/llm-config/test', { method: 'POST', body: JSON.stringify(data) }),
+  parseApiEndpoints: (projectId: number, data: { text: string }) => {
+    const body = new FormData()
+    body.append('text', data.text)
+    return request<{ total: number; invalid: number; rows: { index: number; name: string; method: string; path: string; auth_required: boolean; public_exposed: boolean; error?: string | null }[] }>(
+      `/api/projects/${projectId}/api-endpoints/parse`, { method: 'POST', body })
+  },
+  parseApiEndpointsFile: (projectId: number, file: File) => {
+    const body = new FormData()
+    body.append('file', file)
+    return request<{ total: number; invalid: number; rows: { index: number; name: string; method: string; path: string; auth_required: boolean; public_exposed: boolean; error?: string | null }[] }>(
+      `/api/projects/${projectId}/api-endpoints/parse`, { method: 'POST', body })
+  },
   getChangelog: () =>
     request<{ version: string; date: string; blocks: { kind: 'h3' | 'para' | 'list_item' | 'quote' | 'table_row'; text?: string; cells?: string[] }[] }[]>(
       '/api/admin/changelog'),
