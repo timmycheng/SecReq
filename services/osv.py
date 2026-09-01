@@ -94,16 +94,49 @@ class NormalizedVuln:
 
 
 class OsvClient:
-    """OSV.dev HTTP 客户端; transport 参数供测试注入 MockTransport。"""
+    """OSV.dev HTTP 客户端; transport 参数供测试注入 MockTransport。
+
+    异步路径(#71): query_purl_async 供并发漏洞同步使用, AsyncClient 惰性创建、
+    复用连接池, 用完调用 aclose()。
+    """
 
     def __init__(self, timeout: float = 10.0, base_url: str = OSV_BASE_URL, transport=None):
+        self._base_url = base_url
+        self._timeout = timeout
+        self._transport = transport
         self._client = httpx.Client(
             base_url=base_url, timeout=timeout, transport=transport,
             headers={"User-Agent": "SecReq/1.0 (security baseline generator)"},
         )
+        self._async_client: httpx.AsyncClient | None = None
 
     def close(self) -> None:
         self._client.close()
+
+    def _ensure_async(self) -> httpx.AsyncClient:
+        if self._async_client is None:
+            self._async_client = httpx.AsyncClient(
+                base_url=self._base_url, timeout=self._timeout, transport=self._transport,
+                headers={"User-Agent": "SecReq/1.0 (security baseline generator)"},
+            )
+        return self._async_client
+
+    async def query_purl_async(self, purl: str) -> list[dict] | None:
+        """query_purl 的异步版本, 共享同一失败降级语义(网络异常/HTTP错误 → None)。"""
+        try:
+            resp = await self._ensure_async().post("/v1/query", json={"package": {"purl": purl}})
+            resp.raise_for_status()
+            data = resp.json()
+            vulns = data.get("vulns") or [] if isinstance(data, dict) else []
+            return vulns if isinstance(vulns, list) else []
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning("OSV 异步查询失败(%s): %s", purl, exc)
+            return None
+
+    async def aclose(self) -> None:
+        if self._async_client is not None:
+            await self._async_client.aclose()
+            self._async_client = None
 
     def query_purl(self, purl: str) -> list[dict] | None:
         """查询单个 purl, 返回原始 vuln 字典列表; 网络异常/HTTP错误返回 None(降级)。"""
@@ -451,6 +484,156 @@ def sync_vulnerabilities(
 
     session.commit()
     # 重新读取本次涉及组件的全部漏洞记录(含缓存沿用与刚写入的), 按严重度→CVE 排序
+    component_ids = [c.id for c in components]
+    all_records = (
+        session.query(VulnerabilityRecord)
+        .filter(VulnerabilityRecord.component_id.in_(component_ids))
+        .all()
+        if component_ids else []
+    )
+    all_records.sort(
+        key=lambda v: (C.SEVERITY_ORDER.get(v.severity, 9), v.component_id, v.cve_id)
+    )
+    _enrich_cnnvd(all_records)
+    return all_records, result
+
+
+async def sync_vulnerabilities_async(
+    session: Session,
+    components: list[SbomComponent],
+    client: OsvClient | None = None,
+    force: bool = False,
+    now: datetime | None = None,
+    source=None,
+    total_budget: float = 60.0,
+    concurrency: int = 8,
+) -> tuple[list[VulnerabilityRecord], OsvSyncResult]:
+    """并发版漏洞同步(#71): 网络查询 asyncio 并发, 写库严格串行。
+
+    - 仅在线源受益(本地库毫秒级, 并发无意义): 判定依据是数据源有无 query_async;
+    - Semaphore(concurrency) 限并发, asyncio.wait(timeout=total_budget) 控总预算,
+      超时/异常的组件计入 failed 并标 undetermined, 不阻塞其余组件;
+    - 查询完成后逐个组件串行写库 —— _replace_component_vulns 依赖
+      session.flush() 的顺序语义, 不能并发写 ORM。
+    """
+    import asyncio
+
+    from services.vuln_source import VulnSourceUnavailable, get_vuln_source
+
+    now = now or datetime.now(timezone.utc)
+    result = OsvSyncResult()
+
+    if source is None:
+        if client is not None:
+            from services.vulndb import OsvOnlineSource
+            source = OsvOnlineSource(client)
+        else:
+            try:
+                source, skipped = get_vuln_source()
+            except VulnSourceUnavailable as exc:
+                logger.error("漏洞数据源不可用, 本次跳过全部组件: %s", exc)
+                for comp in components:
+                    comp.vuln_status = "undetermined"
+                    comp.vuln_status_note = str(exc)[:300]
+                    result.failed.append(comp.name)
+                session.commit()
+                return [], result
+    result.source = source.name
+    result.source_label = _source_label(source)
+
+    try:
+        source_version = _source_version(source)
+    except Exception as exc:
+        logger.warning("读取漏洞库版本失败, 按无版本处理: %s", exc)
+        source_version = "unknown"
+
+    async_capable = hasattr(source, "query_async")
+    if async_capable and source.__class__.__name__ == "OsvOnlineSource" and source._client is None:
+        # 统一创建共享 client, 查询完统一 aclose(避免每请求一个连接池)
+        from services.osv import OsvClient
+        source._client = OsvClient()
+        own_async_client = True
+    else:
+        own_async_client = False
+
+    try:
+        pending: list = []
+        for comp in components:
+            fingerprint = _query_fingerprint(source.name, source_version, comp)
+            fresh_until = (
+                comp.last_osv_query_at.replace(tzinfo=timezone.utc)
+                if comp.last_osv_query_at else None
+            )
+            if (
+                not force
+                and fresh_until is not None
+                and now - fresh_until < CACHE_TTL
+                and comp.osv_query_fingerprint == fingerprint
+            ):
+                result.cached.append(comp.name)
+                result.status[comp.name] = comp.vuln_status or "not_found"
+                continue
+            pending.append((comp, fingerprint))
+
+        if not pending:
+            pass
+        elif async_capable:
+            sem = asyncio.Semaphore(concurrency)
+
+            async def _query_one(comp):
+                async with sem:
+                    return await source.query_async(component_query(comp))
+
+            tasks = {asyncio.create_task(_query_one(comp)): (comp, fp)
+                     for comp, fp in pending}
+            done, not_done = await asyncio.wait(tasks.keys(), timeout=total_budget)
+            for task in not_done:
+                task.cancel()
+                comp, _ = tasks[task]
+                result.failed.append(comp.name)
+                comp.vuln_status = "undetermined"
+                comp.vuln_status_note = f"总预算 {total_budget}s 内未完成, 已降级跳过"
+            for task in done:
+                comp, fp = tasks[task]
+                try:
+                    outcome = task.result()
+                except Exception as exc:
+                    result.failed.append(comp.name)
+                    comp.vuln_status = "undetermined"
+                    comp.vuln_status_note = str(exc)[:300]
+                    continue
+                records = _replace_component_vulns(session, comp, outcome.vulns, source.name)
+                comp.last_osv_query_at = now
+                comp.osv_query_fingerprint = fp
+                comp.vuln_status = outcome.status
+                comp.vuln_status_note = (outcome.note or None)
+                result.updated.append(comp.name)
+                result.status[comp.name] = outcome.status
+                session.add_all(records)
+        else:
+            # 本地数据源: 串行查询(毫秒级), 语义与 sync_vulnerabilities 一致
+            for comp, fingerprint in pending:
+                try:
+                    outcome = source.query(component_query(comp))
+                except Exception as exc:
+                    result.failed.append(comp.name)
+                    comp.vuln_status = "undetermined"
+                    comp.vuln_status_note = str(exc)[:300]
+                    continue
+                records = _replace_component_vulns(session, comp, outcome.vulns, source.name)
+                comp.last_osv_query_at = now
+                comp.osv_query_fingerprint = fingerprint
+                comp.vuln_status = outcome.status
+                comp.vuln_status_note = (outcome.note or None)
+                result.updated.append(comp.name)
+                result.status[comp.name] = outcome.status
+                session.add_all(records)
+
+        session.commit()
+    finally:
+        if own_async_client:
+            await source._client.aclose()
+
     component_ids = [c.id for c in components]
     all_records = (
         session.query(VulnerabilityRecord)

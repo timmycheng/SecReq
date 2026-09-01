@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, joinedload
 from models import init_db  # noqa: F401 (保证模型注册)
 from rules import RuleEngine
 from rules.context import RequirementContext
-from services.osv import OsvClient, OsvSyncResult, sync_vulnerabilities
+from services.osv import OsvClient, OsvSyncResult, sync_vulnerabilities, sync_vulnerabilities_async
 from services.sbom import build_cyclonedx, write_cyclonedx_file
 
 # 项目编码 → 目录名: 去掉路径分隔符/盘符等危险字符(存量库编码可能未经 schema 校验)
@@ -82,6 +82,45 @@ def run_full_pipeline(
     result.skipped_templates = list(engine.skipped)
 
     # ④ 文件产出: CycloneDX JSON(未指定 out_dir 时按 output/<编码> 落盘, 编码经清洗防穿越)
+    base = Path(out_dir) if out_dir else project_output_dir(Path("output"), ctx.project.code)
+    result.bom_path = write_cyclonedx_file(bom, base / "sbom.cdx.json")
+    return result
+
+
+async def run_full_pipeline_async(
+    session: Session,
+    project_id: int,
+    out_dir: str | Path | None = None,
+    engine: RuleEngine | None = None,
+    osv_client: OsvClient | None = None,
+    skip_osv: bool = False,
+) -> PipelineResult:
+    """run_full_pipeline 的异步版(#71): 在线漏洞源走并发查询, 其余流程不变。
+
+    与同步版共用全部构建/落库逻辑; 仅漏洞同步换成并发实现。
+    """
+    from models import Project
+
+    if session.get(Project, project_id) is None:
+        raise ValueError(f"项目不存在: id={project_id}")
+
+    result = PipelineResult(project_id=project_id)
+    ctx = RequirementContext.from_db(session, project_id)
+
+    bom = build_cyclonedx(ctx.project, ctx.components)
+    session.commit()
+
+    if not skip_osv:
+        _, result.sync = await sync_vulnerabilities_async(
+            session, ctx.components, client=osv_client)
+        ctx = RequirementContext.from_db(session, project_id)
+
+    result.vulnerabilities = _load_vulnerabilities(session, ctx.components)
+
+    engine = engine or RuleEngine.load()
+    result.requirements = engine.generate_and_save(ctx, session)
+    result.skipped_templates = list(engine.skipped)
+
     base = Path(out_dir) if out_dir else project_output_dir(Path("output"), ctx.project.code)
     result.bom_path = write_cyclonedx_file(bom, base / "sbom.cdx.json")
     return result
