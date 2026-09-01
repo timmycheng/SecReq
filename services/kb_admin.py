@@ -6,6 +6,7 @@
 - 写入后用 loader 全量校验, 不合法则回滚并报错;
 - 定级题库同理, 校验走 services.grading.load_question_bank。
 """
+import copy
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -59,22 +60,33 @@ def update_template(template_id: str, changes: dict) -> dict:
 
     写入目标固定为 DEFAULT_KB_PATH(安全中心管理页唯一可编辑知识库),
     不接受调用方指定路径, 避免路径被外部输入左右。
+
+    语义无变化时不写盘(#81): 编辑弹窗原样保存(仅回显未编辑)是最常见操作,
+    safe_dump 全量重写会重排整个文件并丢失头注释 —— 比较解析前后的结构,
+    值全部相等则跳过写盘与备份。
     """
     path = DEFAULT_KB_PATH
-    backup = _backup(path)
     data = _load_raw(path)
     row = next((t for t in data.get("templates", []) if t.get("id") == template_id), None)
     if row is None:
         raise ValueError(f"模板不存在: {template_id}")
-    for key, value in changes.items():
-        if key in EDITABLE_TEMPLATE_FIELDS:
-            row[key] = value
+    updates = {k: v for k, v in changes.items() if k in EDITABLE_TEMPLATE_FIELDS}
+    if not updates:
+        return row
+    new_data = copy.deepcopy(data)
+    target = next(t for t in new_data.get("templates", []) if t.get("id") == template_id)
+    for key, value in updates.items():
+        target[key] = value
+    # 语义无变化(值全部相等) → 不写盘: safe_dump 全量重写会重排文件并丢注释,
+    # 文本比对因注释存在永远不等, 所以比较解析后的结构
+    if new_data == data:
+        return row
+    serialized = yaml.safe_dump(new_data, allow_unicode=True, sort_keys=False)
+    backup = _backup(path)
     _guard_write_path(path, DEFAULT_KB_PATH)
-    path.write_text(
-        yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
-        encoding="utf-8", newline="\n")
+    path.write_text(serialized, encoding="utf-8", newline="\n")
     _validate_or_restore(path, backup, load_knowledge_base)
-    return row
+    return target
 
 
 def add_template(template: dict) -> dict:

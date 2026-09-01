@@ -1,8 +1,8 @@
 /* 知识库管理: 模板启停与编辑(写回 YAML 自动备份, 保存时全量校验)。
    编辑弹窗含监管出处增删排序(#80); 下拉一律用 meta 下发的中文映射(#82)。 */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Button, Col, Form, Input, Modal, Popconfirm, Row, Select, Space, Switch, Table, Tag,
+  Button, Col, Collapse, Form, Input, Modal, Popconfirm, Row, Select, Space, Switch, Table, Tag,
   Typography, message,
 } from 'antd'
 import {
@@ -11,6 +11,7 @@ import {
 
 import { api, type KbTemplateRow } from '../../api'
 import { labelMapOf, useEnums } from '../../enums'
+import TriggerEditor, { type Trigger } from './TriggerEditor'
 import { PRIORITY_COLOR } from './shared'
 
 export default function KbTab() {
@@ -92,6 +93,17 @@ function KbEditModal({ row, onClose, onSaved }: {
   const enums = useEnums()
   const [form] = Form.useForm()
   const [saving, setSaving] = useState(false)
+  // 表单编辑器与 JSON 高级模式共用同一份 trigger 文本(#81)
+  const triggerWatch = Form.useWatch('trigger', form)
+  const triggerObj = useMemo(() => {
+    if (typeof triggerWatch !== 'string') return null
+    try {
+      const parsed = JSON.parse(triggerWatch)
+      return parsed && typeof parsed === 'object' ? (parsed as Trigger) : null
+    } catch {
+      return null
+    }
+  }, [triggerWatch])
   // 中文标签来自 meta 统一下发(#82), 保存值仍为英文枚举
   const priorityOptions = Object.entries(labelMapOf(enums, 'priority_labels'))
     .map(([value, label]) => ({ value, label }))
@@ -161,13 +173,43 @@ function KbEditModal({ row, onClose, onSaved }: {
             </Form.Item>
           </Col>
         </Row>
-        <Form.Item
-          name="trigger"
-          label="触发条件(JSON)"
-          extra="触发条件结构因类目而异, 修改前请先弄清原结构; 保存时后端会全量校验"
-        >
-          <Input.TextArea rows={4} style={{ fontFamily: 'monospace', fontSize: 12 }} />
-        </Form.Item>
+        {/* 触发条件: 表单与 JSON 双向同步, JSON 为存储真值(#81) */}
+        {triggerObj !== null && (
+          <Form.Item label="触发条件(表单)">
+            <TriggerEditor
+              value={triggerObj}
+              enums={enums}
+              onChange={(next) => form.setFieldValue('trigger', JSON.stringify(next, null, 2))}
+            />
+          </Form.Item>
+        )}
+        <Collapse
+          style={{ marginBottom: 16 }}
+          items={[{
+            key: 'advanced',
+            // forceRender: 让 trigger 字段在面板未展开时也注册进表单, 否则 useWatch 与保存都拿不到值
+            forceRender: true,
+            label: '高级模式: 直接编辑 JSON',
+            extra: <Typography.Text type="secondary" style={{ fontSize: 12 }}>表单未覆盖的形态走这里</Typography.Text>,
+            children: (
+              <Form.Item
+                name="trigger"
+                noStyle
+                rules={[{
+                  validator: (_r, v) => {
+                    if (typeof v === 'string') {
+                      try { JSON.parse(v) } catch { return Promise.reject(new Error('不是合法 JSON')) }
+                    }
+                    return Promise.resolve()
+                  },
+                  message: '不是合法 JSON',
+                }]}
+              >
+                <Input.TextArea rows={6} style={{ fontFamily: 'monospace', fontSize: 12 }} />
+              </Form.Item>
+            ),
+          }]}
+        />
         <Form.Item
           label="监管出处(合规依据)" required style={{ marginBottom: 8 }}
           extra="条款号不确定时写「参考《文件名》」并在备注标注「待合规部门确认」, 严禁编造条款号"
