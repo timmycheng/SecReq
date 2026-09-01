@@ -24,10 +24,8 @@ interface DraftRow extends Omit<ComponentRow, 'vulnerabilities'> {}
 
 interface KnownComponent { name: string; license: string; ecosystem?: string }
 
-const EMPTY: DraftRow = {
-  layer: 'backend', name: '', version: '', purl: null, license: null,
-  source_type: 'manual_input', ecosystem: null, distro: null,
-}
+/** 新增组件的默认层级; 若后端枚举 code 变更导致失配, 回退枚举第一个可用值(#42)。 */
+const PREFERRED_LAYER = 'backend'
 
 const RISK_COLOR: Record<string, string> = { high: 'red', medium: 'orange', low: 'green' }
 
@@ -42,6 +40,15 @@ export default function Step7Components({ ws, patch }: StepProps) {
   const [editing, setEditing] = useState<DraftRow | null>(null)
   const [editIndex, setEditIndex] = useState(-1)
   const [uploading, setUploading] = useState(false)
+  // 弹窗每次打开递增一次, 作为 ComponentModal 的 key(#38):
+  // 连续两次「新增组件」的 editIndex/name 都相同, 若按内容作 key, Form 不重挂载会残留上次录入值
+  const [modalSeq, setModalSeq] = useState(0)
+
+  const openModal = (row: DraftRow | null, index: number) => {
+    setModalSeq((s) => s + 1)
+    setEditIndex(index)
+    setEditing(row)
+  }
   const savedRef = useRef(JSON.stringify(rows))
 
   const layerMap = labelMapOf(enums, 'sbom_layers')
@@ -52,13 +59,19 @@ export default function Step7Components({ ws, patch }: StepProps) {
 
   const riskOf = (license?: string | null) => (license ? riskMap[license] : undefined)
 
+  const emptyRow = (): DraftRow => ({
+    layer: layerMap[PREFERRED_LAYER] ? PREFERRED_LAYER : (Object.keys(layerMap)[0] ?? ''),
+    name: '', version: '', purl: null, license: null,
+    source_type: 'manual_input', ecosystem: null, distro: null,
+  })
+
   const addKnown = (layer: string, comp: KnownComponent) => {
     if (rows.some((r) => r.name === comp.name)) {
       message.info(`${comp.name} 已在清单中`)
       return
     }
     setRows([...rows, {
-      ...EMPTY,
+      ...emptyRow(),
       layer,
       name: comp.name,
       license: comp.license,
@@ -155,7 +168,7 @@ export default function Step7Components({ ws, patch }: StepProps) {
       </div>
 
       <Space style={{ marginBottom: 12 }} wrap>
-        <Button icon={<PlusOutlined />} onClick={() => { setEditIndex(-1); setEditing({ ...EMPTY }) }}>新增组件</Button>
+        <Button icon={<PlusOutlined />} onClick={() => openModal(emptyRow(), -1)}>新增组件</Button>
         <Upload accept=".json,.spdx" showUploadList={false} beforeUpload={(file) => { void doImport(file); return false }}>
           <Button icon={<UploadOutlined />} loading={uploading}>上传 SBOM 文件批量导入</Button>
         </Upload>
@@ -224,7 +237,7 @@ export default function Step7Components({ ws, patch }: StepProps) {
             title: '操作', width: 110,
             render: (_v, _r, index) => (
               <Space>
-                <Button size="small" icon={<EditOutlined />} onClick={() => { setEditIndex(index); setEditing({ ...rows[index] }) }} />
+                <Button size="small" icon={<EditOutlined />} onClick={() => openModal({ ...rows[index] }, index)} />
                 <Popconfirm title="删除该组件?" onConfirm={() => setRows(rows.filter((_, i) => i !== index))}>
                   <Button size="small" danger icon={<DeleteOutlined />} />
                 </Popconfirm>
@@ -235,7 +248,7 @@ export default function Step7Components({ ws, patch }: StepProps) {
       />
 
       <ComponentModal
-        key={`${editIndex}-${editing ? editing.name : ''}`}
+        key={`component-modal-${modalSeq}`}
         value={editing}
         onCancel={() => setEditing(null)}
         onOk={(next) => {
@@ -273,7 +286,8 @@ function ComponentModal({ value, onOk, onCancel }: {
       onOk={() => form.validateFields().then(onOk).catch(() => { /* 校验失败, 留在弹窗 */ })}
       forceRender
     >
-      <Form form={form} layout="vertical" initialValues={value ?? EMPTY}>
+      {/* value 恒非空才可见; initialValues 兜底仅作用于关闭态, 置 undefined 即可 */}
+      <Form form={form} layout="vertical" initialValues={value ?? undefined}>
         <Space size={12} style={{ display: 'flex' }}>
           <Form.Item name="layer" label="层级" rules={[{ required: true }]} style={{ width: 180 }}>
             <Select options={optionsOf(enums, 'sbom_layers')} />
