@@ -58,6 +58,7 @@ def get_constants() -> dict:
             "http_methods": list(C.HTTP_METHODS),
             "high_risk_actions": list(C.HIGH_RISK_ACTIONS),
             "mask_rules": dict(C.MASK_RULES),
+            "mask_field_patterns": C.MASK_FIELD_PATTERNS,
             "default_pwd_policy_by_level": C.DEFAULT_PWD_POLICY_BY_LEVEL,
             "default_lockout_threshold": C.DEFAULT_LOCKOUT_THRESHOLD,
             "default_session_timeout_min": C.DEFAULT_SESSION_TIMEOUT_MIN,
