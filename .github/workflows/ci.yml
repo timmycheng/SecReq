@@ -51,6 +51,61 @@ jobs:
         with:
           args: check .
 
+  e2e:
+    name: E2E 主链路
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # 后端经 uv 运行(playwright webServer 启动 uvicorn), 与其他 job 同口径
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.7"
+          enable-cache: true
+      - name: 同步后端依赖
+        run: uv sync --frozen
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装前端依赖
+        working-directory: frontend
+        run: npm ci
+
+      # 浏览器二进制按 playwright 版本缓存, 避免 CI 每次百 MB 下载
+      - name: 缓存 Playwright 浏览器
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ hashFiles('frontend/package-lock.json') }}
+
+      - name: 安装 Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: 构建前端产物
+        working-directory: frontend
+        run: npm run build
+
+      - name: 运行 E2E 主链路
+        working-directory: frontend
+        run: npx playwright test
+
+      - name: 上传失败痕迹
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: frontend/test-results/
+          retention-days: 7
+
   frontend-check:
     name: 前端检查
     runs-on: ubuntu-latest
