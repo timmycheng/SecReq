@@ -258,6 +258,9 @@ export const api = {
   testLlmConfig: (data: { base_url: string; api_key?: string; model: string }) =>
     request<{ ok: boolean; latency_ms?: number; reply?: string; reason?: string }>(
       '/api/admin/llm-config/test', { method: 'POST', body: JSON.stringify(data) }),
+  getChangelog: () =>
+    request<{ version: string; date: string; blocks: { kind: 'h3' | 'para' | 'list_item' | 'quote' | 'table_row'; text?: string; cells?: string[] }[] }[]>(
+      '/api/admin/changelog'),
   getProjectCodeRule: () =>
     request<{ prefix: string; include_year: boolean; digits: number }>('/api/admin/project-code-rule'),
   saveProjectCodeRule: (data: { prefix: string; include_year: boolean; digits: number }) =>
