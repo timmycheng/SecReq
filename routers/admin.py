@@ -409,10 +409,15 @@ def _read_expected_sha256(path: str) -> str | None:
 @router.get("/audit-logs")
 def list_audit_logs(limit: int = 200,
                     _: PlatformUser = Depends(require_security), db: Session = Depends(get_db)):
+    from services.audit_service import action_label, summarize_detail
+
     rows = db.query(AuditLog).order_by(AuditLog.id.desc()).limit(min(limit, 500)).all()
     return [
         {
             "id": r.id, "username": r.username, "action": r.action,
+            # 动作中文标签与明细可读摘要在后端统一下发(#65), 前端不自映射
+            "action_label": action_label(r.action),
+            "summary": summarize_detail(r.action, r.detail or {}),
             "detail": r.detail, "ip": r.ip, "created_at": r.created_at.isoformat(sep=" ", timespec="seconds"),
         }
         for r in rows

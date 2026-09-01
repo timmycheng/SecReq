@@ -336,6 +336,10 @@ export interface AuditLogRow {
   id: number
   username: string
   action: string
+  /** 动作中文标签(后端统一下发); 未识别的 action 回退原始 code */
+  action_label?: string | null
+  /** 明细可读摘要(后端按动作类型渲染); 无法识别时为空, 前端回退原文 */
+  summary?: string | null
   detail: Record<string, unknown>
   ip?: string | null
   created_at: string
