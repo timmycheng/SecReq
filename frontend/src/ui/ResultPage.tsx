@@ -314,7 +314,11 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                   dataSource={filtered}
                   size="small"
                   scroll={{ x: 1920 }}
-                  pagination={{ pageSize: 15, showSizeChanger: false }}
+                  pagination={{
+                    defaultPageSize: 10,
+                    showSizeChanger: true,
+                    pageSizeOptions: [10, 20, 50, 100],
+                  }}
                   rowSelection={{
                     selectedRowKeys: selectedKeys,
                     onChange: setSelectedKeys,
