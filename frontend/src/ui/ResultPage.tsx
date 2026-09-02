@@ -40,6 +40,13 @@ function cmpVersion(a: string, b: string): number {
   return a.localeCompare(b)
 }
 
+/** 把 "1)xx; 2)yy; 3)zz" 类编号文本拆成一行一条, 便于逐条核对。 */
+function numberedToLines(text: string): string {
+  return text
+    .replace(/[;；]\s*(?=\d+[)）])/g, '\n')
+    .replace(/。\s*(?=\d+[)）])/g, '\n')
+}
+
 interface VulnGroup {
   name: string
   version: string
@@ -91,10 +98,14 @@ export default function ResultPage({ projectId }: { projectId: number }) {
   }, [projectId])
   useEffect(() => { reload() }, [reload])
 
-  const filtered = useMemo(() => (requirements ?? []).filter((r) =>
+  /** 本轮命中的需求(未命中仅留档追溯, 不在清单与汇总中展现)。 */
+  const hitAll = useMemo(() => (requirements ?? []).filter((r) => r.status !== 'obsolete'),
+    [requirements])
+
+  const filtered = useMemo(() => hitAll.filter((r) =>
     (!categoryFilter || r.category === categoryLabels[categoryFilter])
     && (!priorityFilter || r.priority === priorityFilter)),
-    [requirements, categoryFilter, priorityFilter, categoryLabels])
+    [hitAll, categoryFilter, priorityFilter, categoryLabels])
 
   if (!project || requirements === null) {
     return <div style={{ display: 'grid', placeItems: 'center', height: 300 }}><Spin size="large" /></div>
@@ -127,7 +138,7 @@ export default function ResultPage({ projectId }: { projectId: number }) {
   const doBatchConfirmAll = async () => {
     setConfirming(true)
     try {
-      const body = await batchConfirm(projectId, unconfirmedAll(requirements).map((r) => r.req_id))
+      const body = await batchConfirm(projectId, unconfirmedAll(hitAll).map((r) => r.req_id))
       message.success(`已确认 ${body.confirmed} 条`)
       reload()
     } catch (e) {
@@ -147,17 +158,17 @@ export default function ResultPage({ projectId }: { projectId: number }) {
   }
 
   return (
-    <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}>
+    <div style={{ padding: 24, maxWidth: 1280, margin: '0 auto' }}>
       {/* 生成总结块(#95): 一屏回答"这次生成了什么、风险在哪", 数字与下方清单同源 */}
       {requirements && (
         <Card size="small" style={{ marginBottom: 16 }}>
           <Space size={[32, 12]} wrap style={{ justifyContent: 'center', width: '100%' }}>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 24, fontWeight: 600 }}>{requirements.length}</div>
+              <div style={{ fontSize: 24, fontWeight: 600 }}>{hitAll.length}</div>
               <Typography.Text type="secondary">安全需求</Typography.Text>
               <div style={{ fontSize: 12, color: '#888' }}>
                 {['critical', 'high', 'medium', 'low'].map((p) => {
-                  const n = requirements.filter((r) => r.priority === p).length
+                  const n = hitAll.filter((r) => r.priority === p).length
                   return n ? `${priorityLabels[p] ?? p}${n}` : null
                 }).filter(Boolean).join(' · ')}
               </div>
@@ -187,7 +198,7 @@ export default function ResultPage({ projectId }: { projectId: number }) {
             </div>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 24, fontWeight: 600 }}>
-                {requirements.filter((r) => (r.regulatory_ref ?? []).length > 0).length}
+                {hitAll.filter((r) => (r.regulatory_ref ?? []).length > 0).length}
               </div>
               <Typography.Text type="secondary">含合规依据</Typography.Text>
               <div style={{ fontSize: 12, color: '#888' }}>条目附监管文件条款引用</div>
@@ -247,14 +258,14 @@ export default function ResultPage({ projectId }: { projectId: number }) {
 
       <Space size={16} style={{ display: 'flex', marginBottom: 16 }} wrap>
         <Card size="small" style={{ minWidth: 150 }}>
-          <Statistic title="安全需求" value={requirements.length} />
+          <Statistic title="安全需求" value={hitAll.length} />
         </Card>
         <Card size="small" style={{ minWidth: 150 }}>
           <Statistic
             title="待确认"
-            value={unconfirmedAll(requirements).length}
-            suffix={unconfirmedRegulatory(requirements).length > 0
-              ? `(报送 ${unconfirmedRegulatory(requirements).length})` : undefined}
+            value={unconfirmedAll(hitAll).length}
+            suffix={unconfirmedRegulatory(hitAll).length > 0
+              ? `(报送 ${unconfirmedRegulatory(hitAll).length})` : undefined}
           />
         </Card>
         <Card size="small" style={{ minWidth: 150 }}>
@@ -302,6 +313,7 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                   rowKey="req_id"
                   dataSource={filtered}
                   size="small"
+                  scroll={{ x: 1920 }}
                   pagination={{ pageSize: 15, showSizeChanger: false }}
                   rowSelection={{
                     selectedRowKeys: selectedKeys,
@@ -314,76 +326,73 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                       <Button size="small" type="primary" loading={confirming} onClick={() => void doBatchConfirm()}>
                         批量确认
                       </Button>
-                      {unconfirmedAll(requirements).length > 0 && (
+                      {unconfirmedAll(hitAll).length > 0 && (
                         <Button size="small" onClick={() => void doBatchConfirmAll()}>
-                          确认全部 {unconfirmedAll(requirements).length} 条待确认需求
+                          确认全部 {unconfirmedAll(hitAll).length} 条待确认需求
                         </Button>
                       )}
                       <Typography.Text type="secondary">
-                        需求全文平铺展示; 确认动作替代责任人指派, 支持批量勾选
+                        标题/内容/验收标准/触发来源分列平铺; 确认动作替代责任人指派, 支持批量勾选
                       </Typography.Text>
                     </Space>
                   )}
                   columns={[
                     {
-                      title: '优先级', dataIndex: 'priority', width: 80,
+                      title: '优先级', dataIndex: 'priority', width: 72, fixed: 'left',
                       render: (p) => <Tag color={PRIORITY_COLOR[p]}>{priorityLabels[p] ?? p}</Tag>,
                     },
-                    { title: '编号', dataIndex: 'req_id', width: 145 },
+                    { title: '编号', dataIndex: 'req_id', width: 140, fixed: 'left' },
+                    { title: '需求标题', dataIndex: 'title', width: 200, render: (t) => <b>{t}</b> },
                     {
-                      title: '需求内容(全文)', dataIndex: 'title',
-                      render: (t, r) => (
-                        <div>
-                          <b>{t}</b>
-                          <div style={{ color: '#555', whiteSpace: 'pre-wrap', marginTop: 2 }}>{r.description}</div>
-                          <div style={{ color: '#888', marginTop: 4, fontSize: 12 }}>
-                            <b>验收标准:</b> {r.acceptance_criteria}
-                          </div>
+                      title: '需求内容', dataIndex: 'description',
+                      width: 420,
+                      render: (d) => (
+                        <div style={{ color: '#555', whiteSpace: 'pre-line' }}>{numberedToLines(d)}</div>
+                      ),
+                    },
+                    {
+                      title: '验收标准', dataIndex: 'acceptance_criteria',
+                      width: 320,
+                      render: (a) => (
+                        <div style={{ color: '#888', fontSize: 12, whiteSpace: 'pre-line' }}>
+                          {numberedToLines(a)}
                         </div>
                       ),
                     },
                     {
-                      title: '类目/触发来源', dataIndex: 'category', width: 230,
-                      render: (c, r) => (
-                        <div>
-                          <div>{c}</div>
+                      title: '类目', dataIndex: 'category', width: 100,
+                      render: (c) => <Tag>{c}</Tag>,
+                    },
+                    {
+                      title: '触发来源', dataIndex: 'trigger_reason', width: 260,
+                      render: (reason, r) => (
+                        <div style={{ fontSize: 12 }}>
+                          <div>{r.source_label
+                            ?? (r.source_entity_type ? `${r.source_entity_type}#${r.source_entity_id}` : '来源未定位')}</div>
                           <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
-                            {r.source_label ?? (r.source_entity_type ? `${r.source_entity_type}#${r.source_entity_id}` : '来源未定位')}
-                          </Typography.Text>
-                          <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', color: '#999' }}>
-                            {r.trigger_reason || '触发原因未记录(存量数据)'}
+                            {reason || '触发原因未记录(存量数据)'}
                           </Typography.Text>
                         </div>
                       ),
                     },
                     {
-                      title: '状态', dataIndex: 'status', width: 110,
-                      render: (s: string) => (s === 'obsolete'
-                        ? <Tooltip title="对应的输入在本轮生成中已不存在(已删除或修改), 需求保留供追溯">
-                            <Tag color="default">本轮未命中</Tag>
-                          </Tooltip>
-                        : <Tag color="green">有效</Tag>),
-                    },
-                    {
-                      title: '合规依据', dataIndex: 'regulatory_ref', width: 180,
+                      title: '合规依据', dataIndex: 'regulatory_ref', width: 260,
                       render: (refs: RequirementRow['regulatory_ref']) => (refs ?? []).length
                         ? (refs ?? []).map((ref, i) => (
-                          <Tag key={i} color="blue">《{ref.file}》{ref.clause || ''}</Tag>
+                          <Tag key={i} color="blue" style={{ whiteSpace: 'normal' }}>
+                            《{ref.file}》{ref.clause || ''}
+                          </Tag>
                         ))
                         : '—',
                     },
                     {
-                      title: '确认', dataIndex: 'reg_confirmed', width: 120,
+                      title: '确认', dataIndex: 'reg_confirmed', width: 110, fixed: 'right',
                       render: (v: boolean, r) => (v
                         ? <Tag color="success">已确认{r.confirmed_by ? `·${r.confirmed_by}` : ''}</Tag>
-                        : (r.status === 'obsolete'
-                          ? <Typography.Text type="secondary">—</Typography.Text>
-                          : <Button size="small" type="link" onClick={() => void doConfirmOne(r)}>确认</Button>)),
+                        : <Button size="small" type="link" onClick={() => void doConfirmOne(r)}>确认</Button>),
                     },
                   ]}
-                  rowClassName={(r) => (r.status === 'obsolete'
-                    ? 'row-obsolete'
-                    : (r.priority === 'critical' ? 'row-critical' : ''))}
+                  rowClassName={(r) => (r.priority === 'critical' ? 'row-critical' : '')}
                 />
               </>
             ),
