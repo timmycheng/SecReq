@@ -135,7 +135,7 @@ export default function Step5PermissionMatrix({ ws, patch }: StepProps) {
   })
 
   return (
-    <div style={{ overflowX: 'auto', maxWidth: 1200, margin: '0 auto' }}>
+    <div style={{ maxWidth: 1200, margin: '0 auto' }}>
       <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
         本步定义「谁能对什么资源做什么」。先维护角色与资源, 再在交叉表格中逐格勾选授权;
         生成时规则引擎会自动扫描免审批违规、SoD 冲突与特权账号。
@@ -202,12 +202,18 @@ export default function Step5PermissionMatrix({ ws, patch }: StepProps) {
             <Typography.Text strong>权限矩阵</Typography.Text>
             <Typography.Text type="secondary">点击单元格勾选操作 · 带 * 表示该操作需审批 · 红色「高危」Tag 表示关键资源上免审批将触发整改</Typography.Text>
           </Space>
-          <table className="matrix-table" style={{ borderCollapse: 'collapse', minWidth: 700 }}>
+          {/* 横向滚动只作用于矩阵自身: 滚动条紧贴矩阵下方, 角色列固定左侧(#142) */}
+          <div style={{ overflowX: 'auto' }}>
+          <table className="matrix-table" style={{ borderCollapse: 'separate', borderSpacing: 0, minWidth: 700 }}>
             <thead>
               <tr>
-                <th style={cellStyle('#2f5597', '#fff')}>角色 \ 资源</th>
+                <th style={{
+                  ...cellStyle('#2f5597', '#fff'),
+                  borderLeft: '1px solid #e8e8e8', borderTop: '1px solid #e8e8e8',
+                  position: 'sticky', left: 0, zIndex: 3, boxShadow: '2px 0 4px rgba(0,0,0,0.06)',
+                }}>角色 \ 资源</th>
                 {resources.map((r, ci) => (
-                  <th key={ci} style={cellStyle('#2f5597', '#fff')}>
+                  <th key={ci} style={{ ...cellStyle('#2f5597', '#fff'), borderTop: '1px solid #e8e8e8' }}>
                     {r.name}
                     <div>
                       <Tag style={{ marginRight: 0 }}>
@@ -224,7 +230,11 @@ export default function Step5PermissionMatrix({ ws, patch }: StepProps) {
             <tbody>
               {roles.map((role, ri) => (
                 <tr key={ri}>
-                  <td style={cellStyle('#fafafa')}>
+                  <td style={{
+                    ...cellStyle('#fafafa'),
+                    borderLeft: '1px solid #e8e8e8',
+                    position: 'sticky', left: 0, zIndex: 2, boxShadow: '2px 0 4px rgba(0,0,0,0.06)',
+                  }}>
                     <b>{role.name}</b><br />
                     <Tag color={ROLE_TYPE_COLOR[role.role_type]}>
                       {labelMapOf(enums, 'role_types')[role.role_type] ?? role.role_type}
@@ -253,6 +263,7 @@ export default function Step5PermissionMatrix({ ws, patch }: StepProps) {
               ))}
             </tbody>
           </table>
+          </div>
           <Typography.Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
             共 {roles.length} 角色 × {resources.length} 资源 · 已登记授权 {totalEntries} 格次
           </Typography.Text>
@@ -372,8 +383,10 @@ const CRITICALITY_COLOR: Record<string, string> = {
 }
 
 function cellStyle(bg?: string, color?: string): CSSProperties {
+  // separate+单侧描边: collapse 会让 sticky 单元格失效, 全边框会双边加粗(#142)
   return {
-    border: '1px solid #e8e8e8',
+    borderRight: '1px solid #e8e8e8',
+    borderBottom: '1px solid #e8e8e8',
     padding: '8px 10px',
     textAlign: 'center',
     minWidth: 150,
