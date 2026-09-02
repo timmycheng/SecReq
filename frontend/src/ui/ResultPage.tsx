@@ -81,17 +81,40 @@ export default function ResultPage({ projectId }: { projectId: number }) {
   const [confirming, setConfirming] = useState(false)
   // 需求清单横向滚动: 表格自身滚动容器(.ant-table-body)与吸底悬浮滚动条双向同步
   const reqWrapRef = useRef<HTMLDivElement>(null)
+  const reqScrollEndRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const wrap = reqWrapRef.current
     if (!wrap) return
+    const body = () => wrap.querySelector<HTMLElement>('.ant-table-body')
+    const bar = () => wrap.querySelector<HTMLElement>('.req-h-scroll')
     const onScroll = (e: Event) => {
       const target = e.target
       if (!(target instanceof HTMLElement) || !target.classList.contains('ant-table-body')) return
-      const bar = wrap.querySelector<HTMLElement>('.req-h-scroll')
-      if (bar) bar.scrollLeft = target.scrollLeft
+      const el = bar()
+      if (el) el.scrollLeft = target.scrollLeft
     }
     wrap.addEventListener('scroll', onScroll, true)
-    return () => wrap.removeEventListener('scroll', onScroll, true)
+    // 表格底边进入视口后原生滚动条已可用, 悬浮条隐藏避免双滚动条; 无横向溢出(超宽屏)时同样隐藏(#144)
+    // IO 负责布局变化(翻页/数据刷新), window scroll/resize 兜底滚动场景
+    const updateBarVisibility = () => {
+      const el = bar()
+      const bodyEl = body()
+      if (!el || !bodyEl) return
+      const noOverflow = bodyEl.scrollWidth <= bodyEl.clientWidth
+      el.style.display = noOverflow || bodyEl.getBoundingClientRect().bottom <= window.innerHeight + 1
+        ? 'none' : 'block'
+    }
+    const io = new IntersectionObserver(updateBarVisibility)
+    if (reqScrollEndRef.current) io.observe(reqScrollEndRef.current)
+    window.addEventListener('scroll', updateBarVisibility, true)
+    window.addEventListener('resize', updateBarVisibility)
+    updateBarVisibility()
+    return () => {
+      wrap.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('scroll', updateBarVisibility, true)
+      window.removeEventListener('resize', updateBarVisibility)
+      io.disconnect()
+    }
   }, [requirements])
 
   const priorityLabels = labelMapOf(enums, 'priority_labels')
@@ -417,6 +440,8 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                   ]}
                   rowClassName={(r) => (r.priority === 'critical' ? 'row-critical' : '')}
                 />
+                {/* 表格底边哨兵: 进入视口即隐藏吸底悬浮条(原生滚动条已可用), 避免 double scrollbar(#144) */}
+                <div ref={reqScrollEndRef} style={{ height: 1 }} />
                 {/* 吸底悬浮横向滚动条: 行高较大时免去"翻到表格底部拖滚动条再翻回"; 宽度须与表格 scroll.x 一致 */}
                 <div
                   className="req-h-scroll"
