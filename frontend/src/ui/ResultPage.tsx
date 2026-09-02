@@ -336,7 +336,7 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                         </Button>
                       )}
                       <Typography.Text type="secondary">
-                        标题/内容/验收标准/触发来源分列平铺; 确认动作替代责任人指派, 支持批量勾选
+                        标题/内容合并展示, 验收标准/触发来源分列; 确认动作替代责任人指派, 支持批量勾选
                       </Typography.Text>
                     </Space>
                   )}
@@ -346,12 +346,15 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                       render: (p) => <Tag color={PRIORITY_COLOR[p]}>{priorityLabels[p] ?? p}</Tag>,
                     },
                     { title: '编号', dataIndex: 'req_id', width: 140, fixed: 'left' },
-                    { title: '需求标题', dataIndex: 'title', width: 200, render: (t) => <b>{t}</b> },
                     {
-                      title: '需求内容', dataIndex: 'description',
-                      width: 420,
-                      render: (d) => (
-                        <div style={{ color: '#555', whiteSpace: 'pre-line' }}>{numberedToLines(d)}</div>
+                      title: '需求标题/内容', dataIndex: 'title', width: 620,
+                      render: (t, r) => (
+                        <div>
+                          <b>{t}</b>
+                          <div style={{ color: '#555', whiteSpace: 'pre-line', marginTop: 2 }}>
+                            {numberedToLines(r.description)}
+                          </div>
+                        </div>
                       ),
                     },
                     {
