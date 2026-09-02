@@ -7,3 +7,11 @@ body { margin: 0; font-family: -apple-system, 'Segoe UI', 'Microsoft YaHei', san
 
 /* 本轮未命中(obsolete): 输入已变更/风险已消除, 保留追溯但置灰区分(#66) */
 .row-obsolete > td { color: #999 !important; background: #fafafa !important; }
+
+/* 产物页需求清单: 隐藏 rc-table 内置吸底滚动条(首渲染门控时有时无), 用 .req-h-scroll 替代(#140) */
+.req-sticky-wrap .ant-table-sticky-scroll { display: none !important; }
+/* 自研吸底横向滚动条: 细样式 */
+.req-h-scroll { scrollbar-width: thin; }
+.req-h-scroll::-webkit-scrollbar { height: 10px; }
+.req-h-scroll::-webkit-scrollbar-thumb { background: #bfbfbf; border-radius: 5px; }
+.req-h-scroll::-webkit-scrollbar-track { background: transparent; }

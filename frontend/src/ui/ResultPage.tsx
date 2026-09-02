@@ -1,6 +1,6 @@
 /* 产物页(Web 形式展示, 走查整改): 安全需求清单平铺(描述全文/来源中文/批量确认)、
    漏洞清单、组件与许可证、定级与策略说明; 每个视图可「复制到 Word」(HTML 剪贴板, 粘贴即排版)。 */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Key } from 'react'
 import {
   Alert, Breadcrumb, Button, Card, Descriptions, Select, Space, Spin,
@@ -79,6 +79,20 @@ export default function ResultPage({ projectId }: { projectId: number }) {
   const [priorityFilter, setPriorityFilter] = useState<string | undefined>()
   const [selectedKeys, setSelectedKeys] = useState<Key[]>([])
   const [confirming, setConfirming] = useState(false)
+  // 需求清单横向滚动: 表格自身滚动容器(.ant-table-body)与吸底悬浮滚动条双向同步
+  const reqWrapRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const wrap = reqWrapRef.current
+    if (!wrap) return
+    const onScroll = (e: Event) => {
+      const target = e.target
+      if (!(target instanceof HTMLElement) || !target.classList.contains('ant-table-body')) return
+      const bar = wrap.querySelector<HTMLElement>('.req-h-scroll')
+      if (bar) bar.scrollLeft = target.scrollLeft
+    }
+    wrap.addEventListener('scroll', onScroll, true)
+    return () => wrap.removeEventListener('scroll', onScroll, true)
+  }, [requirements])
 
   const priorityLabels = labelMapOf(enums, 'priority_labels')
   const severityLabels = labelMapOf(enums, 'severity_labels')
@@ -309,11 +323,13 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                     本清单复制到 Word
                   </Button>
                 </Space>
+                <div ref={reqWrapRef} className="req-sticky-wrap">
                 <Table<RequirementRow>
                   rowKey="req_id"
                   dataSource={filtered}
                   size="small"
                   scroll={{ x: 1920 }}
+                  sticky
                   pagination={{
                     defaultPageSize: 10,
                     showSizeChanger: true,
@@ -342,10 +358,10 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                   )}
                   columns={[
                     {
-                      title: '优先级', dataIndex: 'priority', width: 72, fixed: 'left',
+                      title: '优先级', dataIndex: 'priority', width: 72,
                       render: (p) => <Tag color={PRIORITY_COLOR[p]}>{priorityLabels[p] ?? p}</Tag>,
                     },
-                    { title: '编号', dataIndex: 'req_id', width: 140, fixed: 'left' },
+                    { title: '编号', dataIndex: 'req_id', width: 140 },
                     {
                       title: '需求标题/内容', dataIndex: 'title', width: 620,
                       render: (t, r) => (
@@ -401,6 +417,21 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                   ]}
                   rowClassName={(r) => (r.priority === 'critical' ? 'row-critical' : '')}
                 />
+                {/* 吸底悬浮横向滚动条: 行高较大时免去"翻到表格底部拖滚动条再翻回"; 宽度须与表格 scroll.x 一致 */}
+                <div
+                  className="req-h-scroll"
+                  onScroll={(e) => {
+                    const body = reqWrapRef.current?.querySelector<HTMLElement>('.ant-table-body')
+                    if (body) body.scrollLeft = (e.target as HTMLElement).scrollLeft
+                  }}
+                  style={{
+                    position: 'sticky', bottom: 0, zIndex: 30, background: '#fff',
+                    overflowX: 'auto', overflowY: 'hidden', height: 14,
+                  }}
+                >
+                  <div style={{ width: 1920, height: 1 }} />
+                </div>
+                </div>
               </>
             ),
           },
