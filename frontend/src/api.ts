@@ -156,6 +156,44 @@ export const api = {
   deleteSystem: (id: number) => request<void>(`/api/systems/${id}`, { method: 'DELETE' }),
   systemLedger: () => request<SystemRow[]>('/api/systems/ledger'),
 
+  /* ── 系统清单(#194): 基础设施/组件/架构图挂系统, 多轮共享 ── */
+  getSystemInfraAssets: (systemId: number) =>
+    request<InfraAssetRow[]>(`/api/systems/${systemId}/infra-assets`),
+  saveSystemInfraAssets: (systemId: number, rows: InfraAssetRow[]) =>
+    request<InfraAssetRow[]>(`/api/systems/${systemId}/infra-assets`, {
+      method: 'POST', body: JSON.stringify({ assets: rows }),
+    }),
+  getSystemComponents: (systemId: number) =>
+    request<ComponentRow[]>(`/api/systems/${systemId}/components`),
+  saveSystemComponents: (systemId: number, rows: Omit<ComponentRow, 'vulnerabilities'>[]) =>
+    request<ComponentRow[]>(`/api/systems/${systemId}/components`, {
+      method: 'POST', body: JSON.stringify({ components: rows }),
+    }),
+  importSystemSbom: async (systemId: number, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    const token = getStoredToken()
+    const resp = await fetch(`/api/systems/${systemId}/components/import-sbom`, {
+      method: 'POST', body: form,
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    })
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => null)
+      throw new Error(body?.detail ?? `导入失败 HTTP ${resp.status}`)
+    }
+    return (await resp.json()) as {
+      filename: string, format: string, total_parsed: number, added: number, skipped_duplicate: number,
+    }
+  },
+  getSystemArchImages: (systemId: number) =>
+    request<InfraArchImageRow[]>(`/api/systems/${systemId}/arch-images`),
+  uploadSystemArchImage: (systemId: number, env: string, imageDataUrl: string) =>
+    request<InfraArchImageRow>(`/api/systems/${systemId}/arch-images/${env}`, {
+      method: 'PUT', body: JSON.stringify({ image_data_url: imageDataUrl }),
+    }),
+  deleteSystemArchImage: (systemId: number, env: string) =>
+    request<{ ok: boolean }>(`/api/systems/${systemId}/arch-images/${env}`, { method: 'DELETE' }),
+
   saveExternalSystems: (id: number, rows: ExternalSystemRow[]) =>
     request<ExternalSystemRow[]>(`/api/projects/${id}/external-systems`, {
       method: 'POST', body: JSON.stringify(rows),
