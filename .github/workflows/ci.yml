@@ -1,6 +1,7 @@
 name: CI
 
-# push/PR 阶段的质量门禁: 后端测试 + 后端 Lint + 前端检查。
+# PR 阶段全量质量门禁; push main 只保留后端快检作为合并交互兜底(#167):
+# squash 进 main 的提交必然刚在 PR 里全绿过, 前端/E2E 在 main 上重跑近乎纯重复。
 # 发版(tag)阶段的质量门禁在 release.yml, 两侧后端口径一致。
 on:
   push:
@@ -16,8 +17,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  backend-test:
-    name: 后端测试
+  # docs-only 改动跳过全部检查。注意必须用 job 级条件而不能用 workflow 级
+  # paths-ignore: 后者被过滤时不会创建任何 check, 会卡死分支保护的必查状态
+  # (docs-only PR 永远显示 waiting); job 被 if 跳过时报告 skipped, 视同成功。
+  changes:
+    name: 变更探测
+    runs-on: ubuntu-latest
+    outputs:
+      docs: ${{ steps.filter.outputs.docs }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: 探测是否 docs-only 改动
+        id: filter
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            docs:
+              - "**/*.md"
+              - "docs/**"
+
+  backend-check:
+    name: 后端检查
+    needs: changes
+    if: needs.changes.outputs.docs != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -32,6 +55,12 @@ jobs:
           version: "0.7"
           enable-cache: true
 
+      # 口径见 ruff.toml: 只拦真实错误类(E4/E7/E9/F), 不做行宽与风格审判
+      - name: Lint
+        uses: astral-sh/ruff-action@v3
+        with:
+          args: check .
+
       # 锁文件与顶层声明必须同步: 改了 pyproject.toml 忘记 uv lock 会在这里失败
       - name: 校验锁文件同步
         run: uv lock --check
@@ -40,19 +69,10 @@ jobs:
       - name: 运行测试
         run: uv run --frozen pytest tests -q
 
-  backend-lint:
-    name: 后端 Lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      # 口径见 ruff.toml: 只拦真实错误类(E4/E7/E9/F), 不做行宽与风格审判
-      - uses: astral-sh/ruff-action@v3
-        with:
-          args: check .
-
   e2e:
     name: E2E 主链路
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.docs != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -106,8 +126,12 @@ jobs:
           path: frontend/test-results/
           retention-days: 7
 
+  # 只做 lint + 全量类型检查, 不跑 vite build: 构建产物由 E2E job 构建一次即可
+  # (#167), 这里省掉的一次完整构建正是原 CI 里最大的重复开销。
   frontend-check:
     name: 前端检查
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.docs != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -126,7 +150,7 @@ jobs:
         working-directory: frontend
         run: npm run lint
 
-      # build 内含 tsc -b 全量类型检查
-      - name: 构建
+      # 全量类型检查(原 build 内含的 tsc -b 步骤单独拆出)
+      - name: 类型检查
         working-directory: frontend
-        run: npm run build
+        run: npx tsc -b
