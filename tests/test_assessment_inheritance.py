@@ -203,7 +203,7 @@ def test_copy_shares_system_components_untouched(session):
     ))
     session.commit()
 
-    nxt = _new_round(session, project, "R2", 1.0)
+    _new_round(session, project, "R2", 1.0)
     rows = session.query(SbomComponent).filter_by(system_id=project.system_id).all()
     assert len(rows) == 1
     assert rows[0].osv_query_fingerprint == "local|v1|log4j|2.14.1|maven|"

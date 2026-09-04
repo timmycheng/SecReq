@@ -172,7 +172,7 @@ def test_netbox_config_missing_token_is_unconfigured(session, monkeypatch):
 
 @pytest.fixture()
 def sec(api):
-    from conftest import api_as, create_system_api
+    from conftest import api_as
     return api_as(api, "sec_admin")
 
 
