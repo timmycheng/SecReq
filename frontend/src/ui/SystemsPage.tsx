@@ -68,6 +68,8 @@ function SystemsTab() {
   const [importOpen, setImportOpen] = useState(false)
   const [editing, setEditing] = useState<Partial<SystemRow> | null>(null)
   const [pushing, setPushing] = useState<number | null>(null)
+  // NetBox 收敛为安全侧数据通道(#196): 开发界面不出现任何 NetBox 入口
+  const isSecurity = getStoredUser()?.role === 'security'
 
   const reload = useCallback(() => {
     setLoading(true)
@@ -126,9 +128,10 @@ function SystemsTab() {
     }
   }
 
-  /** 外链地址: 台账页挂载时拉一次 base_url(未配置静默) */
+  /** 外链地址: 台账页挂载时拉一次 base_url(未配置静默; 仅安全角色, #196) */
   const [nbBaseUrl, setNbBaseUrl] = useState<string | undefined>(undefined)
   useEffect(() => {
+    if (!isSecurity) return
     api.getNetboxStatus()
       .then((s) => { if (s.configured) setNbBaseUrl(s.base_url) })
       .catch(() => undefined)
@@ -143,7 +146,7 @@ function SystemsTab() {
         return (
           <Space size={6}>
             <span>{v}</span>
-            {record.netbox_object_id && (
+            {isSecurity && record.netbox_object_id && (
               <Tag color="blue" style={{ marginRight: 0 }}>
                 {link ? <a href={link} target="_blank" rel="noreferrer">NetBox</a> : 'NetBox'}
               </Tag>
@@ -169,7 +172,7 @@ function SystemsTab() {
         <Space>
           <Button size="small" onClick={() => navigate(`/system/${record.id}`)}>评估时间线</Button>
           <Button size="small" onClick={() => setEditing(record)}>编辑</Button>
-          {!record.netbox_object_id && (
+          {isSecurity && !record.netbox_object_id && (
             <Button
               size="small" loading={pushing === record.id}
               onClick={() => void handlePush(record)}
@@ -206,9 +209,11 @@ function SystemsTab() {
         >
           新建系统
         </Button>
-        <Button icon={<PlusOutlined />} onClick={() => setImportOpen(true)}>
-          从 NetBox 导入
-        </Button>
+        {isSecurity && (
+          <Button icon={<PlusOutlined />} onClick={() => setImportOpen(true)}>
+            从 NetBox 导入
+          </Button>
+        )}
         <Typography.Text type="secondary">
           规模/类型/公网等基本信息在系统上维护, 挂靠定级备案后评估自动继承定级
         </Typography.Text>
@@ -221,11 +226,13 @@ function SystemsTab() {
         locale={{ emptyText: <Empty description="还没有系统登记" /> }}
         columns={columns}
       />
-      <NetboxSystemImportModal
-        open={importOpen}
-        onClose={() => setImportOpen(false)}
-        onSelected={(sel) => void handleImported(sel)}
-      />
+      {isSecurity && (
+        <NetboxSystemImportModal
+          open={importOpen}
+          onClose={() => setImportOpen(false)}
+          onSelected={(sel) => void handleImported(sel)}
+        />
+      )}
       {editing !== null && (
         <SystemFormModal
           value={editing}
