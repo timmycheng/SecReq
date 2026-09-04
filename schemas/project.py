@@ -27,6 +27,8 @@ class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     code: str | None = Field(default=None, max_length=64, description="项目编码, 全局唯一; 不传自动生成")
     system_id: int | None = Field(default=None, description="所属系统; 不传=未归属")
+    from_project_id: int | None = Field(
+        default=None, description="评估继承: 复制该项目的全部向导数据作为新一轮(实体 uid 保持不变)")
     type: str | None = None
     types: list[str] = Field(default_factory=list)
     user_scale: str | None = None

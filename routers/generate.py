@@ -205,6 +205,24 @@ def list_requirements(project: Project = Depends(get_accessible_project),
     return [RequirementOut.model_validate(r) for r in rows]
 
 
+@router.get("/requirements/diff")
+def requirements_diff(project: Project = Depends(get_accessible_project),
+                      against: int | None = None,
+                      db: Session = Depends(get_db)):
+    """两轮需求增量对比: 新增/移除/变更。
+
+    against 缺省时自动取同系统中早于本轮的最近一个已生成项目;
+    没有可比基准时返回 comparable=False(前端隐藏对比条)。"""
+    from services.requirement_diff import diff_requirements, find_previous_round
+
+    previous = find_previous_round(db, project, against)
+    if previous is None:
+        return {"comparable": False,
+                "message": "没有可对比的上一轮: 需项目已归属系统且系统中存在更早的已生成轮次"}
+    result = diff_requirements(db, project, previous)
+    return {"comparable": True, **result}
+
+
 @router.get("/vulnerabilities", response_model=list[VulnerabilityOut])
 def list_vulnerabilities(project: Project = Depends(get_accessible_project),
                          db: Session = Depends(get_db)):
@@ -268,7 +286,12 @@ def export_docx(request: Request, project: Project = Depends(get_accessible_proj
             status_code=409, detail="尚未生成安全基线, 请先在向导确认页执行『生成安全基线』")
     ctx = RequirementContext.from_db(db, project.id)
     vulns = _load_vulnerabilities(db, ctx.components)
-    content = build_full_docx(ctx.project, reqs, vulns, components=ctx.components)
+    # 评估继承(#151): 有上一轮时附差异章节
+    from services.requirement_diff import diff_requirements, find_previous_round
+    previous = find_previous_round(db, project)
+    diff_data = diff_requirements(db, project, previous) if previous is not None else None
+    content = build_full_docx(ctx.project, reqs, vulns, components=ctx.components,
+                              diff_data=diff_data)
     _audit_export(db, user, project, "docx", len(reqs), request)
     filename = f"{project.code}_安全需求说明书.docx"
     return Response(

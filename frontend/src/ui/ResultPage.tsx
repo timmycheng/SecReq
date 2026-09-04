@@ -1,17 +1,19 @@
 /* 产物页(Web 形式展示, 走查整改): 安全需求清单平铺(描述全文/来源中文/批量确认)、
    漏洞清单、组件与许可证、定级与策略说明; 每个视图可「复制到 Word」(HTML 剪贴板, 粘贴即排版)。 */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Key } from 'react'
+import type { Key, ReactNode } from 'react'
 import {
-  Alert, Breadcrumb, Button, Card, Descriptions, Select, Space, Spin,
+  Alert, Breadcrumb, Button, Card, Descriptions, Modal, Select, Space, Spin,
   Statistic, Table, Tabs, Tag, Tooltip, Typography, message,
 } from 'antd'
-import { CopyOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
+import { CopyOutlined, DiffOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
 
 import { api, downloadFile } from '../api'
 import { labelMapOf, useEnums } from '../enums'
 import { navigate } from '../router'
-import type { ComponentRow, ProjectDetail, RequirementRow, VulnerabilityRow } from '../types'
+import type {
+  ComponentRow, DiffRow, ProjectDetail, RequirementDiff, RequirementRow, VulnerabilityRow,
+} from '../types'
 import { batchConfirm, confirmOne, unconfirmedAll, unconfirmedRegulatory } from './assist'
 import GlossaryTip from './GlossaryTip'
 import {
@@ -79,6 +81,9 @@ export default function ResultPage({ projectId }: { projectId: number }) {
   const [priorityFilter, setPriorityFilter] = useState<string | undefined>()
   const [selectedKeys, setSelectedKeys] = useState<Key[]>([])
   const [confirming, setConfirming] = useState(false)
+  // 两轮增量对比(评估继承): 有上一轮已生成评估时展示"新增/移除/变更"摘要条
+  const [diff, setDiff] = useState<RequirementDiff | null>(null)
+  const [diffOpen, setDiffOpen] = useState(false)
   // 需求清单横向滚动: 表格自身滚动容器(.ant-table-body)与吸底悬浮滚动条双向同步
   const reqWrapRef = useRef<HTMLDivElement>(null)
   const reqScrollEndRef = useRef<HTMLDivElement>(null)
@@ -132,6 +137,7 @@ export default function ResultPage({ projectId }: { projectId: number }) {
       .then(setVulns)
       .catch((e: Error) => { setVulns([]); setVulnError(e.message) })
     api.listComponents(projectId).then(setComponents).catch(() => setComponents([]))
+    api.requirementsDiff(projectId).then(setDiff).catch(() => setDiff(null))
   }, [projectId])
   useEffect(() => { reload() }, [reload])
 
@@ -242,6 +248,26 @@ export default function ResultPage({ projectId }: { projectId: number }) {
             </div>
           </Space>
         </Card>
+      )}
+
+      {/* 与上一轮对比摘要条(评估继承 #151): 有变化时提示, 点击看明细 */}
+      {diff?.comparable && diff.summary && (diff.summary.added > 0 || diff.summary.removed > 0 || diff.summary.changed > 0) && (
+        <Alert
+          style={{ marginBottom: 16 }}
+          type="info"
+          icon={<DiffOutlined />}
+          message={(
+            <Space size={12} wrap>
+              <span>
+                与上一轮 <b>{diff.previous_project?.project_code}</b> 对比:
+              </span>
+              <Tag color="green">新增 {diff.summary.added}</Tag>
+              <Tag color="red">移除 {diff.summary.removed}</Tag>
+              <Tag color="gold">变更 {diff.summary.changed}</Tag>
+              <Button size="small" onClick={() => setDiffOpen(true)}>查看明细</Button>
+            </Space>
+          )}
+        />
       )}
 
       <Breadcrumb
@@ -592,6 +618,69 @@ export default function ResultPage({ projectId }: { projectId: number }) {
             label: '定级与策略',
             children: <GradingView projectId={projectId} project={project} />,
           },
+        ]}
+      />
+
+      <Modal
+        title={`与上一轮(${diff?.previous_project?.project_code ?? ''})需求对比明细`}
+        open={diffOpen}
+        onCancel={() => setDiffOpen(false)}
+        footer={<Button onClick={() => setDiffOpen(false)}>关闭</Button>}
+        width={860}
+      >
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <DiffSection
+            title={(<Tag color="green">新增 {diff?.added?.length ?? 0}</Tag>)}
+            rows={diff?.added ?? []}
+          />
+          <DiffSection
+            title={(<Tag color="red">移除 {diff?.removed?.length ?? 0}</Tag>)}
+            rows={diff?.removed ?? []}
+          />
+          {(diff?.changed?.length ?? 0) > 0 && (
+            <div>
+              <Space><Tag color="gold">变更 {diff!.changed!.length}</Tag></Space>
+              <div style={{ marginTop: 8 }}>
+                {diff!.changed!.map((c) => (
+                  <Card size="small" key={c.current.req_id} style={{ marginBottom: 8 }}>
+                    <Space size={8} wrap>
+                      <Typography.Text code>{c.current.req_id}</Typography.Text>
+                      <b>{c.current.title}</b>
+                      {c.fields.map((f) => <Tag key={f}>{f}</Tag>)}
+                    </Space>
+                    <div style={{ color: '#888', marginTop: 4, fontSize: 12 }}>
+                      原优先级: {priorityLabels[c.previous.priority] ?? c.previous.priority}
+                      → 现: {priorityLabels[c.current.priority] ?? c.current.priority}
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+        </Space>
+      </Modal>
+    </div>
+  )
+}
+
+/** 对比明细小表: 新增/移除需求列表。 */
+function DiffSection({ title, rows }: { title: ReactNode; rows: DiffRow[] }) {
+  if (!rows.length) return null
+  return (
+    <div>
+      <Space>{title}</Space>
+      <Table<DiffRow>
+        style={{ marginTop: 8 }}
+        rowKey="req_id"
+        size="small"
+        dataSource={rows}
+        pagination={false}
+        columns={[
+          { title: '编号', dataIndex: 'req_id', width: 150 },
+          { title: '需求标题', dataIndex: 'title' },
+          { title: '优先级', dataIndex: 'priority', width: 90,
+            render: (v: string) => <Tag>{v}</Tag> },
+          { title: '来源', dataIndex: 'source_label', ellipsis: true },
         ]}
       />
     </div>

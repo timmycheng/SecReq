@@ -124,8 +124,13 @@ def build_full_docx(
     requirements: list,
     vulnerabilities: list,
     components: list | None = None,
+    diff_data: dict | None = None,
 ) -> bytes:
-    """生成整册《安全需求说明书》.docx 字节流。"""
+    """生成整册《安全需求说明书》.docx 字节流。
+
+    diff_data: services.requirement_diff.diff_requirements 的结果(评估继承场景,
+    有上一轮时附「与上一轮差异」章节); None 则不出现该章节。
+    """
     doc = Document()
     section = doc.sections[0]
     section.page_width, section.page_height = Cm(21.0), Cm(29.7)  # A4 纵向
@@ -236,9 +241,52 @@ def build_full_docx(
     else:
         doc.add_paragraph("未发现漏洞记录。")
 
+    if diff_data is not None:
+        _diff_chapter(doc, diff_data)
+
     buffer = io.BytesIO()
     doc.save(buffer)
     return buffer.getvalue()
+
+
+def _diff_chapter(doc: Document, diff: dict) -> None:
+    """「与上一轮差异」章节(评估继承 #151): 分期建设场景下审阅者最关心增量。"""
+    prev_code = (diff.get("previous_project") or {}).get("project_code") or "上一轮"
+    summary = diff.get("summary") or {}
+    added_rows = diff.get("added") or []
+    removed_rows = diff.get("removed") or []
+    changed_rows = diff.get("changed") or []
+    _heading(doc, f"四、与上一轮({prev_code})差异")
+    if not (added_rows or removed_rows or changed_rows):
+        doc.add_paragraph(f"与上一轮({prev_code})对比, 安全需求无变化。")
+        return
+    para = doc.add_paragraph()
+    _set_cn_font(para.add_run(
+        f"新增 {len(added_rows)} 条;移除 {len(removed_rows)} 条;变更 {len(changed_rows)} 条。"),
+        bold=True,
+    )
+    table = _add_table(doc, ["变更", "编号", "优先级", "需求标题", "来源", "说明"],
+                       [1.4, 3.0, 1.4, 5.4, 3.0, 3.3])
+    for kind, rows, color in (("新增", added_rows, None), ("移除", removed_rows, _CRITICAL_RED)):
+        for r in rows:
+            row = table.add_row().cells
+            _cell_text(row[0], kind, bold=True, red=color is not None)
+            _cell_text(row[1], r["req_id"])
+            _cell_text(row[2], C.label(C.REQUIREMENT_PRIORITY_LABELS, r["priority"]))
+            _cell_text(row[3], r["title"])
+            _cell_text(row[4], r.get("source_label") or "—")
+            _cell_text(row[5], "本轮基线不再包含" if kind == "移除" else "本轮基线新增要求")
+    for c in changed_rows:
+        row = table.add_row().cells
+        cur = c.get("current") or {}
+        _cell_text(row[0], "变更", bold=True)
+        _cell_text(row[1], cur.get("req_id", ""))
+        _cell_text(row[2], C.label(C.REQUIREMENT_PRIORITY_LABELS, cur.get("priority", "")))
+        _cell_text(row[3], cur.get("title", ""))
+        _cell_text(row[4], cur.get("source_label") or "—")
+        _cell_text(row[5], "变化字段: " + "、".join(c.get("fields") or []))
+    _note(doc, "差异按知识库模板与来源实体对齐(template_id + source_entity_uid); "
+               "同一输入实体的要求调整记为「变更」。")
 
 
 def project_survey(project) -> str | None:
