@@ -40,6 +40,9 @@ class System(Base):
     code: Mapped[str | None] = mapped_column(
         String(64), unique=True, comment="系统编号(内部台账编号, 可空)"
     )
+    netbox_object_id: Mapped[str | None] = mapped_column(
+        String(32), comment="NetBox custom-objects 对象 id(互通推送后回填, #154)"
+    )
     filing_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("filings.id"), index=True, comment="所属定级备案(空=未备案)"
     )

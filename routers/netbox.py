@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 import shared.constants as C
-from models import InfraAsset, PlatformUser, Project
+from models import InfraAsset, PlatformUser, Project, System
 from routers.common import ensure_project_access, get_db, require_login
 from services.audit_service import audit
 from services.netbox import NetboxApiError, NetboxClient, NetboxUnavailable
@@ -191,6 +191,92 @@ def push_device(payload: NetboxDevicePushIn,
         raise _proxy_502(exc) from exc
     finally:
         client.close()
+
+
+# ────────────────────────── 系统清单互通(#154) ──────────────────────────
+
+@router.get("/systems")
+def proxy_systems(keyword: str | None = None, limit: int = 25, offset: int = 0,
+                  user: PlatformUser = Depends(require_login),
+                  db: Session = Depends(get_db)):
+    """custom-objects 系统清单代理: 按 field_map 裁剪为 {id, name, code, owner, url}。"""
+    cfg, client = _client_or_409(db)
+    fm = cfg.get("field_map") or {}
+    name_key, code_key, owner_key = fm.get("name") or "name", fm.get("code") or "code", fm.get("owner") or "owner"
+    try:
+        data = client.list_system_objects(cfg["system_slug"], keyword, limit, offset)
+    except (NetboxUnavailable, NetboxApiError) as exc:
+        raise _proxy_502(exc) from exc
+    finally:
+        client.close()
+    results = [
+        {
+            "id": row.get("id"),
+            "name": row.get(name_key),
+            "code": row.get(code_key),
+            "owner": row.get(owner_key),
+            "url": row.get("display_url") or row.get("url"),
+        }
+        for row in (data.get("results") or []) if isinstance(row, dict)
+    ]
+    return {"count": data.get("count", len(results)), "results": results}
+
+
+class NetboxSystemPushIn(BaseModel):
+    """推送一条台账系统为 NetBox system 对象; 成功后回填 netbox_object_id。"""
+
+    system_id: int
+    name: str = Field(min_length=1, max_length=200)
+    code: str | None = Field(default=None, max_length=64)
+    owner: str | None = Field(default=None, max_length=50)
+
+
+@router.post("/systems")
+def push_system(payload: NetboxSystemPushIn,
+                user: PlatformUser = Depends(require_login),
+                db: Session = Depends(get_db)):
+    _require_write_roles(user)
+    system = db.get(System, payload.system_id)
+    if system is None or (
+        user.role != "security" and system.owner_user_id not in (None, user.id)
+    ):
+        raise HTTPException(status_code=404, detail=f"系统不存在: id={payload.system_id}")
+    if system.netbox_object_id:
+        raise HTTPException(status_code=409,
+                            detail=f"该系统已关联 NetBox 对象({system.netbox_object_id}), 无需重复推送")
+
+    cfg, client = _client_or_409(db)
+    fm = cfg.get("field_map") or {}
+    name_key = fm.get("name") or "name"
+    try:
+        # 名称查重: NetBox 侧已存在同名系统对象则拒绝(附外链), 失败可重试
+        data = client.list_system_objects(cfg["system_slug"], payload.name, 100, 0)
+        lowered = payload.name.strip().lower()
+        for row in data.get("results") or []:
+            if isinstance(row, dict) and str(row.get(name_key) or "").strip().lower() == lowered:
+                url = row.get("display_url") or row.get("url")
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"NetBox 已存在同名系统「{payload.name}」: {url or '(无外链)'}")
+        obj_payload = {name_key: payload.name}
+        if payload.code and fm.get("code"):
+            obj_payload[fm["code"]] = payload.code
+        if payload.owner and fm.get("owner"):
+            obj_payload[fm["owner"]] = payload.owner
+        created = client.create_system_object(cfg["system_slug"], obj_payload)
+    except (NetboxUnavailable, NetboxApiError) as exc:
+        raise _proxy_502(exc) from exc
+    finally:
+        client.close()
+
+    system.netbox_object_id = str(created.get("id"))
+    db.commit()
+    audit(db, user.username, "netbox_push",
+          {"system_id": system.id, "netbox_system_id": system.netbox_object_id})
+    return {
+        "netbox_object_id": system.netbox_object_id,
+        "url": created.get("display_url") or created.get("url"),
+    }
 
 
 class NetboxIpPushIn(BaseModel):

@@ -13,9 +13,10 @@ import type { GradingBaseline } from '../../api'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
 import type {
   AuthConfigRow, ExternalSystemRow, FilingRow, GradingQuestion, ProjectInfo,
-  SurveyAnswer, SystemRow,
+  NetboxSystemRow, SurveyAnswer, SystemRow,
 } from '../../types'
 import GlossaryTip from '../GlossaryTip'
+import NetboxSystemImportModal from '../NetboxSystemImportModal'
 import { useRegisterStepHandle } from './stepContext'
 import type { StepProps } from '../WizardPage'
 
@@ -55,6 +56,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
   const [systems, setSystems] = useState<SystemRow[]>([])
   const [filings, setFilings] = useState<FilingRow[]>([])
   const [sysCreating, setSysCreating] = useState(false)
+  const [sysImporting, setSysImporting] = useState(false)
   const watchedSystemId = Form.useWatch('system_id', form)
   const selectedSystem = systems.find((s) => s.id === watchedSystemId) ?? null
   const latestRound = selectedSystem?.latest_round ?? selectedSystem?.rounds?.[0] ?? null
@@ -235,6 +237,9 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
                 就地新建系统
               </Button>
               <span>(登记系统并挂靠定级备案)</span>
+              <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setSysImporting(true)}>
+                从 NetBox 导入
+              </Button>
               {selectedSystem && (
                 latestRound ? (
                   <Button type="link" size="small" style={{ padding: 0 }} loading={copying}
@@ -507,6 +512,39 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
       )}
 
       {sysCreating && (
+        <>
+        <NetboxSystemImportModal
+          open={sysImporting}
+          onClose={() => setSysImporting(false)}
+          onSelected={(selected: NetboxSystemRow[]) => {
+            void (async () => {
+              let firstId: number | undefined
+              for (const row of selected) {
+                const refId = String(row.id)
+                const dup = systems.some((sy) => sy.netbox_object_id === refId
+                  || sy.name.toLowerCase() === (row.name || '').toLowerCase())
+                if (dup) continue
+                try {
+                  const created = await api.createSystem({
+                    name: row.name || `NetBox#${row.id}`,
+                    code: row.code ?? undefined,
+                    owner_name: row.owner ?? undefined,
+                    netbox_object_id: refId,
+                  })
+                  firstId ??= created.id
+                } catch (e) {
+                  message.error(`${row.name || refId}: ${(e as Error).message}`)
+                }
+              }
+              setSysImporting(false)
+              if (firstId !== undefined) {
+                api.listSystems().then(setSystems).catch(() => undefined)
+                form.setFieldValue('system_id', firstId)
+                message.success('已从 NetBox 导入并选中系统')
+              }
+            })()
+          }}
+        />
         <SystemQuickCreateModal
           filings={filings}
           onClose={() => setSysCreating(false)}
@@ -519,6 +557,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
             }).catch(() => undefined)
           }}
         />
+        </>
       )}
     </div>
   )
