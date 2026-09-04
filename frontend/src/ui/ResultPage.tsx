@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Key, ReactNode } from 'react'
 import {
-  Alert, Breadcrumb, Button, Card, Descriptions, Modal, Select, Space, Spin,
+  Alert, Breadcrumb, Button, Card, Descriptions, Modal, Progress, Select, Space, Spin,
   Statistic, Table, Tabs, Tag, Tooltip, Typography, message,
 } from 'antd'
 import { CopyOutlined, DiffOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
@@ -81,6 +81,8 @@ export default function ResultPage({ projectId }: { projectId: number }) {
   const [priorityFilter, setPriorityFilter] = useState<string | undefined>()
   const [selectedKeys, setSelectedKeys] = useState<Key[]>([])
   const [confirming, setConfirming] = useState(false)
+  // 执行摘要(#156): 明细 Tabs 受控, 支持从摘要点击带筛选跳转
+  const [tab, setTab] = useState('reqs')
   // 两轮增量对比(评估继承): 有上一轮已生成评估时展示"新增/移除/变更"摘要条
   const [diff, setDiff] = useState<RequirementDiff | null>(null)
   const [diffOpen, setDiffOpen] = useState(false)
@@ -250,6 +252,19 @@ export default function ResultPage({ projectId }: { projectId: number }) {
         </Card>
       )}
 
+      {/* 执行摘要(#156): 结论先行 —— 先看结论与 Top 风险, 明细在下方 Tabs */}
+      {hitAll.length > 0 && (
+        <ExecutiveSummaryCard
+          hitAll={hitAll}
+          vulns={vulns ?? []}
+          complianceTargets={project.compliance_targets ?? []}
+          categoryLabels={categoryLabels}
+          onPickReq={(r) => { setPriorityFilter(r.priority); setTab('reqs') }}
+          onPickVuln={() => setTab('vulns')}
+          onPickCategory={(code) => { setCategoryFilter(code); setTab('reqs') }}
+        />
+      )}
+
       {/* 与上一轮对比摘要条(评估继承 #151): 有变化时提示, 点击看明细 */}
       {diff?.comparable && diff.summary && (diff.summary.added > 0 || diff.summary.removed > 0 || diff.summary.changed > 0) && (
         <Alert
@@ -341,7 +356,8 @@ export default function ResultPage({ projectId }: { projectId: number }) {
       </Space>
 
       <Tabs
-        defaultActiveKey="reqs"
+        activeKey={tab}
+        onChange={setTab}
         items={[
           {
             key: 'reqs',
@@ -684,6 +700,174 @@ function DiffSection({ title, rows }: { title: ReactNode; rows: DiffRow[] }) {
         ]}
       />
     </div>
+  )
+}
+
+/** 合规目标 → 监管文件关键词(执行摘要的合规覆盖统计用, 与知识库出处口径一致)。 */
+const COMPLIANCE_FILE_KEYWORDS: Record<string, string> = {
+  djcp_l3: '等级保护',
+  pipl: '个人信息',
+  pci_dss: 'PCI',
+}
+
+const PRIORITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
+
+/** 执行摘要(#156): 自动结论 + Top 风险 + 合规覆盖 + 类目分布。
+    金字塔第一层——审阅者 30 秒内得到"能不能过、先看什么", 点击任意条目联动下方明细筛选。 */
+function ExecutiveSummaryCard({ hitAll, vulns, complianceTargets, categoryLabels, onPickReq, onPickVuln, onPickCategory }: {
+  hitAll: RequirementRow[]
+  vulns: VulnerabilityRow[]
+  complianceTargets: string[]
+  categoryLabels: Record<string, string>
+  onPickReq: (r: RequirementRow) => void
+  onPickVuln: () => void
+  onPickCategory: (code: string) => void
+}) {
+  const critReqs = hitAll.filter((r) => r.priority === 'critical')
+  const highReqs = hitAll.filter((r) => r.priority === 'high')
+  const critVulns = vulns.filter((v) => v.severity === 'critical')
+  const highVulns = vulns.filter((v) => v.severity === 'high')
+  const openReqs = hitAll.filter((r) => r.status === 'open').length
+
+  // 自动结论: 按 critical/high 的需求与漏洞分档, 不做人工填写
+  const conclusion = (() => {
+    if (critReqs.length || critVulns.length) {
+      return {
+        type: 'error' as const,
+        text: `不建议直接通过: 存在 ${critReqs.length} 条关键需求与 ${critVulns.length} 个严重漏洞`,
+        detail: '关键项为硬性安全要求, 建议整改闭环后复评; 详见下方 Top 风险。',
+      }
+    }
+    if (highReqs.length || highVulns.length) {
+      return {
+        type: 'warning' as const,
+        text: `有条件通过: 无关键(critical)项, 有 ${highReqs.length} 条高优先级需求与 ${highVulns.length} 个高危漏洞`,
+        detail: '建议按下方 Top 风险排期整改, 其余需求按建议阶段落实。',
+      }
+    }
+    return {
+      type: 'success' as const,
+      text: `基线整体可控: ${hitAll.length} 条需求均非 critical/high`,
+      detail: '按建议阶段落实即可, 无需额外整改决策。',
+    }
+  })()
+
+  const topReqs = [...critReqs, ...highReqs]
+    .sort((a, b) => (PRIORITY_RANK[a.priority] ?? 9) - (PRIORITY_RANK[b.priority] ?? 9))
+    .slice(0, 5)
+  const topVulns = [...critVulns, ...highVulns]
+    .sort((a, b) => (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9))
+    .slice(0, 3)
+
+  // 类目分布: 需求行的 category 存的是中文标签, 反查 code 供筛选联动
+  const labelToCode = Object.fromEntries(
+    Object.entries(categoryLabels).map(([code, label]) => [label, code]),
+  )
+  const catCounts = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const r of hitAll) map.set(r.category, (map.get(r.category) ?? 0) + 1)
+    return [...map.entries()].sort((a, b) => b[1] - a[1])
+  }, [hitAll])
+  const catMax = catCounts[0]?.[1] ?? 1
+
+  const coverage = complianceTargets.map((code) => {
+    const keyword = COMPLIANCE_FILE_KEYWORDS[code]
+    const count = keyword
+      ? hitAll.filter((r) => (r.regulatory_ref ?? []).some((f) => (f.file ?? '').includes(keyword))).length
+      : 0
+    return { code, label: categoryLabels[code] ?? code, count }
+  })
+
+  return (
+    <Card size="small" title="执行摘要" style={{ marginBottom: 16 }}>
+      <Alert
+        type={conclusion.type}
+        showIcon
+        message={conclusion.text}
+        description={conclusion.detail}
+        style={{ marginBottom: 16 }}
+      />
+      <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+        <div style={{ flex: '2 1 380px', minWidth: 320 }}>
+          <Typography.Text type="secondary" strong>Top 风险需求(点击查看)</Typography.Text>
+          <div style={{ marginTop: 8 }}>
+            {topReqs.length === 0 && <Typography.Text type="secondary">无 critical/high 需求</Typography.Text>}
+            {topReqs.map((r) => (
+              <div
+                key={r.req_id}
+                onClick={() => onPickReq(r)}
+                style={{ padding: '4px 0', cursor: 'pointer', borderBottom: '1px dashed #f0f0f0' }}
+              >
+                <Space size={8} wrap>
+                  <Tag color={PRIORITY_COLOR[r.priority]}>{r.priority === 'critical' ? '紧急' : '高'}</Tag>
+                  <Typography.Text code style={{ fontSize: 12 }}>{r.req_id}</Typography.Text>
+                  <Typography.Text style={{ fontSize: 13 }}>{r.title}</Typography.Text>
+                </Space>
+              </div>
+            ))}
+          </div>
+          {topVulns.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <Typography.Text type="secondary" strong>严重/高危漏洞</Typography.Text>
+              <div style={{ marginTop: 8 }}>
+                {topVulns.map((v) => (
+                  <div
+                    key={v.cve_id}
+                    onClick={onPickVuln}
+                    style={{ padding: '3px 0', cursor: 'pointer', borderBottom: '1px dashed #f0f0f0' }}
+                  >
+                    <Space size={8} wrap>
+                      <Tag color={SEVERITY_COLOR[v.severity]}>{v.severity === 'critical' ? '严重' : '高危'}</Tag>
+                      <Typography.Text code style={{ fontSize: 12 }}>{v.cve_id}</Typography.Text>
+                      <Typography.Text style={{ fontSize: 13 }}>{v.component_name}@{v.component_version}</Typography.Text>
+                    </Space>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        <div style={{ flex: '1 1 260px', minWidth: 260 }}>
+          <Typography.Text type="secondary" strong>合规目标覆盖</Typography.Text>
+          <div style={{ marginTop: 8, marginBottom: 16 }}>
+            {coverage.length === 0 && <Typography.Text type="secondary">未勾选合规目标</Typography.Text>}
+            {coverage.map((c) => (
+              <div key={c.code} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
+                <Typography.Text style={{ fontSize: 13 }}>{c.label}</Typography.Text>
+                {c.count > 0
+                  ? <Tag color="green">{c.count} 条</Tag>
+                  : <Tag>未直接命中</Tag>}
+              </div>
+            ))}
+          </div>
+          <Typography.Text type="secondary" strong>需求类目分布(点击筛选)</Typography.Text>
+          <div style={{ marginTop: 8 }}>
+            {catCounts.map(([label, count]) => (
+              <div
+                key={label}
+                onClick={() => onPickCategory(labelToCode[label] ?? label)}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0', cursor: 'pointer' }}
+              >
+                <span style={{ width: 96, fontSize: 12, color: '#555', flexShrink: 0 }}>{label}</span>
+                <Progress
+                  percent={Math.max(6, Math.round((count / catMax) * 100))}
+                  showInfo={false}
+                  size="small"
+                  strokeColor="#2f5597"
+                  style={{ flex: 1, margin: 0 }}
+                />
+                <span style={{ width: 28, fontSize: 12, textAlign: 'right' }}>{count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      {openReqs > 0 && (
+        <Typography.Text type="secondary" style={{ display: 'block', marginTop: 12, fontSize: 12 }}>
+          其中 {openReqs} 条尚未闭环(状态为待落实); 闭环进度见需求跟踪表。
+        </Typography.Text>
+      )}
+    </Card>
   )
 }
 
