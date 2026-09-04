@@ -61,6 +61,8 @@ class TemplateUpdateIn(BaseModel):
     trigger_reason: str | None = None
     trigger: dict | None = None
     enabled: bool | None = None
+    # 修复: 编辑弹窗一直有 ASVS 条款输入框, 但本模型漏了该字段导致存不进去
+    asvs_ref: str | None = Field(default=None, max_length=50)
     # 监管出处(每项 {file, clause, summary, note}), 编辑与新建能力对齐(#80);
     # 结构合法性由写回后的 loader 全量校验兜底, 不合法自动回滚
     regulatory_ref: list[dict] | None = None

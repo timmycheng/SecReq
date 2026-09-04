@@ -40,7 +40,9 @@ const SEVERITY_OPTS = ['critical', 'high', 'medium', 'low']
 const PERMISSION_RULE_KEYS = [
   { value: 'critical_action_without_approval', label: '关键资源高危操作免审批' },
   { value: 'sod_conflict', label: '职责分离(SoD)冲突' },
-  { value: 'super_admin', label: '超级管理员角色存在' },
+  // 修复(#165): 原选项值 super_admin 与引擎分派键 super_admin_exists 漂移,
+  // 选了会生成永不命中的模板(引擎按 rule_key if/else 硬编码分派)
+  { value: 'super_admin_exists', label: '超级管理员角色存在' },
   { value: 'always', label: '存在权限矩阵即触发' },
 ]
 const POLICY_RULE_KEYS = [
