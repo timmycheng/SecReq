@@ -278,6 +278,17 @@ export const api = {
   testLlmConfig: (data: { base_url: string; api_key?: string; model: string }) =>
     request<{ ok: boolean; latency_ms?: number; reply?: string; reason?: string }>(
       '/api/admin/llm-config/test', { method: 'POST', body: JSON.stringify(data) }),
+  getNetboxConfig: () => request<NetboxConfig>('/api/admin/netbox-config'),
+  saveNetboxConfig: (data: { base_url: string; token: string; system_slug: string; field_map: Record<string, string> }) =>
+    request<{ status: string }>('/api/admin/netbox-config', { method: 'PUT', body: JSON.stringify(data) }),
+  /** 只测不存: token 留空表示沿用已保存的 Token(#152) */
+  testNetboxConfig: (data: { base_url: string; token?: string }) =>
+    request<{ ok: boolean; latency_ms?: number; version?: string; reason?: string }>(
+      '/api/admin/netbox-config/test', { method: 'POST', body: JSON.stringify(data) }),
+  /** 拉取 system 对象类型字段, 供 field_map 对照; 未配置返回 409 */
+  getNetboxSystemFields: () =>
+    request<{ slug: string; fields: { name: string; type?: string | null }[] }>(
+      '/api/admin/netbox-config/system-fields'),
   parseApiEndpoints: (projectId: number, data: { text: string }) => {
     const body = new FormData()
     body.append('text', data.text)
@@ -385,6 +396,14 @@ export interface LlmConfig {
   base_url?: string
   api_key?: string
   model?: string
+  configured?: boolean
+}
+
+export interface NetboxConfig {
+  base_url?: string
+  token?: string
+  system_slug?: string
+  field_map?: Record<string, string>
   configured?: boolean
 }
 

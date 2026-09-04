@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
-"""系统设置服务: 键值读写 + LLM 接入配置解析。
+"""系统设置服务: 键值读写 + LLM/NetBox 接入配置解析。
 
 LLM 配置优先取库内 system_settings(key=llm), 未配置时回退环境变量:
     SECREQ_LLM_BASE_URL / SECREQ_LLM_API_KEY / SECREQ_LLM_MODEL
 接口为 OpenAI 兼容 /chat/completions(内网大模型网关或公有云均可)。
+
+NetBox 配置(#152)同口径: 库内 system_settings(key=netbox) 优先,
+回退 SECREQ_NETBOX_URL / SECREQ_NETBOX_TOKEN / SECREQ_NETBOX_SYSTEM_SLUG。
 """
 import os
 
@@ -12,6 +15,9 @@ from sqlalchemy.orm import Session
 from models import SystemSetting
 
 LLM_KEY = "llm"
+NETBOX_KEY = "netbox"
+#: NetBox system 对象的 custom-objects 类型 slug 默认值(#154)
+DEFAULT_NETBOX_FIELD_MAP = {"name": "name", "code": "code", "owner": "owner"}
 
 
 def get_setting(session: Session, key: str, default: dict | None = None) -> dict:
@@ -41,8 +47,29 @@ def get_llm_config(session: Session) -> dict:
     return {}
 
 
-PROJECT_CODE_RULE_KEY = "project_code_rule"
-#: 与前端预览一致的默认格式: XM2026-001(#85)
+def get_netbox_config(session: Session) -> dict:
+    """解析 NetBox 配置(#152): {base_url, token, system_slug, field_map} 或 {}(未配置)。
+
+    库内优先, 环境变量回退; system_slug/field_map 有默认值, 地址与 token 齐全才算已配置。
+    """
+    cfg = get_setting(session, NETBOX_KEY)
+    base_url = (cfg.get("base_url") or os.environ.get("SECREQ_NETBOX_URL") or "").rstrip("/")
+    token = cfg.get("token") or os.environ.get("SECREQ_NETBOX_TOKEN") or ""
+    if not (base_url and token):
+        return {}
+    system_slug = cfg.get("system_slug") or os.environ.get("SECREQ_NETBOX_SYSTEM_SLUG") or "system"
+    field_map = cfg.get("field_map")
+    if not isinstance(field_map, dict) or not field_map:
+        field_map = dict(DEFAULT_NETBOX_FIELD_MAP)
+    return {
+        "base_url": base_url,
+        "token": token,
+        "system_slug": system_slug,
+        "field_map": field_map,
+    }
+
+
+PROJECT_CODE_RULE_KEY = "project_code_rule"#: 与前端预览一致的默认格式: XM2026-001(#85)
 DEFAULT_PROJECT_CODE_RULE = {"prefix": "XM", "include_year": True, "digits": 3}
 
 

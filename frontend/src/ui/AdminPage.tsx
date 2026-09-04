@@ -11,6 +11,7 @@ const KbTab = lazy(() => import('./admin/KbTab'))
 const QuestionTab = lazy(() => import('./admin/QuestionTab'))
 const PolicyTab = lazy(() => import('./admin/PolicyTab'))
 const LlmTab = lazy(() => import('./admin/LlmTab'))
+const NetboxTab = lazy(() => import('./admin/NetboxTab'))
 const VulnDbTab = lazy(() => import('./admin/VulnDbTab'))
 const UsersTab = lazy(() => import('./admin/UsersTab'))
 const AuditTab = lazy(() => import('./admin/AuditTab'))
@@ -54,6 +55,7 @@ export default function AdminPage() {
               { key: 'questions', label: '定级题库', children: <QuestionTab /> },
               { key: 'policy', label: '密码策略基线', children: <PolicyTab /> },
               { key: 'llm', label: '大模型接入', children: <LlmTab /> },
+              { key: 'netbox', label: 'NetBox 互通', children: <NetboxTab /> },
               { key: 'users', label: '用户管理', children: <UsersTab /> },
               { key: 'audit', label: '审计日志', children: <AuditTab /> },
               { key: 'settings', label: '系统设置', children: <SystemSettingsTab /> },
