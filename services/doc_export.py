@@ -364,6 +364,12 @@ def build_full_docx(
 
 def _diff_chapter(doc: Document, diff: dict) -> None:
     """「与上一轮差异」章节(评估继承 #151): 分期建设场景下审阅者最关心增量。"""
+    from services.requirement_diff import FIELD_LABELS
+
+    def _brief(text: str, limit: int = 50) -> str:
+        text = text or ""
+        return text if len(text) <= limit else text[:limit] + "…"
+
     prev_code = (diff.get("previous_project") or {}).get("project_code") or "上一轮"
     added_rows = diff.get("added") or []
     removed_rows = diff.get("removed") or []
@@ -396,7 +402,17 @@ def _diff_chapter(doc: Document, diff: dict) -> None:
         _cell_text(row[2], C.label(C.REQUIREMENT_PRIORITY_LABELS, cur.get("priority", "")))
         _cell_text(row[3], cur.get("title", ""))
         _cell_text(row[4], cur.get("source_label") or "—")
-        _cell_text(row[5], "变化字段: " + "、".join(c.get("fields") or []))
+        # 字段级前后值(#176): 中文标签 + 旧值 → 新值, 长文本截断
+        field_values = c.get("field_values") or {}
+        if field_values:
+            _cell_text(row[5], "; ".join(
+                f"{v.get('label') or FIELD_LABELS.get(f, f)}: "
+                f"{_brief(v.get('previous'))} → {_brief(v.get('current'))}"
+                for f, v in field_values.items()
+            ))
+        else:
+            _cell_text(row[5], "变化字段: " + "、".join(
+                FIELD_LABELS.get(f, f) for f in (c.get("fields") or [])))
     _note(doc, "差异按知识库模板与来源实体对齐(template_id + source_entity_uid); "
                "同一输入实体的要求调整记为「变更」。")
 

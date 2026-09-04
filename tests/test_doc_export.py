@@ -105,6 +105,8 @@ def test_docx_diff_chapter_numbering(session):
                              "created_at": None},
         "added": [], "removed": [],
         "changed": [{"fields": ["priority"],
+                     "field_values": {"priority": {"label": "优先级",
+                                                   "previous": "关键", "current": "高"}},
                      "previous": {"req_id": "SEC-XXX-001", "title": "关键需求",
                                   "priority": "critical", "category": "数据安全",
                                   "source_label": None, "status": "open",
@@ -118,4 +120,5 @@ def test_docx_diff_chapter_numbering(session):
     }
     text = _doc_text(build_full_docx(project, reqs, [], components=[], diff_data=diff))
     assert "五、与上一轮(XM-1)差异" in text
-    assert "变更" in text and "priority" in text
+    # 字段级前后值(#176): 说明列为 中文标签: 旧值 → 新值
+    assert "变更" in text and "优先级: 关键 → 高" in text
