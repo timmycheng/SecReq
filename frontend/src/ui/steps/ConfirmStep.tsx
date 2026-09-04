@@ -83,7 +83,11 @@ export default function ConfirmStep({ ws, goto }: StepProps) {
   if (!ws.features.length) gaps.push('功能清单为空')
   if (!ws.data_assets.length) gaps.push('数据字典为空')
   if (!ws.roles.length || !ws.resources.length) gaps.push('权限矩阵未维护')
-  if (!ws.components.length) gaps.push('组件清单为空(将跳过漏洞与许可证扫描)')
+
+  // 组件与基础设施已上收系统(#194): 汇总展示条数, 维护入口跳系统详情页
+  const systemLink = ws.project.system_id
+    ? <a onClick={() => navigate(`/system/${ws.project.system_id}`)}>去系统维护</a>
+    : <span style={{ color: '#cf1322' }}>未归属系统</span>
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>
@@ -140,9 +144,9 @@ export default function ConfirmStep({ ws, goto }: StepProps) {
             label: '认证方式',
             children: ws.auth_config?.auth_methods.map((m) => labelMapOf(enums, 'auth_methods')[m] ?? m).join('、') || '未设置(按基线)',
           },
-          { key: 'sbom', label: <GlossaryTip term="sbom">组件与许可证</GlossaryTip>, children: withFix(4, `${ws.components.length} 个组件`, !ws.components.length) },
-          { key: 'apis', label: 'API 接口', children: withFix(5, `${ws.api_endpoints.length} 个接口`, false) },
-          { key: 'infra', label: '基础设施', children: withFix(6, `${ws.infra_assets.length} 项资产`, false) },
+          { key: 'sbom', label: <GlossaryTip term="sbom">组件与许可证</GlossaryTip>, children: <Space size={8}>{ws.components.length} 个组件{systemLink}</Space> },
+          { key: 'apis', label: 'API 接口', children: withFix(4, `${ws.api_endpoints.length} 个接口`, false) },
+          { key: 'infra', label: '基础设施', children: <Space size={8}>{ws.infra_assets.length} 项资产{systemLink}</Space> },
           {
             key: 'compliance',
             label: '合规目标',

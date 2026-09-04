@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test'
 
-/* 主链路 E2E(#72): 建项目 → 8 步向导 → 生成 → 批量确认 → 导出。
+/* 主链路 E2E(#72): 建系统 → 建项目 → 6 步向导 → 生成 → 批量确认 → 导出。
    覆盖平台最核心用户路径的前端行为(步骤保存/批量确认/导出下载)。 */
 
-test('建项目 → 8步向导 → 生成 → 批量确认 → 导出', async ({ page }) => {
+test('建系统 → 建项目 → 6步向导 → 生成 → 批量确认 → 导出', async ({ page }) => {
   test.setTimeout(300_000)
 
   // ── 登录(种子账号, 密码来自 playwright.config webServer env) ──
@@ -17,13 +17,15 @@ test('建项目 → 8步向导 → 生成 → 批量确认 → 导出', async ({
   // ── 先建系统(#194: 评估挂靠系统, 基本信息/清单都在系统上) ──
   await page.getByText('系统台账', { exact: true }).first().click()
   await page.getByRole('button', { name: '新建系统' }).click()
-  await page.getByPlaceholder('如: 个人网银系统').fill('E2E 主链路系统')
-  const sysScaleItem = page.locator('.ant-form-item', { hasText: '用户规模' }).first()
-  await sysScaleItem.locator('.ant-select').click()
-  await page.keyboard.press('ArrowDown')
-  await page.keyboard.press('Enter')
-  await page.getByRole('button', { name: /确\s*定/ }).click()
-  await expect(page.getByText('E2E 主链路系统').first()).toBeVisible({ timeout: 20_000 })
+  const sysModal = page.locator('.ant-modal').filter({ hasText: '系统名称' })
+  await sysModal.getByPlaceholder('如: 个人网银系统').fill('E2E 主链路系统')
+  await sysModal.locator('.ant-form-item', { hasText: '用户规模' }).locator('.ant-select').click()
+  await page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item')
+    .first().click()
+  await sysModal.getByRole('button', { name: /确\s*定/ }).click()
+  // 弹窗关闭 + 台账表格出现该系统行, 才算创建成功
+  await expect(sysModal).toBeHidden({ timeout: 20_000 })
+  await expect(page.locator('.ant-table').getByText('E2E 主链路系统')).toBeVisible({ timeout: 20_000 })
   await page.getByText('评估管理', { exact: true }).first().click()
   await expect(page.getByRole('button', { name: '发起新评估' }).first())
     .toBeVisible({ timeout: 20_000 })
@@ -103,11 +105,8 @@ test('建项目 → 8步向导 → 生成 → 批量确认 → 导出', async ({
   await expect(activeStep).toContainText('权限矩阵', { timeout: 20_000 })
   await page.getByRole('button', { name: '添加' }).nth(1).click()  // 资源编辑器的「添加」
   await page.getByPlaceholder('资源名, 如 交易流水记录').fill('E2E 客户数据')
-  await advanceTo('组件许可')
-
-  for (const next of ['API接口', '基础设施']) {
-    await advanceTo(next)
-  }
+  // #194: 组件/基础设施已上收系统台账, 向导收敛为 6 步
+  await advanceTo('API接口')
   await advanceTo('确认生成')
 
   // ── 第 8 步: 确认生成(默认本地离线库, 保持用例封闭) ──
