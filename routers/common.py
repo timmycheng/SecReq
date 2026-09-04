@@ -104,13 +104,13 @@ def visible_projects_query(db: Session, user: PlatformUser):
 def ensure_project_access(user: PlatformUser, project: Project) -> None:
     """单项目访问口径: 安全全量可见, 开发仅限本人创建; 越权返回 404(不泄露存在性)。"""
     if user.role != "security" and project.owner_user_id not in (None, user.id):
-        raise HTTPException(status_code=404, detail=f"项目不存在: id={project.id}")
+        raise HTTPException(status_code=404, detail=f"评估不存在: id={project.id}")
 
 
 def get_project_or_404(project_id: int, db: Session = Depends(get_db)) -> Project:
     project = db.get(Project, project_id)
     if project is None:
-        raise HTTPException(status_code=404, detail=f"项目不存在: id={project_id}")
+        raise HTTPException(status_code=404, detail=f"评估不存在: id={project_id}")
     return project
 
 

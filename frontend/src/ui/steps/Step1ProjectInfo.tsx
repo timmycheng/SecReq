@@ -1,4 +1,4 @@
-/* Step1 项目信息与定级(合并原 1/2/6 三步):
+/* Step1 评估信息与定级(合并原 1/2/6 三步):
    基本信息与合规目标 → 外部系统连接清单 → 等保定级(问卷内联, 可直接指定)
    → 定级后即时展示密码策略基线与合规要求(可展开覆盖认证策略)。 */
 import { useEffect, useRef, useState } from 'react'
@@ -172,7 +172,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
         auth_config: savedCfg,
       })
       savedRef.current = JSON.stringify(snapshotOf({ ...ws, survey: freshSurvey }, cfg))
-      message.success('项目信息与定级已保存')
+      message.success('评估信息与定级已保存')
       reloadBaseline()
       return true
     } catch (e) {
@@ -210,7 +210,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
         <Row gutter={16}>
           <Col span={12}>
             <Form.Item
-              name="name" label="项目名称" rules={[{ required: true, message: '请输入项目名称' }]}
+              name="name" label="评估名称" rules={[{ required: true, message: '请输入评估名称' }]}
             >
               <Input placeholder="如: 个人网银系统" />
             </Form.Item>
@@ -221,7 +221,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
             </Form.Item>
           </Col>
           <Col span={6}>
-            <Form.Item name="code" label="项目编码(自动生成)">
+            <Form.Item name="code" label="评估编码(自动生成)">
               <Input disabled />
             </Form.Item>
           </Col>
@@ -276,7 +276,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
           />
         </Form.Item>
         <Form.Item
-          name="types" label="项目类型(可多选)" rules={[{ required: true, message: '请至少选择一种类型' }]}
+          name="types" label="评估类型(可多选)" rules={[{ required: true, message: '请至少选择一种类型' }]}
           extra="一个系统可能同时包含多种形态, 如 App + 后台管理"
         >
           <Select mode="multiple" options={optionsOf(enums, 'project_types')} placeholder="选择全部适用类型" />

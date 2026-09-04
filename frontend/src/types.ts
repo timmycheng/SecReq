@@ -18,7 +18,7 @@ export interface ProjectInfo {
   compliance_targets: string[]
   status: string
   created_at?: string | null
-  /** 评估继承: 创建时复制该项目全部向导数据(仅创建请求使用) */
+  /** 评估继承: 创建时复制该评估全部向导数据(仅创建请求使用) */
   from_project_id?: number | null
 }
 

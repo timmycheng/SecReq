@@ -60,7 +60,7 @@ def run_full_pipeline(
     from models import Project
 
     if session.get(Project, project_id) is None:
-        raise ValueError(f"项目不存在: id={project_id}")
+        raise ValueError(f"评估不存在: id={project_id}")
 
     result = PipelineResult(project_id=project_id)
     ctx = RequirementContext.from_db(session, project_id)
@@ -105,7 +105,7 @@ async def run_full_pipeline_async(
     from models import Project
 
     if session.get(Project, project_id) is None:
-        raise ValueError(f"项目不存在: id={project_id}")
+        raise ValueError(f"评估不存在: id={project_id}")
 
     result = PipelineResult(project_id=project_id)
     ctx = RequirementContext.from_db(session, project_id)

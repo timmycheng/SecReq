@@ -27,7 +27,7 @@ import ConfirmStep from './steps/ConfirmStep'
 
 // 标题/描述保持短句, 避免 8 步并排时在窄屏被挤成竖排
 const STEPS: { title: string; description: string }[] = [
-  { title: '项目定级', description: '基本信息/外部系统' },
+  { title: '评估定级', description: '基本信息/外部系统' },
   { title: '功能清单', description: '功能安全' },
   { title: '数据字典', description: '分级与脱敏' },
   { title: '权限矩阵', description: '越权与SoD' },
@@ -208,7 +208,7 @@ export default function WizardPage({ projectId }: { projectId: number }) {
           {
             title: (
               <a onClick={(e) => { e.preventDefault(); guardLeave(() => navigate('/')) }}>
-                项目列表
+                评估列表
               </a>
             ),
           },
@@ -230,9 +230,9 @@ export default function WizardPage({ projectId }: { projectId: number }) {
           message="第一次使用?"
           description={(
             <span>
-              按 1→8 步采集项目信息, 每步点「保存并下一步」即可, 也可点击顶部步骤条随时跳转
+              按 1→8 步完成评估信息采集, 每步点「保存并下一步」即可, 也可点击顶部步骤条随时跳转
               (有未保存修改时会先询问); 最后一步试算预览并一键生成安全需求清单与 SBOM。
-              第 1 步完成定级后即可预览本项目的合规基线要求。
+              第 1 步完成定级后即可预览本评估的合规基线要求。
               各步骤填什么, 看每步顶部说明与术语旁的 <QuestionCircleOutlined style={{ color: '#999' }} /> 图标。
             </span>
           )}

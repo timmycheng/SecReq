@@ -54,7 +54,7 @@ const POLICY_RULE_KEYS = [
 const REGULATORY_RULE_KEYS = [
   { value: 'l5_data_exists', label: '存在 5级(重要数据)资产' },
   { value: 'cross_border_exists', label: '存在跨境传输或境外外包' },
-  { value: 'mobile_app_type', label: '项目类型为 APP/小程序' },
+  { value: 'mobile_app_type', label: '评估类型为 APP/小程序' },
   { value: 'ai_feature', label: '功能清单含 AI 功能' },
   { value: 'final_level_l3', label: '有效定级为三级' },
   { value: 'sensitive_pii_exists', label: '存在敏感个人信息资产' },

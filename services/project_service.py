@@ -16,14 +16,14 @@ from models import (
 
 
 class ProjectExistsError(Exception):
-    """项目编码已被占用。"""
+    """评估编码已被占用。"""
 
 
 def generate_project_code(session: Session) -> str:
-    """自动生成项目编码: {前缀}{可选年份}{自增序号}, 冲突时序号递增(#85)。
+    """自动生成评估编码: {前缀}{可选年份}{自增序号}, 冲突时序号递增(#85)。
 
     规则存 system_settings(key=project_code_rule), 未配置时回退历史格式
-    XM<年份>-<三位序号>(老项目编号不受影响)。prefix 校验为字母数字,
+    XM<年份>-<三位序号>(老评估编号不受影响)。prefix 校验为字母数字,
     编码兼作产物输出目录名, 防路径穿越。
     """
     from services.settings_service import get_project_code_rule
@@ -43,7 +43,7 @@ def generate_project_code(session: Session) -> str:
 def create_project(session: Session, data: dict, owner_user_id: int | None = None) -> Project:
     code = (data.get("code") or "").strip() or generate_project_code(session)
     if session.query(Project).filter_by(code=code).first():
-        raise ProjectExistsError(f"项目编码已存在: {code}")
+        raise ProjectExistsError(f"评估编码已存在: {code}")
     # from_project_id 是创建参数(评估继承, 复制在 routers 层做), 不是 Project 列
     data = {k: v for k, v in data.items() if k not in ("code", "from_project_id")} | {"code": code}
     project = Project(**data, owner_user_id=owner_user_id)

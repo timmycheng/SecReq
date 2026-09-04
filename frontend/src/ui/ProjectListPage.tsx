@@ -1,4 +1,4 @@
-/* 项目列表: 全部项目表格(按角色过滤); 新建弹窗二选一(空白 / 按系统复制上一轮, #172);
+/* 评估列表: 全部项目表格(按角色过滤); 新建弹窗二选一(空白 / 按系统复制上一轮, #172);
    空状态带首次使用引导。 */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
@@ -54,11 +54,11 @@ export default function ProjectListPage() {
     setCreating(true)
     try {
       const detail = await api.createProject({
-        name: '未命名项目', from_project_id: from,
+        name: '未命名评估', from_project_id: from,
       })
       message.success(from
         ? '已按上一轮评估创建新一轮, 请在向导中核对并修改变化部分'
-        : '已创建, 请在第一步补全项目信息')
+        : '已创建, 请在第一步补全评估信息')
       setCreateOpen(false)
       navigate(`/wizard/${detail.id}`)
     } catch (e) {
@@ -71,7 +71,7 @@ export default function ProjectListPage() {
   return (
     <div style={{ padding: 24 }}>
       <Card
-        title={isSecurity ? '项目列表(全部项目)' : '我的项目'}
+        title={isSecurity ? '评估列表(全部评估)' : '我的评估'}
         extra={(
           <Space>
             <Select
@@ -84,7 +84,7 @@ export default function ProjectListPage() {
               onChange={(v) => setSystemFilter(v ?? null)}
             />
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-              新建项目
+              发起新评估
             </Button>
           </Space>
         )}
@@ -100,17 +100,17 @@ export default function ProjectListPage() {
                 style={{ padding: '32px 0' }}
                 description={(
                   <>
-                    <p style={{ fontWeight: 600 }}>还没有项目</p>
+                    <p style={{ fontWeight: 600 }}>还没有评估</p>
                     <p style={{ color: '#888' }}>
-                      平台通过 8 步向导采集项目信息, 按行内安全知识库自动生成
+                      平台通过 8 步向导完成评估信息采集, 按行内安全知识库自动生成
                       安全需求清单、SBOM 漏洞清单与交付文档。
-                      推荐顺序: 新建项目 → 填向导 → 生成基线 → 查看产物并确认需求。
+                      推荐顺序: 发起新评估 → 填写向导 → 生成基线 → 查看产物并确认需求。
                     </p>
                   </>
                 )}
               >
                 <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-                  新建第一个项目
+                  发起第一个评估
                 </Button>
               </Empty>
             ),
@@ -119,8 +119,8 @@ export default function ProjectListPage() {
             expandedRowRender: (record) => <CountsGrid counts={record.counts} />,
           }}
           columns={[
-            { title: '项目名称', dataIndex: 'name' },
-            { title: '项目编码', dataIndex: 'code', width: 150 },
+            { title: '评估名称', dataIndex: 'name' },
+            { title: '评估编码', dataIndex: 'code', width: 150 },
             {
               title: '所属系统', dataIndex: 'system_name', width: 150,
               render: (v: string | null, record) => v
@@ -157,7 +157,7 @@ export default function ProjectListPage() {
                   <Button size="small" onClick={() => navigate(`/wizard/${record.id}`)}>填写向导</Button>
                   <Button size="small" onClick={() => navigate(`/result/${record.id}`)}>查看产物</Button>
                   <Popconfirm
-                    title="删除项目及其全部数据?"
+                    title="删除该评估及其全部数据?"
                     onConfirm={async () => {
                       try {
                         await api.deleteProject(record.id)
@@ -178,7 +178,7 @@ export default function ProjectListPage() {
       </Card>
 
       <Modal
-        title="新建项目" open={createOpen} onCancel={() => setCreateOpen(false)} width={520}
+        title="发起新评估" open={createOpen} onCancel={() => setCreateOpen(false)} width={520}
         footer={[
           <Button key="cancel" onClick={() => setCreateOpen(false)}>取消</Button>,
           <Button
@@ -240,10 +240,10 @@ const COUNT_LABELS: Record<string, string> = {
   vulnerabilities: '漏洞记录',
 }
 
-/** 展开区分组(#86): 项目输入 / 生成产出, 各配 preset 色; 0 值项弱化不隐藏(空项目不突兀)。 */
+/** 展开区分组(#86): 评估输入 / 生成产出, 各配 preset 色; 0 值项弱化不隐藏(空项目不突兀)。 */
 const COUNT_GROUPS: { title: string; color: string; keys: string[] }[] = [
   {
-    title: '项目输入',
+    title: '评估输入',
     color: 'geekblue',
     keys: ['features', 'data_assets', 'roles', 'resources', 'permission_entries',
       'components', 'api_endpoints', 'infra_assets', 'external_systems'],
