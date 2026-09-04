@@ -116,7 +116,7 @@ export default function ConfirmStep({ ws, goto }: StepProps) {
           },
           {
             key: 'types',
-            label: '项目类型',
+            label: '评估类型',
             children: (ws.project.types ?? []).map((t) => labelMapOf(enums, 'project_types')[t] ?? t).join('、') || '—',
           },
           {

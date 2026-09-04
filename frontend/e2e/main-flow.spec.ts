@@ -11,22 +11,22 @@ test('建项目 → 8步向导 → 生成 → 批量确认 → 导出', async ({
   await page.getByPlaceholder('用户名').fill('dev_admin')
   await page.getByPlaceholder('密码').fill('e2e-pass')
   await page.getByRole('button', { name: '登 录' }).click()
-  await expect(page.getByRole('button', { name: '新建项目' }).first())
+  await expect(page.getByRole('button', { name: '发起新评估' }).first())
     .toBeVisible({ timeout: 20_000 })
 
   // ── 建项目(新建弹窗默认空白新建, #172 → 直通向导第一步) ──
-  await page.getByRole('button', { name: '新建项目' }).first().click()
+  await page.getByRole('button', { name: '发起新评估' }).first().click()
   await page.getByRole('button', { name: '创建并进向导' }).click()
-  await expect(page.getByText('项目编码(自动生成)')).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByText('评估编码(自动生成)')).toBeVisible({ timeout: 20_000 })
 
-  // ── 第 1 步: 项目定级(必填 + 合规目标 + 直接指定三级) ──
+  // ── 第 1 步: 评估定级(必填 + 合规目标 + 直接指定三级) ──
   await page.getByPlaceholder('如: 个人网银系统').fill('E2E 主链路项目')
   // antd Select 下拉有动画且虚拟滚动, 用键盘导航最稳: ArrowDown 高亮首项, Enter 选中
   const scaleItem = page.locator('.ant-form-item', { hasText: '用户规模' }).first()
   await scaleItem.locator('.ant-select').click()
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Enter')
-  const typeItem = page.locator('.ant-form-item', { hasText: '项目类型(可多选)' }).first()
+  const typeItem = page.locator('.ant-form-item', { hasText: '评估类型(可多选)' }).first()
   await typeItem.locator('.ant-select').click()
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Enter')

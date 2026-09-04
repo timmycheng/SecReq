@@ -89,7 +89,7 @@ export default function SystemDetailPage({ systemId }: { systemId: number }) {
           <Descriptions.Item label="所属备案">
             {system.filing_name
               ? <Space size={6}>{system.filing_name}<LevelTag level={system.filing_level} /></Space>
-              : <Typography.Text type="secondary">未挂备案(定级走项目问卷)</Typography.Text>}
+              : <Typography.Text type="secondary">未挂备案(定级走评估问卷)</Typography.Text>}
           </Descriptions.Item>
           <Descriptions.Item label="负责人">{system.owner_name || '—'}</Descriptions.Item>
         </Descriptions>

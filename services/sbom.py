@@ -178,7 +178,7 @@ def generate_project_sbom(session: Session, project_id: int) -> tuple[dict, list
     """
     project = session.get(Project, project_id)
     if project is None:
-        raise ValueError(f"项目不存在: id={project_id}")
+        raise ValueError(f"评估不存在: id={project_id}")
     components = (
         session.query(SbomComponent).filter_by(project_id=project_id).order_by(SbomComponent.id).all()
     )

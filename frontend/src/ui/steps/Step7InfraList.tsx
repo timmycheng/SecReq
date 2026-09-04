@@ -284,7 +284,7 @@ export default function Step7InfraList({ ws, patch }: StepProps) {
             </Popconfirm>
           )}
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            png/jpg/webp, 不超过 2MB; 随项目复制/评估继承自动带走
+            png/jpg/webp, 不超过 2MB; 随评估复制/评估继承自动带走
           </Typography.Text>
         </Space>
       </div>

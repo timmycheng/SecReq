@@ -327,7 +327,7 @@ function FeatureModal({ value, onOk, onCancel }: {
           label={(
             <span>
               敏感级别
-              <Tooltip title="这是项目内的业务敏感标注(公开/内部/敏感/机密), 与第 3 步数据资产的 JR/T 0197 五级「安全分级」相互独立; 拿不准时按更保守的档位选择">
+              <Tooltip title="这是评估内的业务敏感标注(公开/内部/敏感/机密), 与第 3 步数据资产的 JR/T 0197 五级「安全分级」相互独立; 拿不准时按更保守的档位选择">
                 <QuestionCircleOutlined style={{ marginLeft: 4, color: '#999' }} />
               </Tooltip>
             </span>

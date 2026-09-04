@@ -1,5 +1,5 @@
-/* 系统设置: 项目编号规则(前缀/年份/位数), 带实时格式预览(#85)。
-   未配置时后端回退历史格式 XM<年份>-<三位序号>, 老项目编号不受影响。 */
+/* 系统设置: 评估编号规则(前缀/年份/位数), 带实时格式预览(#85)。
+   未配置时后端回退历史格式 XM<年份>-<三位序号>, 老评估编号不受影响。 */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, Card, Checkbox, Form, Input, InputNumber, Typography, message } from 'antd'
 
@@ -35,10 +35,10 @@ export default function SystemSettingsTab() {
   return (
     <div style={{ maxWidth: 640, margin: '0 auto' }}>
       <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
-        项目编号在新建项目时自动生成, 同时用作产物输出目录名 —— 修改规则只影响新项目,
-        老项目编号与目录不变。序号按前缀查库递增保证不冲突。
+        评估编号在发起新评估时自动生成, 同时用作产物输出目录名 —— 修改规则只影响新评估,
+        老评估编号与目录不变。序号按前缀查库递增保证不冲突。
       </Typography.Paragraph>
-      <Card size="small" title="项目编号规则" style={{ marginBottom: 16 }}>
+      <Card size="small" title="评估编号规则" style={{ marginBottom: 16 }}>
         <Form form={form} layout="vertical" initialValues={rule ?? undefined}>
           <Form.Item
             name="prefix" label="前缀(1-10 位字母数字)"

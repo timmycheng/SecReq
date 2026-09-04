@@ -1,5 +1,5 @@
 /* 系统台账: 系统视角(系统 × 所属备案 × 最新评估) + 备案视角(备案 × 定级 × 下挂系统)。
-   台账是"看系统"的主入口: 同一系统多次评估在系统详情页形成时间线, 避免项目列表平行记录。 */
+   台账是"看系统"的主入口: 同一系统多次评估在系统详情页形成时间线, 避免评估列表平行记录。 */
 import { useCallback, useEffect, useState } from 'react'
 import {
   Button, Card, Empty, Form, Input, Modal, Popconfirm, Select, Space, Table, Tabs, Tag,
@@ -42,7 +42,7 @@ export default function SystemsPage() {
     <div style={{ padding: 24 }}>
       <Card title="系统台账" variant="borderless">
         <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-          一个系统对应多次评估(项目): 系统详情页查看评估时间线与当前基线;
+          一个系统对应多轮评估: 系统详情页查看评估时间线与当前基线;
           对外备案按"定级备案"维护, 实际系统以备案子系统形式挂靠并继承其定级。
         </Typography.Text>
         <Tabs
@@ -173,7 +173,7 @@ function SystemsTab() {
           )}
           <Popconfirm
             title="删除该系统?"
-            description="仅当下挂项目已清空才可删除"
+            description="仅当下挂评估已清空才可删除"
             onConfirm={async () => {
               try {
                 await api.deleteSystem(record.id)

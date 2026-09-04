@@ -101,7 +101,7 @@ def preview_requirements(project: Project = Depends(get_writable_project),
 async def generate(payload: GenerateRequest | None = None,
                    project: Project = Depends(get_writable_project), db: Session = Depends(get_db),
                    user: PlatformUser = Depends(require_login)):
-    """全量生成。成功后项目状态置为 generated, 文档写入 output/<项目编码>/。
+    """全量生成。成功后项目状态置为 generated, 文档写入 output/<评估编码>/。
 
     async def(#71): 在线漏洞源并发查询; 本地源毫秒级, 走同一入口无额外开销。
     """
@@ -112,7 +112,7 @@ async def generate(payload: GenerateRequest | None = None,
             db, project.id, out_dir=project_output_dir(ROOT_DIR / "output", project.code),
             skip_osv=skip_osv, vuln_source_override=vuln_source,
         )
-    except ValueError as exc:            # 项目不存在等(业务性, 原因可回显)
+    except ValueError as exc:            # 评估不存在等(业务性, 原因可回显)
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:             # 知识库占位符缺陷等引擎期错误
         raise server_error(logger, exc, "生成失败",
@@ -218,7 +218,7 @@ def requirements_diff(project: Project = Depends(get_accessible_project),
     previous = find_previous_round(db, project, against)
     if previous is None:
         return {"comparable": False,
-                "message": "没有可对比的上一轮: 需项目已归属系统且系统中存在更早的已生成轮次"}
+                "message": "没有可对比的上一轮: 需评估已归属系统且系统中存在更早的已生成轮次"}
     result = diff_requirements(db, project, previous)
     return {"comparable": True, **result}
 

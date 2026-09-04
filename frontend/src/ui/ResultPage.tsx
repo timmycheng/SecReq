@@ -250,7 +250,7 @@ export default function ResultPage({ projectId }: { projectId: number }) {
 
       <Breadcrumb
         items={[
-          { title: <a onClick={(e) => { e.preventDefault(); navigate('/') }}>项目列表</a> },
+          { title: <a onClick={(e) => { e.preventDefault(); navigate('/') }}>评估列表</a> },
           {
             title: (
               <a onClick={(e) => { e.preventDefault(); navigate(`/wizard/${projectId}`) }}>

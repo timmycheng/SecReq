@@ -28,14 +28,14 @@ const HELP_CONTENT = (
   <div style={{ maxWidth: 340, fontSize: 13, lineHeight: 1.7 }}>
     <p style={{ margin: 0, fontWeight: 600 }}>整个平台就是两件事:</p>
     <p style={{ margin: '4px 0 0' }}>
-      <b>① 填报</b>(开发): 新建项目 → 按向导逐步填写 → 一键「生成安全基线」。
+      <b>① 填报</b>(开发): 发起新评估 → 按向导逐步填写 → 一键「生成安全基线」。
     </p>
     <p style={{ margin: '2px 0' }}>
       <b>② 确认</b>: 在产物页逐条/批量确认安全需求, 补齐报送事项确认 ——
       缺什么, 页面会用红字列出来。
     </p>
     <p style={{ margin: '6px 0 0', color: '#888' }}>
-      开发只能看到自己创建的项目; 安全角色可以看到全部项目。
+      开发只能看到自己创建的评估; 安全角色可以看到全部评估。
     </p>
   </div>
 )
@@ -125,7 +125,7 @@ function AppBody() {
               if (key === 'admin') navigate('/admin')
             }}
             items={[
-              { key: 'projects', icon: <UnorderedListOutlined />, label: '项目管理' },
+              { key: 'projects', icon: <UnorderedListOutlined />, label: '评估管理' },
               { key: 'systems', icon: <ApartmentOutlined />, label: '系统台账' },
               ...(user.role === 'security'
                 ? [{ key: 'admin', icon: <CloudServerOutlined />, label: '系统管理' }]

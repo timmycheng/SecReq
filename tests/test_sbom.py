@@ -140,5 +140,5 @@ def test_generate_project_sbom_reads_db_and_validates_project(session):
     assert [c.name for c in comps] == ["MySQL"]
     assert len(bom["components"]) == 1
 
-    with pytest.raises(ValueError, match="项目不存在"):
+    with pytest.raises(ValueError, match="评估不存在"):
         generate_project_sbom(session, 99999)

@@ -68,7 +68,7 @@ def create(payload: ProjectCreate, request: Request, db: Session = Depends(get_d
     if payload.from_project_id:
         source = db.get(Project, payload.from_project_id)
         if source is None:
-            raise HTTPException(status_code=404, detail=f"来源项目不存在: id={payload.from_project_id}")
+            raise HTTPException(status_code=404, detail=f"来源评估不存在: id={payload.from_project_id}")
         from routers.common import ensure_project_access
         ensure_project_access(user, source)
         _resolve_system(db, user, source.system_id)
@@ -105,15 +105,15 @@ def copy_from(project_id: int, payload: CopyFromIn, request: Request,
     """
     project = db.get(Project, project_id)
     if project is None:
-        raise HTTPException(status_code=404, detail=f"项目不存在: id={project_id}")
+        raise HTTPException(status_code=404, detail=f"评估不存在: id={project_id}")
     from routers.common import ensure_project_access
     ensure_project_access(user, project)
     source = db.get(Project, payload.from_project_id)
     if source is None:
-        raise HTTPException(status_code=404, detail=f"来源项目不存在: id={payload.from_project_id}")
+        raise HTTPException(status_code=404, detail=f"来源评估不存在: id={payload.from_project_id}")
     ensure_project_access(user, source)
     if source.id == project.id:
-        raise HTTPException(status_code=400, detail="不能从项目自身复制")
+        raise HTTPException(status_code=400, detail="不能从该评估自身复制")
     reset_wizard_data(db, project.id)
     copy_wizard_data(db, source, project)
     audit(db, user.username, "project_copy_from",
@@ -129,7 +129,7 @@ def reset_wizard(project_id: int, request: Request,
     """一键清空当前项目全部向导输入(#172), 相当于回到空白模板; 生成产出不动。"""
     project = db.get(Project, project_id)
     if project is None:
-        raise HTTPException(status_code=404, detail=f"项目不存在: id={project_id}")
+        raise HTTPException(status_code=404, detail=f"评估不存在: id={project_id}")
     from routers.common import ensure_project_access
     ensure_project_access(user, project)
     reset_wizard_data(db, project.id)
@@ -163,7 +163,7 @@ def patch(payload: ProjectUpdate, project: Project = Depends(get_project_or_404)
     ensure_project_access(user, project)
     changes = payload.model_dump(exclude_unset=True)
     if "code" in changes and changes["code"] != project.code:
-        raise HTTPException(status_code=400, detail="项目编码不允许修改")
+        raise HTTPException(status_code=400, detail="评估编码不允许修改")
     if "system_id" in changes:
         _resolve_system(db, user, changes["system_id"])
     project = update_project(db, project, changes)
