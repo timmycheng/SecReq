@@ -7,8 +7,6 @@ import uuid
 
 import pytest
 
-import uuid
-
 from conftest import api_as, create_system_api
 from services.auth_service import SEED_DEFAULT_PASSWORD
 

@@ -2,8 +2,6 @@
 """API 全流程测试: 向导各步骤保存 → 干跑预览 → 全量生成 → 文档/Excel/SBOM 下载。"""
 import json
 
-import uuid
-
 from conftest import cleanup_output, create_system_api
 
 CYCLONE_MIN = {
