@@ -39,3 +39,6 @@ e2e-secreq.db-shm
 e2e-secreq.db-wal
 frontend/test-results/
 frontend/playwright-report/
+
+# NetBox 本地测试环境(netbox-docker 克隆/卷/令牌, 见 scripts/netbox_dev.sh)
+/netbox/
