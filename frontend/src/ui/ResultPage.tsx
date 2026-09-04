@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Key, ReactNode } from 'react'
 import {
-  Alert, Breadcrumb, Button, Card, Descriptions, Modal, Progress, Select, Space, Spin,
-  Statistic, Table, Tabs, Tag, Tooltip, Typography, message,
+  Alert, Breadcrumb, Button, Card, Descriptions, Modal, Progress, Select, Space,
+  Spin, Table, Tabs, Tag, Tooltip, Typography, message,
 } from 'antd'
 import { CopyOutlined, DiffOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
 
@@ -309,27 +309,6 @@ export default function ResultPage({ projectId }: { projectId: number }) {
           )}
         />
       )}
-
-      <Space size={16} style={{ display: 'flex', marginBottom: 16 }} wrap>
-        <Card size="small" style={{ minWidth: 150 }}>
-          <Statistic title="安全需求" value={hitAll.length} />
-        </Card>
-        <Card size="small" style={{ minWidth: 150 }}>
-          <Statistic
-            title="待确认"
-            value={unconfirmedAll(hitAll).length}
-            suffix={unconfirmedRegulatory(hitAll).length > 0
-              ? `(报送 ${unconfirmedRegulatory(hitAll).length})` : undefined}
-          />
-        </Card>
-        <Card size="small" style={{ minWidth: 150 }}>
-          <Statistic title={<GlossaryTip term="osv">漏洞记录</GlossaryTip>} value={vulns?.length ?? 0} />
-        </Card>
-        {vulns && vulns.some((v) => v.severity === 'critical') && (
-          <Alert type="error" showIcon style={{ flex: 1 }}
-            message={`存在 ${vulns.filter((v) => v.severity === 'critical').length} 条严重漏洞, 请优先整改(详见漏洞清单)`} />
-        )}
-      </Space>
 
       <Tabs
         activeKey={tab}
@@ -767,6 +746,9 @@ function ExecutiveSummaryCard({ hitAll, vulns, complianceTargets, complianceLabe
     return [...map.entries()].sort((a, b) => b[1] - a[1])
   }, [hitAll])
   const catMax = catCounts[0]?.[1] ?? 1
+  // 待确认/报送口径(#174): 原统计卡行移除后并入摘要底部, 口径不丢失
+  const unconfirmedCount = unconfirmedAll(hitAll).length
+  const unconfirmedRegCount = unconfirmedRegulatory(hitAll).length
 
   const coverage = complianceTargets.map((code) => {
     const keyword = COMPLIANCE_FILE_KEYWORDS[code]
@@ -875,11 +857,12 @@ function ExecutiveSummaryCard({ hitAll, vulns, complianceTargets, complianceLabe
           },
         ]}
       />
-      {openReqs > 0 && (
-        <Typography.Text type="secondary" style={{ display: 'block', marginTop: 12, fontSize: 12 }}>
-          其中 {openReqs} 条尚未闭环(状态为待落实); 闭环进度见需求跟踪表。
-        </Typography.Text>
-      )}
+      <Typography.Text type="secondary" style={{ display: 'block', marginTop: 12, fontSize: 12 }}>
+        {unconfirmedCount > 0
+          ? `待确认 ${unconfirmedCount} 条${unconfirmedRegCount ? `(其中监管报送 ${unconfirmedRegCount} 条)` : ''}`
+          : '需求已全部确认'}
+        {openReqs > 0 ? `; ${openReqs} 条尚未闭环(状态为待落实), 闭环进度见需求跟踪表。` : '。'}
+      </Typography.Text>
     </Card>
   )
 }
