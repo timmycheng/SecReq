@@ -591,11 +591,13 @@ function SystemQuickCreateModal({ filings, onClose, onCreated }: {
         </Form.Item>
         <Form.Item
           name="filing_id" label="挂靠定级备案"
-          extra="挂靠后系统继承备案定级; 暂无可选备案可先跳过"
+          extra="挂靠后系统继承备案定级; 备案由安全管理员维护, 暂无合适项可先跳过并联系安全管理员"
         >
           <Select
             allowClear placeholder="选择备案(选填)"
-            options={filings.map((f) => ({ value: f.id, label: `${f.name}(等保${f.level})` }))}
+            options={filings.map((f) => ({
+              value: f.id, label: `${f.name}(${f.code ? `${f.code} / ` : ''}等保${f.level})`,
+            }))}
           />
         </Form.Item>
         <Form.Item name="owner_name" label="系统负责人">

@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """定级备案 CRUD。
 
-备案是对外备案测评的少数主体, 属共享台账数据: 登录即可读, 写操作按
-向导白名单角色(developer/security)控制, 不做 owner 过滤——开发在建项目
-时就地新建备案后, 其他账号也要能选到它。
+备案是对外备案测评的少数主体, 定级事实由安全侧权威维护(#192):
+登录即可读(开发侧选择挂靠备案必须能看到清单), 写操作仅安全角色。
 """
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -19,7 +18,7 @@ from services.system_service import (
 
 router = APIRouter(prefix="/api/filings", tags=["filings"])
 
-_writable = Depends(require_write_roles("developer", "security"))
+_writable = Depends(require_write_roles("security"))
 
 
 def _detail(filing: Filing, system_count: int = 0, latest_round: dict | None = None) -> FilingDetail:
@@ -37,7 +36,7 @@ def list_all(db: Session = Depends(get_db), user: PlatformUser = Depends(require
 
 @router.post("", response_model=FilingDetail, status_code=201, dependencies=[_writable])
 def create(payload: FilingCreate, request: Request, db: Session = Depends(get_db),
-           user: PlatformUser = Depends(require_write_roles("developer", "security"))):
+           user: PlatformUser = Depends(require_write_roles("security"))):
     try:
         filing = create_filing(db, payload.model_dump())
     except NameConflictError as exc:
@@ -51,7 +50,7 @@ def create(payload: FilingCreate, request: Request, db: Session = Depends(get_db
 @router.patch("/{filing_id}", response_model=FilingDetail, dependencies=[_writable])
 def patch(payload: FilingUpdate, filing_id: int, request: Request,
           db: Session = Depends(get_db),
-          user: PlatformUser = Depends(require_write_roles("developer", "security"))):
+          user: PlatformUser = Depends(require_write_roles("security"))):
     filing = db.get(Filing, filing_id)
     if filing is None:
         raise HTTPException(status_code=404, detail=f"备案不存在: id={filing_id}")
@@ -67,7 +66,7 @@ def patch(payload: FilingUpdate, filing_id: int, request: Request,
 
 @router.delete("/{filing_id}", status_code=204, dependencies=[_writable])
 def remove(filing_id: int, request: Request, db: Session = Depends(get_db),
-           user: PlatformUser = Depends(require_write_roles("developer", "security"))):
+           user: PlatformUser = Depends(require_write_roles("security"))):
     filing = db.get(Filing, filing_id)
     if filing is None:
         raise HTTPException(status_code=404, detail=f"备案不存在: id={filing_id}")
