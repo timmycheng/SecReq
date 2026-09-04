@@ -29,10 +29,16 @@ export default function SystemDetailPage({ systemId }: { systemId: number }) {
   const startNewRound = async () => {
     setCreating(true)
     try {
+      const rounds = system.rounds ?? []
       const detail = await api.createProject({
-        name: `${system.name} 评估`, system_id: system.id,
+        name: `${system.name} 评估`,
+        system_id: system.id,
+        // 评估继承: 有历史轮次时整卷复制(含定级问卷), 只改变化部分(#151)
+        from_project_id: rounds.length ? rounds[0].project_id : undefined,
       })
-      message.success('已创建新一轮评估, 请在向导第一步核对信息')
+      message.success(rounds.length
+        ? '已按上一轮评估创建新一轮, 请在向导中核对并修改变化部分'
+        : '已创建新一轮评估, 请在向导第一步核对信息')
       navigate(`/wizard/${detail.id}`)
     } catch (e) {
       message.error((e as Error).message)

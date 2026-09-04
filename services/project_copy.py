@@ -1,0 +1,109 @@
+# -*- coding: utf-8 -*-
+"""评估轮次继承: 从上一轮项目整卷复制向导输入数据。
+
+复制原则:
+- 实体 uid 原样保留 —— 同一系统同一实体, 轮次间按 (template_id, source_entity_uid)
+  对齐做增量对比正依赖这一点(与 UidContinuityGuard 的设计哲学一致);
+- 主键/外键全部重排: 权限条目重挂新角色/资源, 资产关联以 uid 为准,
+  旧主键引用(sensitive_asset_ids)置空防悬挂;
+- 组件漏洞记录不复制, 生成流水线会按组件重新查询。
+"""
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.orm import Session
+
+from models import (
+    ApiEndpoint, DataAsset, ExternalSystem,
+    Feature, InfraAsset, InfraLayout, InfraLink, NetworkZone,
+    PermissionEntry, Project, Resource, Role, SbomComponent,
+)
+
+
+def _clone(instance, **overrides):
+    """按列名复制一行(跳过 id/project_id), 支持 id 重映射覆盖。"""
+    exclude = {"id", "project_id"}
+    cols = {c.name for c in sa_inspect(type(instance)).columns} - exclude
+    kwargs = {name: getattr(instance, name) for name in cols}
+    kwargs.update(overrides)
+    return type(instance)(**kwargs)
+
+
+def copy_wizard_data(db: Session, source: Project, target: Project) -> None:
+    """把 source 的全部向导步骤数据复制到 target(双方须已落库)。"""
+    src, dst = source.id, target.id
+
+    if source.survey:
+        db.add(_clone(source.survey, project_id=dst))
+
+    for row in db.query(Feature).filter_by(project_id=src).all():
+        db.add(_clone(row, project_id=dst))
+
+    # 数据字典三级: 资产 → 表 → 字段
+    asset_id_map: dict[int, int] = {}
+    for asset in db.query(DataAsset).filter_by(project_id=src).all():
+        tables = asset.tables or []
+        db.flush()
+        new_asset = _clone(asset, project_id=dst)
+        db.add(new_asset)
+        db.flush()
+        asset_id_map[asset.id] = new_asset.id
+        for table in tables:
+            fields = table.fields or []
+            new_table = _clone(table, asset_id=new_asset.id)
+            db.add(new_table)
+            db.flush()
+            for field in fields:
+                db.add(_clone(field, table_id=new_table.id))
+
+    # 权限矩阵: 角色/资源重挂新主键
+    role_id_map: dict[int, int] = {}
+    for role in db.query(Role).filter_by(project_id=src).all():
+        db.add(role_clone := _clone(role, project_id=dst))
+        db.flush()
+        role_id_map[role.id] = role_clone.id
+    resource_id_map: dict[int, int] = {}
+    for res in db.query(Resource).filter_by(project_id=src).all():
+        db.add(res_clone := _clone(res, project_id=dst))
+        db.flush()
+        resource_id_map[res.id] = res_clone.id
+    entries = (
+        db.query(PermissionEntry)
+        .join(Role, PermissionEntry.role_id == Role.id)
+        .filter(Role.project_id == src)
+        .all()
+    )
+    for entry in entries:
+        db.add(_clone(
+            entry,
+            role_id=role_id_map[entry.role_id],
+            resource_id=resource_id_map[entry.resource_id],
+        ))
+
+    if source.auth_config:
+        db.add(_clone(source.auth_config, project_id=dst))
+
+    # 拓扑: 区域先建(资产 zone_id 需要重映射), 布局与连线按 uid 引用可原样复制
+    zone_id_map: dict[int, int] = {}
+    for zone in db.query(NetworkZone).filter_by(project_id=src).all():
+        db.add(zone_clone := _clone(zone, project_id=dst))
+        db.flush()
+        zone_id_map[zone.id] = zone_clone.id
+    for asset in db.query(InfraAsset).filter_by(project_id=src).all():
+        db.add(_clone(
+            asset, project_id=dst,
+            zone_id=zone_id_map.get(asset.zone_id) if asset.zone_id else None,
+        ))
+    for link in db.query(InfraLink).filter_by(project_id=src).all():
+        db.add(_clone(link, project_id=dst))
+    for layout in db.query(InfraLayout).filter_by(project_id=src).all():
+        db.add(_clone(layout, project_id=dst))
+
+    # 组件(不含漏洞记录)与接口(旧资产主键引用置空, 以 uids 为准)
+    for comp in db.query(SbomComponent).filter_by(project_id=src).all():
+        db.add(_clone(comp, project_id=dst))
+    for ep in db.query(ApiEndpoint).filter_by(project_id=src).all():
+        db.add(_clone(ep, project_id=dst, sensitive_asset_ids=[]))
+
+    for ext in db.query(ExternalSystem).filter_by(project_id=src).all():
+        db.add(_clone(ext, project_id=dst))
+
+    db.commit()

@@ -44,7 +44,8 @@ def create_project(session: Session, data: dict, owner_user_id: int | None = Non
     code = (data.get("code") or "").strip() or generate_project_code(session)
     if session.query(Project).filter_by(code=code).first():
         raise ProjectExistsError(f"项目编码已存在: {code}")
-    data = {k: v for k, v in data.items() if k != "code"} | {"code": code}
+    # from_project_id 是创建参数(评估继承, 复制在 routers 层做), 不是 Project 列
+    data = {k: v for k, v in data.items() if k not in ("code", "from_project_id")} | {"code": code}
     project = Project(**data, owner_user_id=owner_user_id)
     session.add(project)
     session.commit()

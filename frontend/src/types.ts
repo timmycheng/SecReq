@@ -18,6 +18,8 @@ export interface ProjectInfo {
   compliance_targets: string[]
   status: string
   created_at?: string | null
+  /** 评估继承: 创建时复制该项目全部向导数据(仅创建请求使用) */
+  from_project_id?: number | null
 }
 
 export interface ProjectDetail extends ProjectInfo {
@@ -66,6 +68,32 @@ export interface SystemRow {
   current_baseline_project_id?: number | null
   rounds?: RoundSummary[]
   latest_round?: RoundSummary | null
+}
+
+/* 两轮需求增量对比(GET /requirements/diff) */
+export interface DiffRow {
+  req_id: string
+  title: string
+  priority: string
+  category: string
+  source_label?: string | null
+  status: string
+  suggested_phase: string
+}
+
+export interface RequirementDiff {
+  comparable: boolean
+  message?: string
+  previous_project?: {
+    project_id: number
+    project_name: string
+    project_code: string
+    created_at?: string | null
+  }
+  added?: DiffRow[]
+  removed?: DiffRow[]
+  changed?: { fields: string[]; previous: DiffRow; current: DiffRow }[]
+  summary?: { current_total: number; previous_total: number; added: number; removed: number; changed: number }
 }
 
 export interface SurveyAnswer {

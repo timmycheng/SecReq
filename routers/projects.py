@@ -62,12 +62,27 @@ def _detail(db: Session, project: Project) -> ProjectDetail:
 def create(payload: ProjectCreate, request: Request, db: Session = Depends(get_db),
            user: PlatformUser = Depends(require_write_roles("developer", "security"))):
     _resolve_system(db, user, payload.system_id)
+    source: Project | None = None
+    if payload.from_project_id:
+        source = db.get(Project, payload.from_project_id)
+        if source is None:
+            raise HTTPException(status_code=404, detail=f"来源项目不存在: id={payload.from_project_id}")
+        from routers.common import ensure_project_access
+        ensure_project_access(user, source)
+        _resolve_system(db, user, source.system_id)
+    data = payload.model_dump()
+    if source is not None and "system_id" not in payload.model_dump(exclude_unset=True):
+        data["system_id"] = source.system_id  # 评估继承: 未显式指定时沿用来源项目的系统
     try:
-        project = create_project(db, payload.model_dump(), owner_user_id=user.id)
+        project = create_project(db, data, owner_user_id=user.id)
     except ProjectExistsError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if source is not None:
+        from services.project_copy import copy_wizard_data
+        copy_wizard_data(db, source, project)
     audit(db, user.username, "project_create",
-          {"project_id": project.id, "code": project.code, "name": project.name},
+          {"project_id": project.id, "code": project.code, "name": project.name,
+           **({"copied_from": source.id} if source else {})},
           client_ip(request))
     return _detail(db, project)
 

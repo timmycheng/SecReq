@@ -5,7 +5,7 @@ import type {
   ApiEndpointRow, AuthConfigRow, ComponentRow, DataAssetRow,
   ExternalSystemRow, FeatureRow, FilingRow, GenerateSummary, GradingQuestion,
   InfraAssetRow, LabelMap, LoginInfo, MatrixEntryIn,
-  PreviewResult, ProjectDetail, ProjectInfo, RequirementRow, RoleRow,
+  PreviewResult, ProjectDetail, ProjectInfo, RequirementDiff, RequirementRow, RoleRow,
   ResourceRow, SurveyAnswer, SystemRow, VulnerabilityRow, VulnDbStatus, VulnDbVerifyResult,
   WizardState,
 } from './types'
@@ -248,6 +248,9 @@ export const api = {
     }),
 
   listRequirements: (id: number) => request<RequirementRow[]>(`/api/projects/${id}/requirements`),
+  requirementsDiff: (id: number, against?: number) =>
+    request<RequirementDiff>(
+      `/api/projects/${id}/requirements/diff${against ? `?against=${against}` : ''}`),
   listVulnerabilities: (id: number) => request<VulnerabilityRow[]>(`/api/projects/${id}/vulnerabilities`),
   confirmRegulatory: (id: number, reqId: string) =>
     request<RequirementRow>(`/api/projects/${id}/requirements/${reqId}/confirm`, { method: 'POST' }),
