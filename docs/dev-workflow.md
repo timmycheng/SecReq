@@ -9,7 +9,7 @@
   → git pull 最新 main, 切分支 <type>/<issue号>-<slug>
   → 开发 + 本地自测(质量门禁三件事本地先跑绿)
   → 开 PR(自动套模板, 正文 Closes #N)
-  → CI 三个 job 全绿(后端测试 / 后端 Lint / 前端检查)
+  → CI 四个 job 全绿(后端测试 / 后端 Lint / E2E 主链路 / 前端检查)
   → 自审后 squash 合并, 删分支, issue 自动关闭
   → 版本批次全部关闭后, 按下文「版本与发版」清单发版
 ```
@@ -46,15 +46,16 @@
 ## PR 与 CI 门禁
 
 - PR 自动套模板: 改动说明 / 关联 issue / 自测记录 / 检查清单(CI、CHANGELOG、版本影响、部署文档), 逐项如实勾选。
-- `ci.yml` 在 PR 与 push main 时触发, 三个 job 必须全绿; 同分支新提交自动取消旧运行。
+- `ci.yml` 在 PR 与 push main 时触发, 四个 job 必须全绿; 同分支新提交自动取消旧运行。
 - CI 红了看日志修复, 不绕过门禁(分支保护也不允许绕过)。
 
-本地复现 CI 三件事:
+本地复现 CI(E2E 可本地跑, 其余三件事建议每次提交前必跑):
 
 ```bash
 uv run pytest tests -q         # 环境来自 uv sync(按 uv.lock 精确安装)
 uv run ruff check .            # 宽松口径见 ruff.toml
 cd frontend && npm run lint && npm run build   # build 内含 tsc 类型检查
+npm run e2e                    # E2E 主链路(首次先 npx playwright install chromium; webServer 自动拉起后端)
 ```
 
 ## 版本与发版

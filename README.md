@@ -11,25 +11,29 @@ JR/T 0197-2020 五级数据分级与监管合规基线映射。
 
 ## 功能特性
 
-- **8 步建项向导**:基本信息(含外部系统连接清单、定级问卷内联、定级后即时预览
-  密码策略与合规基线)→ 功能清单 → 权限矩阵 → 技术组件 → API 接口 → 基础设施
-  (服务器规格/网络设备)→ 认证与密码策略 → 确认生成;项目编码自动生成(`XM2026-001`)。
+- **8 步建项向导**:项目定级(基本信息/外部系统连接清单、定级问卷内联、定级后即时
+  预览密码策略与合规基线)→ 功能清单 → 数据字典 → 权限矩阵 → 组件许可 → API 接口
+  → 基础设施(服务器规格/网络设备/拓扑画布)→ 确认生成;项目编码自动生成(`XM2026-001`)。
 - **智能录入**:功能清单**粘贴需求段落自动生成**候选功能点(OpenAI 兼容大模型优先,
   未配置/失败降级关键词规则);数据字典**粘贴/上传自动解析分级**(字段名模式库推断
-  JR/T 五级 + PII 识别 + 脱敏建议,确认后入库)。
+  JR/T 五级 + PII 识别 + 脱敏建议,确认后入库);API 接口**批量导入**(粘贴文本/上传
+  xlsx,解析预览 → 确认两段式)。
 - **知识库规则引擎**:`rules/knowledge_base.yml` 61 条安全需求模板(全部含合规出处
-  `regulatory_ref`,不编造条款号),8 类触发器;权限矩阵内置免审批违规 / SoD 职责
-  分离冲突 / 特权账号三种扫描;监管报送类需求(等保备案、出境评估、PIA 等 8 条)
+  `regulatory_ref`,不编造条款号),11 类触发器;权限矩阵内置免审批违规 / SoD 职责
+  分离冲突 / 特权账号三种扫描;监管报送类需求(等保备案、出境评估、PIA 等 7 条)
   命中即置顶。
 - **组件漏洞联动**:SBOM(CycloneDX 1.5)构建 + OSV.dev 在线漏洞查询
   (24h 缓存、失败降级、修复版建议),组件风险自动生成整改需求。
 - **产物 Web 化**:需求清单平铺全文、来源中文化、统一确认动作 + 批量确认;
-  「复制到 Word」(HTML 剪贴板,粘贴即保留标题/表格/标红);保留 SBOM JSON 与
-  Jira Excel 跟踪表下载。
+  「下载 Word 文档」(.docx《安全需求说明书》全文)与「复制到 Word」(HTML 剪贴板,
+  粘贴即保留标题/表格/标红);保留 SBOM JSON 与 Jira Excel 跟踪表下载。
 - **系统管理(安全角色)**:知识库/定级题库可视化编辑(写回 YAML 自动备份+全量校验)、
-  密码策略基线按定级可配置、OpenAI 兼容大模型接入配置、用户管理、审计日志。
+  密码策略基线按定级可配置、OpenAI 兼容大模型接入配置(含测试连接)、漏洞库
+  (版本/生态覆盖/完整性校验)、系统设置(项目编号规则)、更新日志、用户管理、审计日志。
 - **认证与数据权限**:账密登录(pbkdf2 + Bearer 会话 12h + 登录失败锁定),全接口
   鉴权;**开发只能看到/操作自己创建的项目,安全全量可见**(越权一律 404)。
+- **系统台账与评估继承**:定级备案/系统实体台账页,项目可归属系统;新建项目可整卷
+  复制上一轮评估的向导数据,生成后对比两轮安全需求的增量。
 
 ## 快速开始
 
@@ -39,7 +43,7 @@ JR/T 0197-2020 五级数据分级与监管合规基线映射。
 docker run -d --name secreq -p 8000:8000 \
   -v secreq-data:/app/data -v secreq-output:/app/output \
   -e TZ=Asia/Shanghai \
-  ghcr.io/timmycheng/secreq:v2.1.3
+  ghcr.io/timmycheng/secreq:v2.5.1
 ```
 
 或使用仓库自带的 `docker-compose.yml`:
@@ -123,7 +127,7 @@ python scripts/build_cnnvd_map.py --source-dir ./cnnvd-xml
 | 账号 | 角色 | 权限 |
 | ---- | ---- | ---- |
 | dev_admin | 开发 | 新建项目(仅可见自己创建的)、填报向导、生成基线、确认需求 |
-| sec_admin | 安全 | 查看全部项目、系统管理(知识库/题库/策略/用户/审计/LLM) |
+| sec_admin | 安全 | 查看全部项目、系统管理(知识库/漏洞库/题库/策略/LLM/用户/审计/系统设置/更新日志) |
 
 初始密码通过环境变量 `SECREQ_SEED_PASSWORD` 指定, 未设置时每次启动随机生成并打印到服务日志
 (源码不含固定口令; 登录后可在右上角修改)。存量库旧角色自动迁移:
@@ -173,21 +177,23 @@ cd frontend && npm run build
 | `SECREQ_VULNDB_PATH` | `<SECREQ_DATA_DIR>/vulndb.sqlite` | 本地漏洞库路径;镜像内置基线库, 挂载外部库可覆盖 |
 | `SECREQ_CNNVD_PATH` | `<SECREQ_DATA_DIR>/cnnvd_map.sqlite` | CNNVD 编号映射库路径(可选, 缺失不影响漏洞匹配) |
 | `SECREQ_DATA_DIR` | `./data`(容器内 `/app/data`) | 主库 / 漏洞库 / CNNVD 映射库所在目录 |
+| `SECREQ_LOG_LEVEL` | `INFO` | 日志级别 |
+| `SECREQ_LLM_BASE_URL` / `SECREQ_LLM_API_KEY` / `SECREQ_LLM_MODEL` | 空 | 系统管理页未配置大模型接入时的环境变量兜底(OpenAI 兼容 /chat/completions);库内配置优先 |
 
 ## 目录结构
 
 ```
 SecReq/
-├─ main.py                # FastAPI 入口(启动时自动补列+迁移+种子用户+策略注入; 兼管前端构建托管)
+├─ main.py                # FastAPI 入口(启动时自动补列+存量迁移+uid迁移+种子用户+策略注入; 兼管前端构建托管)
 ├─ CHANGELOG.md           # 版本更新日志(各版本变更与历史实现说明存档)
 ├─ Dockerfile             # 容器镜像(多阶段: 前端构建 → FastAPI 单进程托管)
 ├─ docker-compose.yml     # 一键部署(挂载数据卷/产物卷)
 ├─ .github/workflows/release.yml  # 版本 tag 触发的 CI: 测试 → GHCR 镜像 → Release 附镜像包
 ├─ shared/constants.py    # 前后端共享枚举(JR/T 五级/平台角色/许可证风险库/常用组件目录, 经 /api/meta/constants 供数)
 ├─ models/                # SQLAlchemy 2.0 模型(project/feature/data_dictionary/permission/auth/sbom/
-│                         #   inventory/requirement/review(遗留表)/session/setting/audit)
+│                         #   inventory/requirement/review(平台用户/评审门禁/证据链)/system/session/setting/audit)
 ├─ schemas/               # Pydantic 请求/响应模型(API 契约层)
-├─ routers/               # projects/steps/generate/meta/auth/admin(common.py 含 Bearer 认证与数据权限依赖)
+├─ routers/               # projects/steps/generate/meta/auth/admin/systems/filings(common.py 含 Bearer 认证与数据权限依赖)
 ├─ rules/
 │  ├─ knowledge_base.yml  # 安全需求知识库(61条模板, 全部含 regulatory_ref, 支持 enabled 停用)
 │  ├─ grading_questions.yml # 定级问卷题库(分值/判定依据文案, 系统管理页可编辑)
@@ -201,28 +207,37 @@ SecReq/
 │  ├─ step_store.py       # 向导各步骤整卷保存(整体替换, 幂等)
 │  ├─ feature_extract.py  # 粘贴需求段落 → 候选功能点(LLM 优先, 关键词规则降级)
 │  ├─ dictionary_import.py# 数据字典粘贴/上传解析 + 字段自动分级(JR/T 五级/PII/脱敏建议)
-│  ├─ seed_data.py        # 种子数据「个人网银系统」(JR/T 五级 + C3 标签)
+│  ├─ api_import.py       # API 接口批量导入解析(粘贴文本/xlsx, 两段式的解析段)
+│  ├─ system_service.py   # 系统台账(定级备案/系统实体, 项目归属系统)
+│  ├─ project_copy.py     # 评估继承: 向导数据整卷复制
+│  ├─ requirement_diff.py # 两轮评估需求增量对比
+│  ├─ seed_data.py        # 种子数据「示例项目」(JR/T 五级 + C3 标签)
 │  ├─ sbom.py / sbom_import.py / osv.py   # SBOM 构建/导入/漏洞查询与规范化
 │  ├─ vuln_source.py      # 数据源协议与工厂(local/online/sca 链式降级)
 │  ├─ vulndb.py           # 本地离线漏洞库查询(内网默认数据源)
 │  ├─ vuln_match/         # 按生态的版本归一化(Bitnami/Alpine/Debian/RHEL/openEuler)
-│  └─ cnnvd.py            # CNNVD 编号映射(展示与导出补合规字段)
+│  ├─ cnnvd.py            # CNNVD 编号映射(展示与导出补合规字段)
 │  ├─ tracking_export.py  # openpyxl 需求跟踪表(含合规依据列)
+│  ├─ doc_export.py       # 《安全需求说明书》.docx 全文导出(python-docx)
 │  ├─ pipeline.py         # 全流程编排: 漏洞同步→规则引擎→SBOM JSON 落盘
 │  ├─ session_service.py  # Bearer 会话签发/校验/吊销 + 登录失败锁定
 │  ├─ auth_service.py     # 账密哈希(pbkdf2)/种子用户/存量角色迁移
 │  ├─ kb_admin.py         # 知识库/题库写回 YAML(自动备份+全量校验+失败回滚)
-│  ├─ settings_service.py # 系统级键值设置(LLM 接入/策略基线)
+│  ├─ changelog.py        # CHANGELOG 结构化解析(系统管理更新日志页)
+│  ├─ settings_service.py # 系统级键值设置(LLM 接入/策略基线/项目编号规则)
 │  ├─ audit_service.py    # 审计留痕(登录/生成/确认/管理变更)
-│  └─ classification_migration.py  # 存量库升级(补列+老4级迁移+角色/归属/类型迁移)
+│  ├─ classification_migration.py  # 存量库升级(补列+老4级迁移+角色/归属/类型迁移)
+│  └─ entity_uid_migration.py      # 实体 uid 迁移(回填+需求溯源重映射, 启动时自动执行)
 ├─ frontend/              # React 19 + TS + AntD(登录页 + dashboard 布局 + 8步向导 + 产物Web页 + 系统管理)
 ├─ scripts/
 │  ├─ run_seed_demo.py         # 一键验证: 建库 → 种子 → 漏洞同步 → 生成 → 打印清单
 │  ├─ migrate_classification.py # 老四级分级迁移脚本(交付物)
+│  ├─ migrate_entity_uid.py    # 实体 uid 迁移脚本(与启动时共用同一实现)
 │  ├─ build_vuln_db.py         # 构建本地离线漏洞库(联网区执行, 产物摆渡进内网)
-│  └─ build_cnnvd_map.py       # 构建 CNNVD 编号映射库
+│  ├─ build_cnnvd_map.py       # 构建 CNNVD 编号映射库
+│  └─ check_version.py         # 发版前校验 tag/main.py/pyproject.toml/CHANGELOG 四者一致
 ├─ output/<项目编码>/       # 每次生成的 SBOM JSON 落盘位置
-└─ tests/                 # pytest(189个用例: 认证与数据权限/智能录入/管理端/五级联动/报送触发等)
+└─ tests/                 # pytest(247个用例: 认证与数据权限/智能录入/管理端/五级联动/报送触发等)
 ```
 
 ## 版本与发布
