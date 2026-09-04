@@ -4,7 +4,7 @@
 关键回归点: 复制出的轮次在输入未变时重新生成, diff 应为空 ——
 这同时验证"复制保留实体 uid"与"需求按 (template_id, source_entity_uid) 对齐"。
 """
-from conftest import add_base_project
+from conftest import add_base_project, demo_features
 from models import (
     ApiEndpoint, DataAsset, Feature, InfraArchImage, PermissionEntry, Project,
     SecurityRequirement,
@@ -18,15 +18,6 @@ from services.requirement_diff import FIELD_LABELS, diff_requirements, find_prev
 from services.step_store import replace_features
 
 from datetime import datetime, timedelta
-
-
-def _features():
-    return [
-        FeatureIn(name="登录", module="用户中心", categories=["auth_login"]),
-        FeatureIn(name="转账", module="支付模块", categories=["payment"],
-                  sensitivity="confidential", involves_payment=True),
-        FeatureIn(name="账单查询", module="支付模块", categories=["search"]),
-    ]
 
 
 def _engine():
@@ -47,7 +38,7 @@ def _new_round(session, source: Project, name: str, hours_later: float) -> Proje
 def test_copy_preserves_uids_and_unchanged_inputs_diff_empty(session):
     """整卷复制后输入未变 → 重新生成需求应与上一轮完全对齐(diff 为空)。"""
     project = add_base_project(session)
-    replace_features(session, project.id, _features())
+    replace_features(session, project.id, demo_features())
     _engine().generate_and_save(RequirementContext.from_db(session, project.id), session)
     base_reqs = session.query(SecurityRequirement).filter_by(project_id=project.id).all()
     assert base_reqs, "前置条件: 首轮应生成需求"
@@ -70,7 +61,7 @@ def test_copy_preserves_uids_and_unchanged_inputs_diff_empty(session):
 def test_diff_detects_added_and_changed(session):
     """新增功能 → added; 同 uid 功能改名(描述渲染变化) → changed。"""
     project = add_base_project(session)
-    replace_features(session, project.id, _features())
+    replace_features(session, project.id, demo_features())
     _engine().generate_and_save(RequirementContext.from_db(session, project.id), session)
 
     nxt = _new_round(session, project, "R2", 1.0)
@@ -109,7 +100,7 @@ def test_diff_detects_added_and_changed(session):
 def test_diff_detects_removed(session):
     """删掉一个功能后重新生成 → 对应需求在上一轮存在、本轮移除。"""
     project = add_base_project(session)
-    replace_features(session, project.id, _features())
+    replace_features(session, project.id, demo_features())
     _engine().generate_and_save(RequirementContext.from_db(session, project.id), session)
 
     nxt = _new_round(session, project, "R2", 1.0)

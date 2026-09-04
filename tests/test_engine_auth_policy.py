@@ -1,15 +1,7 @@
 # -*- coding: utf-8 -*-
 """认证方式 + 密码/会话策略基线测试。"""
-import pytest
-
 from conftest import add_base_project, gen_for
 from models import AuthConfig, GradingSurvey
-from rules import RuleEngine
-
-
-@pytest.fixture()
-def engine():
-    return RuleEngine.load()
 
 
 def test_sms_otp_method_triggers_code_lifecycle_rule(session, engine):

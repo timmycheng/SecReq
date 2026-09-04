@@ -86,18 +86,11 @@ def test_change_password_requires_old_password(api, dev_b):
     assert ok.status_code == 200
     # 旧会话全部吊销
     assert client.get("/api/auth/me").status_code == 401
-    # 新密码可登录, 旧密码不可
+    # 新密码可登录, 旧密码不可(api 夹具每用例全新内存库, 无需恢复密码)
     assert TestClient(api.app).post("/api/auth/login", json={
         "username": "dev_b", "password": SEED_DEFAULT_PASSWORD}).status_code == 401
-    restore_client = TestClient(api.app)
-    login_resp = restore_client.post("/api/auth/login", json={
-        "username": "dev_b", "password": rotated})
-    assert login_resp.status_code == 200
-    restore = TestClient(restore_client.app, headers={
-        "Authorization": f"Bearer {login_resp.json()['token']}"})
-    # 恢复默认密码, 避免影响其他用例
-    assert restore.post("/api/auth/change-password", json={
-        "old_password": rotated, "new_password": SEED_DEFAULT_PASSWORD}).status_code == 200
+    assert TestClient(api.app).post("/api/auth/login", json={
+        "username": "dev_b", "password": rotated}).status_code == 200
 
 
 def _create_project(client: TestClient, name: str, code: str | None = None):

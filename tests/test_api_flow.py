@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """API 全流程测试: 向导各步骤保存 → 干跑预览 → 全量生成 → 文档/Excel/SBOM 下载。"""
 import json
-import shutil
-from pathlib import Path
+
+from conftest import cleanup_output
 
 CYCLONE_MIN = {
     "bomFormat": "CycloneDX", "specVersion": "1.5",
@@ -17,11 +17,6 @@ SURVEY_ANSWERS = [
     {"question_id": qid, "option_id": oid}
     for qid, oid in [("Q1", "C"), ("Q2", "C"), ("Q3", "C"), ("Q4", "D"), ("Q5", "B")]
 ]
-
-
-def _cleanup_output(code):
-    out_dir = Path(__file__).resolve().parent.parent / "output" / code
-    shutil.rmtree(out_dir, ignore_errors=True)
 
 
 def test_meta_constants_and_questions(api):
@@ -45,7 +40,7 @@ def test_duplicate_project_code_conflict(api):
 
 def test_full_wizard_flow_and_generate_offline(api):
     code = "PRJ-E2E-T1"
-    _cleanup_output(code)
+    cleanup_output(code)
     try:
         # ── Step1 创建 ──
         resp = api.post("/api/projects", json={
@@ -194,11 +189,16 @@ def test_full_wizard_flow_and_generate_offline(api):
         by_name_ver = {(c["name"], c["version"]) for c in components}
         assert ("minio-py", "7.1.2") in by_name_ver
 
-        # 坏格式文件被拒
+        # 坏格式文件被拒: 扩展名不符 → 400(routers/steps.py 文件名白名单)
         resp = api.post(
             f"/api/projects/{pid}/components/import-sbom",
             files={"file": ("bom.txt", b"garbage", "text/plain")})
-        assert resp.status_code == 400 or resp.status_code == 422
+        assert resp.status_code == 400
+        # 扩展名合法但内容不可解析 → SbomParseError 同样收敛为 400
+        resp = api.post(
+            f"/api/projects/{pid}/components/import-sbom",
+            files={"file": ("bom.json", b"garbage", "application/json")})
+        assert resp.status_code == 400
 
         # ── Step8 接口清单与资产清单 ──
         endpoints = [
@@ -318,7 +318,7 @@ def test_full_wizard_flow_and_generate_offline(api):
         assert api.delete(f"/api/projects/{pid}").status_code == 204
         assert api.get(f"/api/projects/{pid}").status_code == 404
     finally:
-        _cleanup_output(code)
+        cleanup_output(code)
 
 
 def test_missing_project_returns_404(api):

@@ -1,15 +1,7 @@
 # -*- coding: utf-8 -*-
 """权限矩阵三种扫描算法测试。"""
-import pytest
-
 from conftest import add_base_project, gen_for
 from models import PermissionEntry, Resource, Role
-from rules import RuleEngine
-
-
-@pytest.fixture()
-def engine():
-    return RuleEngine.load()
 
 
 def _build(session, project, role_specs, resource_specs, entries):

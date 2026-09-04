@@ -290,9 +290,9 @@ def test_vuln_db_verify_detects_corruption(sec, monkeypatch, vulndb_file):
     assert pathlib.Path(vulndb_file).is_file()
 
 
-@pytest.fixture()
-def vulndb_file(tmp_path):
-    """产出一个四生态小库供漏洞库页测试使用。"""
+@pytest.fixture(scope="module")
+def _vulndb_built(tmp_path_factory):
+    """四生态小库整个模块只构建一次(build ~0.35s, 5 个用例共享产物)。"""
     import json
     import zipfile
 
@@ -322,14 +322,23 @@ def vulndb_file(tmp_path):
 
     zips = []
     for eco, vuln in (("Bitnami", sample), ("Alpine", alp), ("npm", npm), ("Maven", mvn)):
-        path = tmp_path / f"{eco}.zip"
+        path = tmp_path_factory.mktemp("admin-vulndb-zips") / f"{eco}.zip"
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr(f"{vuln['id']}.json", json.dumps(vuln))
         zips.append((eco, path))
 
-    out = tmp_path / "vulndb.sqlite"
+    out = tmp_path_factory.mktemp("admin-vulndb") / "vulndb.sqlite"
     build(zips, out, slim=False, compress=True)
-    return str(out)
+    return out
+
+
+@pytest.fixture()
+def vulndb_file(tmp_path, _vulndb_built):
+    """每用例一份独立副本: verify 用例会在同目录写/删 .sha256 副件,
+    私有目录互不干扰(不能像 test_vulndb 那样模块级共享单文件)。"""
+    dst = tmp_path / "vulndb.sqlite"
+    shutil.copy(_vulndb_built, dst)
+    return str(dst)
 
 
 def test_vuln_db_per_ecosystem_keys_normalized(sec, monkeypatch, vulndb_file):

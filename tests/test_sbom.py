@@ -118,18 +118,14 @@ def test_license_spdx_id_vs_free_text(session):
     assert licenses["c-free"] == {"name": "Apache License 2.0 商业发行协议"}
 
 
-def test_write_cyclonedx_file_keeps_utf8_chinese(session):
+def test_write_cyclonedx_file_keeps_utf8_chinese(session, tmp_path):
     project = add_base_project(session)
     bom = build_cyclonedx(project, [_add_component(session, project)])
 
-    path = write_cyclonedx_file(bom, "output_test/prj-t001_sbom.cdx.json")
+    path = write_cyclonedx_file(bom, tmp_path / "prj-t001_sbom.cdx.json")
     raw = path.read_text(encoding="utf-8")
     parsed = json.loads(raw)
     assert parsed == bom
-
-    import os
-    os.unlink(path)
-    os.rmdir(path.parent)
 
 
 def test_generate_project_sbom_reads_db_and_validates_project(session):

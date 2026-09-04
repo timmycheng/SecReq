@@ -4,12 +4,6 @@ import pytest
 
 from conftest import add_base_project, gen_for
 from models import ApiEndpoint, DataAsset, SbomComponent, VulnerabilityRecord
-from rules import RuleEngine
-
-
-@pytest.fixture()
-def engine():
-    return RuleEngine.load()
 
 
 # ── API 接口规则 ────────────────────────────────────────
