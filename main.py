@@ -63,6 +63,12 @@ async def lifespan(_: FastAPI):
         moved = assign_legacy_projects(db)
         if moved:
             logger.info("%d 个存量项目已归入默认开发账号", moved)
+        # 复制项目组件的漏洞缓存自愈(#169): 带缓存状态却无漏洞记录的组件清缓存,
+        # 使其下次生成强制重查(修复已复制出来的受影响项目)
+        from services.project_copy import repair_stale_component_cache
+        repaired = repair_stale_component_cache(db)
+        if repaired:
+            logger.info("已修复 %d 个组件的过期漏洞查询缓存(评估继承 #169 自愈)", repaired)
         from routers.admin import _apply_policy_settings
         _apply_policy_settings(db)
     finally:
