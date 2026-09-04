@@ -1,5 +1,5 @@
-/* 产物页(Web 形式展示, 走查整改): 安全需求清单平铺(描述全文/来源中文/批量确认)、
-   漏洞清单、组件与许可证、定级与策略说明; 每个视图可「复制到 Word」(HTML 剪贴板, 粘贴即排版)。 */
+/* 产物页(Web 形式展示, 走查整改): 执行摘要作第一页 Tab, 随后安全需求清单平铺(描述全文/来源中文/批量确认)、
+   漏洞清单、组件与许可证; 每个视图可「复制到 Word」(HTML 剪贴板, 粘贴即排版)。 */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Key, ReactNode } from 'react'
 import {
@@ -57,7 +57,7 @@ interface VulnGroup {
 }
 
 
-type GradingBaseline = Awaited<ReturnType<typeof api.getGradingBaseline>>
+type PwdDefaults = NonNullable<Awaited<ReturnType<typeof api.getGradingBaseline>>['pwd_defaults']>
 
 export default function ResultPage({ projectId }: { projectId: number }) {
   const enums = useEnums()
@@ -81,8 +81,10 @@ export default function ResultPage({ projectId }: { projectId: number }) {
   const [priorityFilter, setPriorityFilter] = useState<string | undefined>()
   const [selectedKeys, setSelectedKeys] = useState<Key[]>([])
   const [confirming, setConfirming] = useState(false)
-  // 执行摘要(#156): 明细 Tabs 受控, 支持从摘要点击带筛选跳转
-  const [tab, setTab] = useState('reqs')
+  // 执行摘要(#156/#171)并入 Tabs 作第一页, 摘要与明细同屏相邻; 点击摘要条目切 Tab 并带筛选, 反馈在视口内可见
+  const [tab, setTab] = useState('summary')
+  // 「定级与策略」Tab 撤销(#171)后, 有效定级与密码与会话基线并入执行摘要
+  const [pwdBaseline, setPwdBaseline] = useState<PwdDefaults | null>(null)
   // 两轮增量对比(评估继承): 有上一轮已生成评估时展示"新增/移除/变更"摘要条
   const [diff, setDiff] = useState<RequirementDiff | null>(null)
   const [diffOpen, setDiffOpen] = useState(false)
@@ -105,6 +107,11 @@ export default function ResultPage({ projectId }: { projectId: number }) {
     api.requirementsDiff(projectId).then(setDiff).catch(() => setDiff(null))
   }, [projectId])
   useEffect(() => { reload() }, [reload])
+  useEffect(() => {
+    api.getGradingBaseline(projectId)
+      .then((b) => setPwdBaseline(b.pwd_defaults ?? null))
+      .catch(() => setPwdBaseline(null))
+  }, [projectId])
 
   /** 本轮命中的需求(未命中仅留档追溯, 不在清单与汇总中展现)。 */
   const hitAll = useMemo(() => (requirements ?? []).filter((r) => r.status !== 'obsolete'),
@@ -213,19 +220,6 @@ export default function ResultPage({ projectId }: { projectId: number }) {
             </div>
           </Space>
         </Card>
-      )}
-
-      {/* 执行摘要(#156): 结论先行 —— 先看结论与 Top 风险, 明细在下方 Tabs */}
-      {hitAll.length > 0 && (
-        <ExecutiveSummaryCard
-          hitAll={hitAll}
-          vulns={vulns ?? []}
-          complianceTargets={project.compliance_targets ?? []}
-          categoryLabels={categoryLabels}
-          onPickReq={(r) => { setPriorityFilter(r.priority); setTab('reqs') }}
-          onPickVuln={() => setTab('vulns')}
-          onPickCategory={(code) => { setCategoryFilter(code); setTab('reqs') }}
-        />
       )}
 
       {/* 与上一轮对比摘要条(评估继承 #151): 有变化时提示, 点击看明细 */}
@@ -341,6 +335,26 @@ export default function ResultPage({ projectId }: { projectId: number }) {
         activeKey={tab}
         onChange={setTab}
         items={[
+          {
+            key: 'summary',
+            label: '执行摘要',
+            children: hitAll.length > 0 ? (
+              <ExecutiveSummaryCard
+                hitAll={hitAll}
+                vulns={vulns ?? []}
+                complianceTargets={project.compliance_targets ?? []}
+                complianceLabels={labelMapOf(enums, 'compliance_targets')}
+                categoryLabels={categoryLabels}
+                gradingLevel={project.grading_level}
+                pwdBaseline={pwdBaseline}
+                onPickReq={(r) => { setPriorityFilter(r.priority); setTab('reqs') }}
+                onPickVuln={() => setTab('vulns')}
+                onPickCategory={(code) => { setCategoryFilter(code); setTab('reqs') }}
+              />
+            ) : (
+              <Typography.Text type="secondary">尚未生成安全需求基线, 暂无摘要。</Typography.Text>
+            ),
+          },
           {
             key: 'reqs',
             label: `安全需求清单(${filtered.length})`,
@@ -577,11 +591,6 @@ export default function ResultPage({ projectId }: { projectId: number }) {
               </>
             ),
           },
-          {
-            key: 'grading',
-            label: '定级与策略',
-            children: <GradingView projectId={projectId} project={project} />,
-          },
         ]}
       />
 
@@ -697,13 +706,17 @@ const COMPLIANCE_FILE_KEYWORDS: Record<string, string> = {
 
 const PRIORITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
 
-/** 执行摘要(#156): 自动结论 + Top 风险 + 合规覆盖 + 类目分布。
-    金字塔第一层——审阅者 30 秒内得到"能不能过、先看什么", 点击任意条目联动下方明细筛选。 */
-function ExecutiveSummaryCard({ hitAll, vulns, complianceTargets, categoryLabels, onPickReq, onPickVuln, onPickCategory }: {
+/** 执行摘要(#156): 自动结论 + Top 风险 + 合规覆盖 + 类目分布, 并入原「定级与策略」Tab 独有的
+    有效定级与密码与会话基线两行(#171)。金字塔第一层——审阅者 30 秒内得到"能不能过、先看什么",
+    点击任意条目切换到相邻明细 Tab 并联动筛选, 反馈在视口内可见。 */
+function ExecutiveSummaryCard({ hitAll, vulns, complianceTargets, complianceLabels, categoryLabels, gradingLevel, pwdBaseline, onPickReq, onPickVuln, onPickCategory }: {
   hitAll: RequirementRow[]
   vulns: VulnerabilityRow[]
   complianceTargets: string[]
+  complianceLabels: Record<string, string>
   categoryLabels: Record<string, string>
+  gradingLevel: string | null | undefined
+  pwdBaseline: PwdDefaults | null
   onPickReq: (r: RequirementRow) => void
   onPickVuln: () => void
   onPickCategory: (code: string) => void
@@ -760,11 +773,11 @@ function ExecutiveSummaryCard({ hitAll, vulns, complianceTargets, categoryLabels
     const count = keyword
       ? hitAll.filter((r) => (r.regulatory_ref ?? []).some((f) => (f.file ?? '').includes(keyword))).length
       : 0
-    return { code, label: categoryLabels[code] ?? code, count }
+    return { code, label: complianceLabels[code] ?? code, count }
   })
 
   return (
-    <Card size="small" title="执行摘要" style={{ marginBottom: 16 }}>
+    <Card size="small">
       <Alert
         type={conclusion.type}
         showIcon
@@ -847,66 +860,26 @@ function ExecutiveSummaryCard({ hitAll, vulns, complianceTargets, categoryLabels
           </div>
         </div>
       </div>
+      {/* 原「定级与策略」Tab(#171)仅保留这两行独有信息, 与摘要自动结论强相关 */}
+      <Descriptions
+        size="small" column={1} style={{ marginTop: 12 }}
+        items={[
+          { key: 'level', label: '有效定级',
+            children: gradingLevel ? <Tag color="blue">等保{gradingLevel}</Tag> : '未定级' },
+          {
+            key: 'pwd', label: '密码与会话基线',
+            children: pwdBaseline
+              ? `最小长度 ${pwdBaseline.pwd_min_length} · 复杂度 ${pwdBaseline.pwd_complexity}/4 类 · 有效期 ${pwdBaseline.pwd_valid_days} 天 · ` +
+                `锁定阈值 ${pwdBaseline.lockout_threshold} 次 · 会话超时 ${pwdBaseline.session_timeout_min} 分钟`
+              : '—',
+          },
+        ]}
+      />
       {openReqs > 0 && (
         <Typography.Text type="secondary" style={{ display: 'block', marginTop: 12, fontSize: 12 }}>
           其中 {openReqs} 条尚未闭环(状态为待落实); 闭环进度见需求跟踪表。
         </Typography.Text>
       )}
     </Card>
-  )
-}
-
-/** 定级与策略说明视图(原定级建议书核心信息的 Web 形态)。 */
-function GradingView({ projectId, project }: {
-  projectId: number
-  project: ProjectDetail
-}) {
-  const [baseline, setBaseline] = useState<GradingBaseline | null>(null)
-  const enums = useEnums()
-
-  useEffect(() => {
-    api.getGradingBaseline(projectId).then(setBaseline).catch(() => undefined)
-  }, [projectId])
-
-  if (!baseline) return <Spin style={{ display: 'block', margin: '40px auto' }} />
-  const pwd = baseline.pwd_defaults
-
-  return (
-    <div style={{ maxWidth: 900 }}>
-      <Descriptions
-        bordered size="small" column={1}
-        items={[
-          { key: 'level', label: '有效定级',
-            children: project.grading_level ? <Tag color="blue">等保{project.grading_level}</Tag> : '未定级' },
-          {
-            key: 'policy', label: '密码与会话基线',
-            children: pwd
-              ? `最小长度 ${pwd.pwd_min_length} · 复杂度 ${pwd.pwd_complexity}/4 类 · 有效期 ${pwd.pwd_valid_days} 天 · ` +
-                `锁定阈值 ${pwd.lockout_threshold} 次 · 会话超时 ${pwd.session_timeout_min} 分钟`
-              : '—',
-          },
-          { key: 'methods', label: '认证方式', children: '按第 1 步登记(默认账密登录), 可回向导修改' },
-          {
-            key: 'targets', label: '合规目标',
-            children: (project.compliance_targets ?? []).map((c) => labelMapOf(enums, 'compliance_targets')[c] ?? c).join('、') || '—',
-          },
-          { key: 'count', label: '基线要求数', children: `${baseline.requirements.length} 条(合规/报送/策略类)` },
-        ]}
-      />
-      <Typography.Title level={5} style={{ margin: '20px 0 8px' }}>
-        定级与合规目标触发的基线要求(生成时将包含)
-      </Typography.Title>
-      <Space direction="vertical" size={6} style={{ width: '100%' }}>
-        {baseline.requirements.map((r) => (
-          <Card size="small" key={r.req_id}>
-            <Space size={8} wrap>
-              <Tag>{r.category}</Tag>
-              <b>{r.title}</b>
-            </Space>
-            <div style={{ color: '#555', marginTop: 4, whiteSpace: 'pre-wrap' }}>{r.description}</div>
-          </Card>
-        ))}
-      </Space>
-    </div>
   )
 }

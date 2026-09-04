@@ -103,9 +103,10 @@ test('建项目 → 8步向导 → 生成 → 批量确认 → 导出', async ({
   await expect(page.locator('.ant-steps-item-active')).toContainText('确认生成', { timeout: 20_000 })
   await page.getByRole('button', { name: /生成安全基线/ }).click()
 
-  // 生成完成 → 跳转产物页, 需求数量 > 0
-  await expect(page.getByText(/已生成 \d+ 条安全需求/).or(page.getByText('批量确认')).first())
+  // 生成完成 → 跳转产物页(默认落「执行摘要」页签, #171); 等生成提示后切入需求清单页签
+  await expect(page.getByText(/已生成 \d+ 条安全需求/).first())
     .toBeVisible({ timeout: 60_000 })
+  await page.getByRole('tab', { name: /安全需求清单/ }).click()
   await expect(page.getByRole('button', { name: /确认全部 \d+ 条待确认需求/ })
     .or(page.getByRole('button', { name: '批量确认' })).first())
     .toBeVisible({ timeout: 30_000 })
