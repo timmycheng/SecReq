@@ -29,6 +29,7 @@ _NEW_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("offshore_vendor", "BOOLEAN DEFAULT 0"),
         ("owner_user_id", "INTEGER"),
         ("types", "JSON"),
+        ("system_id", "INTEGER"),
     ],
     "infra_assets": [
         ("zone_id", "INTEGER"),

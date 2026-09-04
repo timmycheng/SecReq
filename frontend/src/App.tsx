@@ -4,7 +4,8 @@ import {
   Avatar, ConfigProvider, App as AntdApp, Dropdown, Layout, Menu, Popover, Space, Tag,
 } from 'antd'
 import {
-  CloudServerOutlined, QuestionCircleOutlined, SettingOutlined, UnorderedListOutlined, UserOutlined,
+  ApartmentOutlined, CloudServerOutlined, QuestionCircleOutlined, SettingOutlined,
+  UnorderedListOutlined, UserOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 
@@ -16,6 +17,8 @@ import { requestLeave } from './ui/dirtyGuard'
 import ChangePasswordModal from './ui/ChangePasswordModal'
 import LoginPage from './ui/LoginPage'
 import ProjectListPage from './ui/ProjectListPage'
+import SystemsPage from './ui/SystemsPage'
+import SystemDetailPage from './ui/SystemDetailPage'
 import WizardPage from './ui/WizardPage'
 import ResultPage from './ui/ResultPage'
 import AdminPage from './ui/AdminPage'
@@ -85,7 +88,10 @@ function AppBody() {
     )
   }
 
-  const menuKey = route.name === 'admin' ? 'admin' : 'projects'
+  const menuKey
+    = route.name === 'admin' ? 'admin'
+      : route.name === 'systems' || route.name === 'systemDetail' ? 'systems'
+        : 'projects'
   const userMenu = {
     items: [
       { key: 'pwd', icon: <SettingOutlined />, label: '修改密码' },
@@ -115,10 +121,12 @@ function AppBody() {
             theme="dark" mode="inline" selectedKeys={[menuKey]}
             onClick={({ key }) => {
               if (key === 'projects') void requestLeave().then((ok) => ok && navigate('/'))
+              if (key === 'systems') void requestLeave().then((ok) => ok && navigate('/systems'))
               if (key === 'admin') navigate('/admin')
             }}
             items={[
               { key: 'projects', icon: <UnorderedListOutlined />, label: '项目管理' },
+              { key: 'systems', icon: <ApartmentOutlined />, label: '系统台账' },
               ...(user.role === 'security'
                 ? [{ key: 'admin', icon: <CloudServerOutlined />, label: '系统管理' }]
                 : []),
@@ -148,6 +156,8 @@ function AppBody() {
           </Layout.Header>
           <Layout.Content style={{ background: '#f5f6fa' }}>
             {route.name === 'list' && <ProjectListPage />}
+            {route.name === 'systems' && <SystemsPage />}
+            {route.name === 'systemDetail' && <SystemDetailPage key={route.systemId} systemId={route.systemId} />}
             {route.name === 'wizard' && <WizardPage key={route.projectId} projectId={route.projectId} />}
             {route.name === 'result' && <ResultPage key={route.projectId} projectId={route.projectId} />}
             {route.name === 'admin' && <AdminPage />}

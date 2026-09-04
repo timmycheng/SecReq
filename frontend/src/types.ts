@@ -6,6 +6,7 @@ export interface ProjectInfo {
   id: number
   name: string
   code: string
+  system_id?: number | null
   type: string
   types: string[]
   user_scale: string
@@ -23,6 +24,48 @@ export interface ProjectDetail extends ProjectInfo {
   has_survey: boolean
   grading_level?: string | null
   counts: Record<string, number>
+  system_name?: string | null
+  filing_name?: string | null
+  filing_level?: string | null
+  is_current_baseline?: boolean
+}
+
+/* ── 系统台账: 定级备案 / 被评估系统 / 评估轮次 ── */
+
+export interface RoundSummary {
+  project_id: number
+  project_name: string
+  project_code: string
+  status: string
+  created_at?: string | null
+  grading_level: string
+  requirements_total: number
+  requirements_open: number
+}
+
+export interface FilingRow {
+  id: number
+  name: string
+  code?: string | null
+  level: string
+  note?: string | null
+  created_at?: string | null
+  system_count?: number
+  latest_round?: RoundSummary | null
+}
+
+export interface SystemRow {
+  id: number
+  name: string
+  code?: string | null
+  filing_id?: number | null
+  owner_name?: string | null
+  created_at?: string | null
+  filing_name?: string | null
+  filing_level?: string | null
+  current_baseline_project_id?: number | null
+  rounds?: RoundSummary[]
+  latest_round?: RoundSummary | null
 }
 
 export interface SurveyAnswer {

@@ -3,10 +3,10 @@
    遇 401 广播 AUTH_EXPIRED_EVENT, 由 App 清除登录态并回到登录页。 */
 import type {
   ApiEndpointRow, AuthConfigRow, ComponentRow, DataAssetRow,
-  ExternalSystemRow, FeatureRow, GenerateSummary, GradingQuestion,
+  ExternalSystemRow, FeatureRow, FilingRow, GenerateSummary, GradingQuestion,
   InfraAssetRow, LabelMap, LoginInfo, MatrixEntryIn,
   PreviewResult, ProjectDetail, ProjectInfo, RequirementRow, RoleRow,
-  ResourceRow, SurveyAnswer, VulnerabilityRow, VulnDbStatus, VulnDbVerifyResult,
+  ResourceRow, SurveyAnswer, SystemRow, VulnerabilityRow, VulnDbStatus, VulnDbVerifyResult,
   WizardState,
 } from './types'
 
@@ -131,6 +131,22 @@ export const api = {
   deleteProject: (id: number) => request<void>(`/api/projects/${id}`, { method: 'DELETE' }),
 
   loadWizard: (id: number) => request<WizardState>(`/api/projects/${id}/wizard-state`),
+
+  /* ── 系统台账: 定级备案 / 被评估系统 ── */
+  listFilings: () => request<FilingRow[]>('/api/filings'),
+  createFiling: (data: Partial<FilingRow>) =>
+    request<FilingRow>('/api/filings', { method: 'POST', body: JSON.stringify(data) }),
+  updateFiling: (id: number, data: Partial<FilingRow>) =>
+    request<FilingRow>(`/api/filings/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteFiling: (id: number) => request<void>(`/api/filings/${id}`, { method: 'DELETE' }),
+  listSystems: () => request<SystemRow[]>('/api/systems'),
+  getSystem: (id: number) => request<SystemRow>(`/api/systems/${id}`),
+  createSystem: (data: Partial<SystemRow>) =>
+    request<SystemRow>('/api/systems', { method: 'POST', body: JSON.stringify(data) }),
+  updateSystem: (id: number, data: Partial<SystemRow>) =>
+    request<SystemRow>(`/api/systems/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteSystem: (id: number) => request<void>(`/api/systems/${id}`, { method: 'DELETE' }),
+  systemLedger: () => request<SystemRow[]>('/api/systems/ledger'),
 
   saveExternalSystems: (id: number, rows: ExternalSystemRow[]) =>
     request<ExternalSystemRow[]>(`/api/projects/${id}/external-systems`, {

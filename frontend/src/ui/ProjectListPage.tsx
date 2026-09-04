@@ -1,17 +1,19 @@
 /* 项目列表: 全部项目表格(按角色过滤), 新建直通向导第一步; 空状态带首次使用引导。 */
-import { useCallback, useEffect, useState } from 'react'
-import { Button, Card, Empty, Popconfirm, Space, Table, Tag, message, Typography
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Button, Card, Empty, Popconfirm, Select, Space, Table, Tag, message, Typography
 } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 
 import { api, getStoredUser } from '../api'
 import { labelOf, useEnums } from '../enums'
 import { navigate } from '../router'
-import type { ProjectDetail } from '../types'
+import type { ProjectDetail, SystemRow } from '../types'
 
 export default function ProjectListPage() {
   const enums = useEnums()
   const [projects, setProjects] = useState<ProjectDetail[]>([])
+  const [systems, setSystems] = useState<SystemRow[]>([])
+  const [systemFilter, setSystemFilter] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
   const isSecurity = getStoredUser()?.role === 'security'
@@ -22,8 +24,14 @@ export default function ProjectListPage() {
       .then(setProjects)
       .catch((e: Error) => message.error(e.message))
       .finally(() => setLoading(false))
+    api.listSystems().then(setSystems).catch(() => undefined)
   }, [])
   useEffect(reload, [reload])
+
+  const visibleProjects = useMemo(
+    () => (systemFilter ? projects.filter((p) => p.system_id === systemFilter) : projects),
+    [projects, systemFilter],
+  )
 
   /** 新建不再弹窗: 直接创建"未命名项目"并进入向导第一步补全信息。 */
   const handleCreate = async () => {
@@ -43,15 +51,26 @@ export default function ProjectListPage() {
       <Card
         title={isSecurity ? '项目列表(全部项目)' : '我的项目'}
         extra={(
-          <Button type="primary" icon={<PlusOutlined />} loading={creating} onClick={() => void handleCreate()}>
-            新建项目
-          </Button>
+          <Space>
+            <Select
+              allowClear showSearch
+              style={{ minWidth: 180 }}
+              placeholder="按所属系统筛选"
+              value={systemFilter ?? undefined}
+              optionFilterProp="label"
+              options={systems.map((s) => ({ value: s.id, label: s.name }))}
+              onChange={(v) => setSystemFilter(v ?? null)}
+            />
+            <Button type="primary" icon={<PlusOutlined />} loading={creating} onClick={() => void handleCreate()}>
+              新建项目
+            </Button>
+          </Space>
         )}
       >
         <Table<ProjectDetail>
           rowKey="id"
           loading={loading}
-          dataSource={projects}
+          dataSource={visibleProjects}
           pagination={{ pageSize: 15 }}
           locale={{
             emptyText: (
@@ -79,23 +98,33 @@ export default function ProjectListPage() {
           }}
           columns={[
             { title: '项目名称', dataIndex: 'name' },
-            { title: '项目编码', dataIndex: 'code', width: 160 },
+            { title: '项目编码', dataIndex: 'code', width: 150 },
             {
-              title: '类型', dataIndex: 'types', width: 180,
+              title: '所属系统', dataIndex: 'system_name', width: 150,
+              render: (v: string | null, record) => v
+                ? <a onClick={() => navigate(`/system/${record.system_id}`)}>{v}</a>
+                : <Typography.Text type="secondary">未归属</Typography.Text>,
+            },
+            {
+              title: '类型', dataIndex: 'types', width: 160,
               render: (types: string[]) => (types ?? []).map((t) => (
                 <Tag key={t}>{labelOf(enums, 'project_types', t)}</Tag>
               )),
             },
             {
-              title: '定级', dataIndex: 'grading_level', width: 100,
+              title: '定级', dataIndex: 'grading_level', width: 90,
               render: (v: string | null) => (v ? <Tag color="blue">{v}</Tag> : <Tag>未定级</Tag>),
             },
             {
-              title: '状态', dataIndex: 'status', width: 110,
-              render: (v: string) =>
-                v === 'generated'
-                  ? <Tag color="green">已生成基线</Tag>
-                  : v === 'draft' ? <Tag color="orange">草稿</Tag> : <Tag>{labelOf(enums, 'project_status', v)}</Tag>,
+              title: '状态', dataIndex: 'status', width: 150,
+              render: (v: string, record) => (
+                <Space size={4} wrap>
+                  {v === 'generated'
+                    ? <Tag color="green">已生成基线</Tag>
+                    : v === 'draft' ? <Tag color="orange">草稿</Tag> : <Tag>{labelOf(enums, 'project_status', v)}</Tag>}
+                  {record.is_current_baseline && <Tag color="cyan">当前基线</Tag>}
+                </Space>
+              ),
             },
             ...(isSecurity ? [{ title: '创建人', dataIndex: 'owner_name', width: 100 }] : []),
             { title: '安全需求', dataIndex: ['counts', 'requirements'], width: 90 },

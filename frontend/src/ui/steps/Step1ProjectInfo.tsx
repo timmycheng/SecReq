@@ -12,7 +12,8 @@ import { api } from '../../api'
 import type { GradingBaseline } from '../../api'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
 import type {
-  AuthConfigRow, ExternalSystemRow, GradingQuestion, ProjectInfo, SurveyAnswer,
+  AuthConfigRow, ExternalSystemRow, FilingRow, GradingQuestion, ProjectInfo,
+  SurveyAnswer, SystemRow,
 } from '../../types'
 import GlossaryTip from '../GlossaryTip'
 import { useRegisterStepHandle } from './stepContext'
@@ -50,12 +51,20 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
   const [cfg, setCfg] = useState<AuthConfigRow>(ws.auth_config ?? DEFAULT_CFG)
   const [baseline, setBaseline] = useState<GradingBaseline | null>(null)
 
+  // ── 所属系统(台账): 挂备案的系统继承备案定级 ──
+  const [systems, setSystems] = useState<SystemRow[]>([])
+  const [filings, setFilings] = useState<FilingRow[]>([])
+  const [sysCreating, setSysCreating] = useState(false)
+  const watchedSystemId = Form.useWatch('system_id', form)
+  const selectedSystem = systems.find((s) => s.id === watchedSystemId) ?? null
+
   const savedRef = useRef(JSON.stringify(snapshotOf(ws, cfg)))
 
   function snapshotOf(state: typeof ws, config: AuthConfigRow) {
     return {
       project: {
         name: state.project.name,
+        system_id: state.project.system_id ?? null,
         types: state.project.types ?? [],
         user_scale: state.project.user_scale,
         is_public: state.project.is_public,
@@ -74,6 +83,8 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
   useEffect(() => {
     api.gradingQuestions().then(setQuestions).catch(() => setQuestions([]))
     api.getGradingBaseline(ws.project.id).then(setBaseline).catch(() => undefined)
+    api.listSystems().then(setSystems).catch(() => undefined)
+    api.listFilings().then(setFilings).catch(() => undefined)
     if (ws.survey) {
       const map: Record<string, string> = {}
       for (const a of ws.survey.answers_json ?? []) map[a.question_id] = a.option_id
@@ -83,6 +94,16 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  /** 选择系统后: 若尚无任何定级, 用备案定级预填"直接指定等级"。 */
+  const onSystemChange = (systemId: number | undefined) => {
+    const target = systems.find((s) => s.id === systemId) ?? null
+    if (target?.filing_level && !finalLevel && !ws.survey?.effective_level
+      && Object.keys(answers).length === 0) {
+      setFinalLevel(target.filing_level)
+      message.info(`已按备案「${target.filing_name}」预填定级: 等保${target.filing_level}, 可调整`)
+    }
+  }
 
   const reloadBaseline = () => {
     api.getGradingBaseline(ws.project.id).then(setBaseline).catch(() => undefined)
@@ -146,6 +167,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
         initialValues={{
           name: ws.project.name,
           code: ws.project.code,
+          system_id: ws.project.system_id ?? undefined,
           types: ws.project.types ?? (ws.project.type ? [ws.project.type] : []),
           user_scale: ws.project.user_scale || undefined,
           is_public: ws.project.is_public,
@@ -175,6 +197,30 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
             </Form.Item>
           </Col>
         </Row>
+        <Form.Item
+          name="system_id"
+          label="所属系统(台账)"
+          tooltip="归属系统后, 同一系统多次评估在系统台账下形成时间线, 最新一轮即当前基线"
+          extra={(
+            <>找不到?&nbsp;
+              <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setSysCreating(true)}>
+                就地新建系统
+              </Button>
+              (登记系统并挂靠定级备案)
+            </>
+          )}
+        >
+          <Select
+            allowClear showSearch
+            placeholder="选择该评估所属的系统"
+            optionFilterProp="label"
+            options={systems.map((s) => ({
+              value: s.id,
+              label: s.filing_name ? `${s.name}(备案: ${s.filing_name})` : s.name,
+            }))}
+            onChange={onSystemChange}
+          />
+        </Form.Item>
         <Form.Item
           name="types" label="项目类型(可多选)" rules={[{ required: true, message: '请至少选择一种类型' }]}
           extra="一个系统可能同时包含多种形态, 如 App + 后台管理"
@@ -275,7 +321,17 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
         message={effectiveLevel
           ? `当前生效定级: 等保${effectiveLevel}${ws.survey?.suggested_level && ws.survey.final_level ? '(人工修正)' : ws.survey?.suggested_level ? '(系统建议)' : '(直接指定)'}`
           : '尚未定级: 回答下方问卷自动计算, 或直接指定等级'}
-        description={ws.survey?.suggested_reason || '定级决定密码策略、加密与审计要求的基线档位'}
+        description={(
+          <>
+            {ws.survey?.suggested_reason || '定级决定密码策略、加密与审计要求的基线档位'}
+            {selectedSystem?.filing_level && (
+              <div style={{ marginTop: 4 }}>
+                定级来源: 备案「{selectedSystem.filing_name}」(等保{selectedSystem.filing_level});
+                若评估后调整定级, 结果页会提示与备案不一致。
+              </div>
+            )}
+          </>
+        )}
       />
       <div style={{ marginTop: 12, padding: '12px 16px', border: '1px dashed #d9d9d9', borderRadius: 6 }}>
         <Space size={24} align="center" wrap>
@@ -400,7 +456,65 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
           }}
         />
       )}
+
+      {sysCreating && (
+        <SystemQuickCreateModal
+          filings={filings}
+          onClose={() => setSysCreating(false)}
+          onCreated={(created) => {
+            setSysCreating(false)
+            api.listSystems().then((rows) => {
+              setSystems(rows)
+              form.setFieldValue('system_id', created.id)
+              onSystemChange(created.id)
+            }).catch(() => undefined)
+          }}
+        />
+      )}
     </div>
+  )
+}
+
+/** 就地新建系统: 台账登记(名称/挂靠备案/负责人), 成功后自动选中。 */
+function SystemQuickCreateModal({ filings, onClose, onCreated }: {
+  filings: FilingRow[]
+  onClose: () => void
+  onCreated: (s: SystemRow) => void
+}) {
+  const [form] = Form.useForm<{ name: string; filing_id?: number; owner_name?: string }>()
+  return (
+    <Modal
+      title="就地新建系统" open onCancel={onClose}
+      onOk={() => form.validateFields()
+        .then(async (v) => {
+          try {
+            const created = await api.createSystem(v)
+            message.success('系统已登记')
+            onCreated(created)
+          } catch (e) {
+            message.error((e as Error).message)
+          }
+        })
+        .catch(() => { /* 校验失败留在弹窗 */ })}
+    >
+      <Form form={form} layout="vertical">
+        <Form.Item name="name" label="系统名称" rules={[{ required: true, message: '请输入系统名称' }]}>
+          <Input placeholder="如: 个人网银系统" />
+        </Form.Item>
+        <Form.Item
+          name="filing_id" label="挂靠定级备案"
+          extra="挂靠后系统继承备案定级; 暂无可选备案可先跳过"
+        >
+          <Select
+            allowClear placeholder="选择备案(选填)"
+            options={filings.map((f) => ({ value: f.id, label: `${f.name}(等保${f.level})` }))}
+          />
+        </Form.Item>
+        <Form.Item name="owner_name" label="系统负责人">
+          <Input placeholder="选填" />
+        </Form.Item>
+      </Form>
+    </Modal>
   )
 }
 

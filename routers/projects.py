@@ -7,7 +7,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from models import GradingSurvey, PlatformUser, Project  # noqa: F401 (类型标注用)
+from models import Filing, GradingSurvey, PlatformUser, Project, System  # noqa: F401 (类型标注用)
 from routers.common import (
     client_ip, get_db, get_project_or_404, require_login,
     require_write_roles, visible_projects_query, wizard_state,
@@ -17,10 +17,22 @@ from schemas.project import (
 )
 from services.audit_service import audit
 from services.project_service import ProjectExistsError, create_project, project_counts, update_project
+from services.system_service import current_baseline_id
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 _writable = Depends(require_write_roles("developer", "security"))
+
+
+def _resolve_system(db: Session, user: PlatformUser, system_id: int | None) -> None:
+    """归属校验: 系统须存在且在数据权限内(开发仅可关联本人系统)。"""
+    if system_id is None:
+        return
+    system = db.get(System, system_id)
+    if system is None or (
+        user.role != "security" and system.owner_user_id not in (None, user.id)
+    ):
+        raise HTTPException(status_code=400, detail=f"所属系统不存在或无权关联: id={system_id}")
 
 
 def _detail(db: Session, project: Project) -> ProjectDetail:
@@ -34,12 +46,22 @@ def _detail(db: Session, project: Project) -> ProjectDetail:
     if project.owner_user_id:
         owner = db.get(PlatformUser, project.owner_user_id)
         detail.owner_name = owner.display_name if owner else None
+    if project.system_id:
+        system = db.get(System, project.system_id)
+        if system:
+            detail.system_name = system.name
+            filing = db.get(Filing, system.filing_id) if system.filing_id else None
+            if filing:
+                detail.filing_name = filing.name
+                detail.filing_level = filing.level
+            detail.is_current_baseline = current_baseline_id(db, system.id) == project.id
     return detail
 
 
 @router.post("", response_model=ProjectDetail, status_code=201, dependencies=[_writable])
 def create(payload: ProjectCreate, request: Request, db: Session = Depends(get_db),
            user: PlatformUser = Depends(require_write_roles("developer", "security"))):
+    _resolve_system(db, user, payload.system_id)
     try:
         project = create_project(db, payload.model_dump(), owner_user_id=user.id)
     except ProjectExistsError as exc:
@@ -76,6 +98,8 @@ def patch(payload: ProjectUpdate, project: Project = Depends(get_project_or_404)
     changes = payload.model_dump(exclude_unset=True)
     if "code" in changes and changes["code"] != project.code:
         raise HTTPException(status_code=400, detail="项目编码不允许修改")
+    if "system_id" in changes:
+        _resolve_system(db, user, changes["system_id"])
     project = update_project(db, project, changes)
     return _detail(db, project)
 

@@ -6,6 +6,8 @@ __pycache__/
 
 # 开发库与演示产物
 secreq.db
+secreq.db-shm
+secreq.db-wal
 output/
 output_test/
 
