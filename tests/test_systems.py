@@ -161,13 +161,20 @@ def test_project_cannot_attach_foreign_system(api, sec):
     assert resp.status_code == 400
 
 
-def test_project_patch_detach_system(dev):
+def test_project_patch_system_required(dev):
+    """#195: 评估必须归属系统, PATCH 置空被拒绝; 未显式传则不改动归属。"""
     system = _create_system(dev)
     project = dev.post("/api/projects", json={
         "name": "P", "system_id": system["id"], "code": "PRJ-DETACH"}).json()
-    patched = dev.patch(f"/api/projects/{project['id']}", json={"system_id": None}).json()
-    assert patched["system_id"] is None
-    assert patched["system_name"] is None
+    resp = dev.patch(f"/api/projects/{project['id']}", json={"system_id": None})
+    assert resp.status_code == 400
+    assert dev.get(f"/api/projects/{project['id']}").json()["system_id"] == system["id"]
+
+
+def test_project_requires_system(dev):
+    """#195: 创建评估必须绑定已有系统, 缺失 422。"""
+    resp = dev.post("/api/projects", json={"name": "无系统项目"})
+    assert resp.status_code == 422
 
 
 def test_existing_projects_unaffected(session):

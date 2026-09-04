@@ -27,10 +27,8 @@ _writable = Depends(require_write_roles("developer", "security"))
 
 
 def _resolve_system(db: Session, user: PlatformUser, system_id: int | None) -> None:
-    """归属校验: 系统须存在且在数据权限内(开发仅可关联本人系统)。"""
-    if system_id is None:
-        return
-    system = db.get(System, system_id)
+    """归属校验(#195 必填): 系统须存在且在数据权限内(开发仅可关联本人系统)。"""
+    system = db.get(System, system_id) if system_id is not None else None
     if system is None or (
         user.role != "security" and system.owner_user_id not in (None, user.id)
     ):
@@ -73,8 +71,6 @@ def create(payload: ProjectCreate, request: Request, db: Session = Depends(get_d
         ensure_project_access(user, source)
         _resolve_system(db, user, source.system_id)
     data = payload.model_dump()
-    if source is not None and "system_id" not in payload.model_dump(exclude_unset=True):
-        data["system_id"] = source.system_id  # 评估继承: 未显式指定时沿用来源项目的系统
     try:
         project = create_project(db, data, owner_user_id=user.id)
     except ProjectExistsError as exc:
@@ -165,6 +161,9 @@ def patch(payload: ProjectUpdate, project: Project = Depends(get_project_or_404)
     if "code" in changes and changes["code"] != project.code:
         raise HTTPException(status_code=400, detail="评估编码不允许修改")
     if "system_id" in changes:
+        # #195: 评估必须归属系统, 允许更换但不允许置空
+        if changes["system_id"] is None:
+            raise HTTPException(status_code=400, detail="评估必须归属系统, 不允许解除绑定")
         _resolve_system(db, user, changes["system_id"])
     project = update_project(db, project, changes)
     return _detail(db, project)

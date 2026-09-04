@@ -33,7 +33,8 @@ def test_meta_constants_and_questions(api):
 
 
 def test_duplicate_project_code_conflict(api):
-    body = {"name": "A", "code": "PRJ-DUP", "type": "web", "user_scale": "under_1k"}
+    sid = create_system_api(api, "重码系统")["id"]
+    body = {"name": "A", "code": "PRJ-DUP", "system_id": sid}
     assert api.post("/api/projects", json=body).status_code == 201
     assert api.post("/api/projects", json=body).status_code == 409
 
@@ -327,9 +328,9 @@ def test_missing_project_returns_404(api):
 
 
 def test_survey_incomplete_rejected(api):
+    sid = create_system_api(api, "问卷校验系统")["id"]
     resp = api.post("/api/projects", json={
-        "name": "问卷校验项目", "code": "PRJ-SURV-T1", "type": "mobile_app",
-        "user_scale": "under_1k"})
+        "name": "问卷校验项目", "code": "PRJ-SURV-T1", "system_id": sid})
     pid = resp.json()["id"]
     resp = api.post(f"/api/projects/{pid}/survey", json={
         "answers": [{"question_id": "Q1", "option_id": "A"}]})

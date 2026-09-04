@@ -15,7 +15,9 @@ def _actions(api) -> list[str]:
 
 
 def _new_project(api) -> int:
-    resp = api.post("/api/projects", json={"name": "审计测试项目"})
+    from conftest import create_system_api
+    sid = create_system_api(api, "审计系统")["id"]
+    resp = api.post("/api/projects", json={"name": "审计测试项目", "system_id": sid})
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
 

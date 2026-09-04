@@ -94,7 +94,9 @@ def test_change_password_requires_old_password(api, dev_b):
 
 
 def _create_project(client: TestClient, name: str, code: str | None = None):
-    payload = {"name": name, "type": "web", "user_scale": "1k_to_100k"}
+    from conftest import create_system_api
+    sid = create_system_api(client, f"RBAC系统-{uuid.uuid4().hex[:8]}")["id"]
+    payload = {"name": name, "system_id": sid}
     if code:
         payload["code"] = code
     return client.post("/api/projects", json=payload)

@@ -120,8 +120,9 @@ def test_policy_baselines_effect_on_grading_baseline(sec, api):
     })
     assert resp.status_code == 200, resp.text
 
+    sid = create_system_api(api, f"基线系统-{uuid.uuid4().hex[:6]}")["id"]
     pid = api.post("/api/projects", json={
-        "name": "策略基线项目", "type": "web", "user_scale": "1k_to_100k"}).json()["id"]
+        "name": "策略基线项目", "system_id": sid}).json()["id"]
     api.post(f"/api/projects/{pid}/survey", json={"answers": [], "final_level": "三级"})
     baseline = api.get(f"/api/projects/{pid}/grading-baseline").json()
     assert baseline["pwd_defaults"]["pwd_min_length"] == "12"  # 覆盖值生效
@@ -435,7 +436,8 @@ def test_project_code_rule_roundtrip_and_generation(sec, api):
     assert resp.status_code == 200
     assert resp.json() == {"prefix": "PRJ", "include_year": False, "digits": 4}
 
-    resp = api.post("/api/projects", json={"name": "自定义编号项目"})
+    sid = create_system_api(api, f"编号系统A-{uuid.uuid4().hex[:6]}")["id"]
+    resp = api.post("/api/projects", json={"name": "自定义编号项目", "system_id": sid})
     assert resp.status_code == 201
     assert resp.json()["code"].startswith("PRJ-") and len(resp.json()["code"].split("-")[1]) == 4
 
@@ -452,7 +454,8 @@ def test_project_code_rule_fallback_defaults(sec, api):
     """未配置规则时回退历史格式 XM<年份>-<三位序号>(#85 回退路径)。"""
     import re
 
-    resp = api.post("/api/projects", json={"name": "默认格式项目"})
+    sid = create_system_api(api, f"编号系统B-{uuid.uuid4().hex[:6]}")["id"]
+    resp = api.post("/api/projects", json={"name": "默认格式项目", "system_id": sid})
     assert resp.status_code == 201
     code = resp.json()["code"]
     assert re.fullmatch(r"XM\d{4}-\d{3}", code), f"默认格式不符: {code}"
@@ -478,7 +481,8 @@ def test_api_import_parse_text_and_file(api, sec):
 
     from openpyxl import Workbook
 
-    pid = api.post("/api/projects", json={"name": "导入项目"}).json()["id"]
+    sid = create_system_api(api, f"导入系统-{uuid.uuid4().hex[:6]}")["id"]
+    pid = api.post("/api/projects", json={"name": "导入项目", "system_id": sid}).json()["id"]
 
     # 文本: 合法行 + 布尔容错 + 非法行
     text = "\n".join([
@@ -523,7 +527,8 @@ def test_api_import_parse_text_and_file(api, sec):
 
 
 def test_api_import_parse_requires_input(sec, api):
-    pid = api.post("/api/projects", json={"name": "空导入项目"}).json()["id"]
+    sid = create_system_api(api, f"空导入系统-{uuid.uuid4().hex[:6]}")["id"]
+    pid = api.post("/api/projects", json={"name": "空导入项目", "system_id": sid}).json()["id"]
     resp = sec.post(f"/api/projects/{pid}/api-endpoints/parse",
                     files={"text": (None, "   ")})
     assert resp.status_code == 400
@@ -537,10 +542,6 @@ def test_arch_image_roundtrip(api, sec):
     assert sec.get(f"/api/projects/{pid}/arch-images").json() == []
 
     png = "data:image/png;base64," + base64.b64encode(b"png-bytes").decode()
-    # 未归属系统的评估不允许写系统清单(#194)
-    loose = api.post("/api/projects", json={"name": "未归属项目"}).json()["id"]
-    assert api.put(f"/api/projects/{loose}/arch-images/prod",
-                   json={"image_data_url": png}).status_code == 409
     resp = sec.put(f"/api/projects/{pid}/arch-images/prod", json={"image_data_url": png})
     assert resp.status_code == 200, resp.text
     assert resp.json()["env"] == "prod"

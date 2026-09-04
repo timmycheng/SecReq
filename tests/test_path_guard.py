@@ -18,8 +18,8 @@ def test_project_code_rejects_path_chars():
 
 def test_project_code_allows_normal_values():
     """常规编码(含中文)不受影响。"""
-    assert ProjectCreate(name="x", code="PRJ-IBANK-2026").code == "PRJ-IBANK-2026"
-    assert ProjectCreate(name="x", code="网关项目A").code == "网关项目A"
+    assert ProjectCreate(name="x", code="PRJ-IBANK-2026", system_id=1).code == "PRJ-IBANK-2026"
+    assert ProjectCreate(name="x", code="网关项目A", system_id=1).code == "网关项目A"
 
 
 def test_project_output_dir_sanitizes_traversal():

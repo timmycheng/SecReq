@@ -30,19 +30,19 @@ test('建系统 → 建项目 → 6步向导 → 生成 → 批量确认 → 导
   await expect(page.getByRole('button', { name: '发起新评估' }).first())
     .toBeVisible({ timeout: 20_000 })
 
-  // ── 建项目(新建弹窗默认空白新建, #172 → 直通向导第一步) ──
+  // ── 建项目(#195: 新建弹窗必选系统) ──
   await page.getByRole('button', { name: '发起新评估' }).first().click()
-  await page.getByRole('button', { name: '创建并进向导' }).click()
+  const createModal = page.locator('.ant-modal').filter({ hasText: '选择所属系统' })
+  await createModal.locator('.ant-select').click()
+  await page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item')
+    .first().click()
+  await createModal.getByRole('button', { name: '创建并进向导' }).click()
   await expect(page.getByText('评估编码(自动生成)')).toBeVisible({ timeout: 20_000 })
 
-  // ── 第 1 步: 评估定级(绑定系统 + 合规目标 + 直接指定三级) ──
+  // ── 第 1 步: 评估定级(创建时已绑定系统; 合规目标 + 直接指定三级) ──
   await page.getByPlaceholder('如: 个人网银系统').fill('E2E 主链路项目')
-  // 选择所属系统(antd Select 虚拟滚动, 键盘导航最稳)
-  const sysItem = page.locator('.ant-form-item', { hasText: '所属系统(台账)' }).first()
-  await sysItem.locator('.ant-select').first().click()
-  await page.keyboard.press('ArrowDown')
-  await page.keyboard.press('Enter')
-  await page.keyboard.press('Escape')
+  await expect(page.locator('.ant-form-item', { hasText: '所属系统(台账)' })
+    .getByText('E2E 主链路系统')).toBeVisible({ timeout: 20_000 })
   // 合规目标: 等级保护
   await page.getByText('等级保护', { exact: true }).click()
   // 直接指定等级: 三级(触发政策基线与等保合规规则)

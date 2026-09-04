@@ -161,7 +161,7 @@ export default function WizardPage({ projectId }: { projectId: number }) {
   }
 
   const done: boolean[] = [
-    Boolean(ws.project.name && ws.survey?.effective_level),
+    Boolean(ws.project.name && ws.project.system_id && ws.survey?.effective_level),
     ws.features.length > 0,
     ws.data_assets.length > 0,
     ws.roles.length > 0 && ws.resources.length > 0,
