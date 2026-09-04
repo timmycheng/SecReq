@@ -25,9 +25,10 @@ from services.kb_admin import (
     add_template, list_templates, load_question_bank_raw,
     save_question_bank, update_template,
 )
+from services.netbox import NetboxClient, NetboxApiError, NetboxUnavailable
 from services.session_service import revoke_user_sessions
 from services.settings_service import (
-    get_llm_config, get_project_code_rule, get_setting, set_setting,
+    get_llm_config, get_netbox_config, get_project_code_rule, get_setting, set_setting,
 )
 
 logger = logging.getLogger(__name__)
@@ -280,6 +281,92 @@ def put_llm(payload: LlmConfigIn, request: Request,
     audit(db, user.username, "llm_update", {"base_url": payload.base_url, "model": payload.model},
           client_ip(request))
     return {"status": "ok"}
+
+
+# ── NetBox 互通(#152) ─────────────────────────────────
+@router.get("/netbox-config")
+def get_netbox(_: PlatformUser = Depends(require_security), db: Session = Depends(get_db)):
+    cfg = get_netbox_config(db)
+    if cfg.get("token"):
+        cfg["token"] = cfg["token"][:4] + "****"
+    cfg["configured"] = bool(cfg)
+    return cfg
+
+
+class NetboxConfigIn(BaseModel):
+    base_url: str = Field(max_length=300)
+    token: str = Field(max_length=300)
+    system_slug: str = Field(default="system", max_length=100)
+    field_map: dict = Field(default_factory=lambda: {"name": "name", "code": "code", "owner": "owner"})
+
+
+class NetboxTestIn(BaseModel):
+    """测试连接提交值; token 留空表示沿用已保存值(掩码回显场景)。"""
+
+    base_url: str = Field(max_length=300)
+    token: str = Field(default="", max_length=300)
+
+
+@router.post("/netbox-config/test")
+def test_netbox(payload: NetboxTestIn, _: PlatformUser = Depends(require_security),
+                db: Session = Depends(get_db)):
+    """用本次提交值向 NetBox 发一次真实状态探测, 只测不存(仿 LLM 连接测试)。
+
+    失败原因归类为可读文案: 连接拒绝/超时/认证失败/权限不足。
+    """
+    import time
+
+    token = payload.token or get_netbox_config(db).get("token") or ""
+    if not token:
+        raise HTTPException(status_code=400, detail="Token 为空且无已保存配置, 无法测试")
+    client = NetboxClient(payload.base_url, token, timeout=8.0)
+    started = time.monotonic()
+    try:
+        status = client.get_status()
+    except NetboxUnavailable as exc:
+        return {"ok": False, "reason": str(exc)}
+    except NetboxApiError as exc:
+        text = str(exc)
+        reason = "凭据无效(Token 被拒绝)" if "401" in text or "403" in text else text
+        return {"ok": False, "reason": reason}
+    finally:
+        client.close()
+    latency_ms = int((time.monotonic() - started) * 1000)
+    return {"ok": True, "latency_ms": latency_ms,
+            "version": status.get("netbox-version") or "(未知版本)"}
+
+
+@router.put("/netbox-config")
+def put_netbox(payload: NetboxConfigIn, request: Request,
+               db: Session = Depends(get_db),
+               user: PlatformUser = Depends(require_security)):
+    set_setting(db, "netbox", payload.model_dump())
+    audit(db, user.username, "netbox_update",
+          {"base_url": payload.base_url, "system_slug": payload.system_slug},
+          client_ip(request))
+    return {"status": "ok"}
+
+
+@router.get("/netbox-config/system-fields")
+def get_netbox_system_fields(_: PlatformUser = Depends(require_security),
+                             db: Session = Depends(get_db)):
+    """拉取 system 对象类型定义, 供字段映射(field_map)对照; 未配置 409。"""
+    cfg = get_netbox_config(db)
+    if not cfg:
+        raise HTTPException(status_code=409, detail="NetBox 尚未配置, 请先填写地址与 Token")
+    client = NetboxClient(cfg["base_url"], cfg["token"])
+    try:
+        type_def = client.get_system_object_type(cfg["system_slug"])
+    except NetboxUnavailable as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except NetboxApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        client.close()
+    fields = type_def.get("fields") if isinstance(type_def.get("fields"), list) else []
+    return {"slug": cfg["system_slug"],
+            "fields": [{"name": f.get("name"), "type": f.get("type")}
+                       for f in fields if isinstance(f, dict) and f.get("name")]}
 
 
 # ── 用户管理 ──────────────────────────────────────────
