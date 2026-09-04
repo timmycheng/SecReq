@@ -13,8 +13,8 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 
 from models import (
-    ApiEndpoint, DataAsset, ExternalSystem,
-    Feature, InfraArchImage, InfraAsset,
+    ApiEndpoint, AuthConfig, DataAsset, DataField, DataTable, ExternalSystem,
+    Feature, GradingSurvey, InfraArchImage, InfraAsset,
     PermissionEntry, Project, Resource, Role, SbomComponent, VulnerabilityRecord,
 )
 
@@ -135,3 +135,37 @@ def repair_stale_component_cache(db: Session) -> int:
         repaired += 1
     db.commit()
     return repaired
+
+
+def reset_wizard_data(db: Session, project_id: int) -> None:
+    """清空项目全部向导输入(#172): 相当于回到空白模板, 生成产出(安全需求等)不动。
+
+    外键约束在 SQLite 下默认不启用, 但仍按依赖顺序删除避免孤儿行:
+    字段→表→资产、漏洞记录→组件、授权→角色/资源。便于复制前重置(copy_from
+    的先清后拷语义)与「一键清空」。
+    """
+    db.query(GradingSurvey).filter_by(project_id=project_id).delete(synchronize_session=False)
+    db.query(Feature).filter_by(project_id=project_id).delete(synchronize_session=False)
+    db.query(ExternalSystem).filter_by(project_id=project_id).delete(synchronize_session=False)
+    db.query(AuthConfig).filter_by(project_id=project_id).delete(synchronize_session=False)
+    db.query(PermissionEntry).filter(
+        PermissionEntry.role_id.in_(
+            db.query(Role.id).filter_by(project_id=project_id)
+        )
+    ).delete(synchronize_session=False)
+    db.query(Role).filter_by(project_id=project_id).delete(synchronize_session=False)
+    db.query(Resource).filter_by(project_id=project_id).delete(synchronize_session=False)
+    db.query(ApiEndpoint).filter_by(project_id=project_id).delete(synchronize_session=False)
+    db.query(InfraArchImage).filter_by(project_id=project_id).delete(synchronize_session=False)
+    db.query(InfraAsset).filter_by(project_id=project_id).delete(synchronize_session=False)
+    component_ids = db.query(SbomComponent.id).filter_by(project_id=project_id)
+    db.query(VulnerabilityRecord).filter(
+        VulnerabilityRecord.component_id.in_(component_ids)
+    ).delete(synchronize_session=False)
+    db.query(SbomComponent).filter_by(project_id=project_id).delete(synchronize_session=False)
+    asset_ids = db.query(DataAsset.id).filter_by(project_id=project_id)
+    table_ids = db.query(DataTable.id).filter(DataTable.asset_id.in_(asset_ids))
+    db.query(DataField).filter(DataField.table_id.in_(table_ids)).delete(synchronize_session=False)
+    db.query(DataTable).filter(DataTable.asset_id.in_(asset_ids)).delete(synchronize_session=False)
+    db.query(DataAsset).filter_by(project_id=project_id).delete(synchronize_session=False)
+    db.commit()

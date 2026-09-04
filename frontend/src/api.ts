@@ -127,6 +127,13 @@ export const api = {
   getProject: (id: number) => request<ProjectDetail>(`/api/projects/${id}`),
   createProject: (payload: Partial<ProjectInfo>) =>
     request<ProjectDetail>('/api/projects', { method: 'POST', body: JSON.stringify(payload) }),
+  /** 就地复制(#172): 把来源项目整卷向导数据复制到已落库的当前项目(先清后拷) */
+  copyProjectFrom: (id: number, fromProjectId: number) =>
+    request<ProjectDetail>(`/api/projects/${id}/copy-from`,
+      { method: 'POST', body: JSON.stringify({ from_project_id: fromProjectId }) }),
+  /** 一键清空(#172): 清空当前项目全部向导输入, 回到空白模板 */
+  resetProjectWizard: (id: number) =>
+    request<ProjectDetail>(`/api/projects/${id}/reset-wizard`, { method: 'POST' }),
   patchProject: (id: number, payload: Partial<ProjectInfo>) =>
     request<ProjectDetail>(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deleteProject: (id: number) => request<void>(`/api/projects/${id}`, { method: 'DELETE' }),
