@@ -37,35 +37,42 @@ def _create_system(client, name="手机银行系统", filing_id=None, code=None)
 # ── 备案 ─────────────────────────────────────────────
 
 
-def test_filing_crud_and_ledger(dev):
-    filing = _create_filing(dev)
+def test_filing_crud_and_ledger(dev, sec):
+    """备案写仅安全角色(#192): 开发可读可选, 增删改 403。"""
+    assert dev.post("/api/filings", json={"name": "X", "level": "二级"}).status_code == 403
+
+    filing = _create_filing(sec)
     assert filing["level"] == "三级"
 
+    # 开发把系统挂到安全侧维护的备案上: 读与选择不受限
     _create_system(dev, filing_id=filing["id"])
     rows = dev.get("/api/filings").json()
     assert len(rows) == 1
     assert rows[0]["system_count"] == 1
 
-    patched = dev.patch(f"/api/filings/{filing['id']}", json={"level": "二级"}).json()
+    assert dev.patch(f"/api/filings/{filing['id']}", json={"level": "二级"}).status_code == 403
+    patched = sec.patch(f"/api/filings/{filing['id']}", json={"level": "二级"}).json()
     assert patched["level"] == "二级"
+    assert dev.delete(f"/api/filings/{filing['id']}").status_code == 403
 
 
-def test_filing_level_validated(dev):
-    resp = dev.post("/api/filings", json={"name": "X", "level": "四级"})
+def test_filing_level_validated(sec):
+    resp = sec.post("/api/filings", json={"name": "X", "level": "四级"})
     assert resp.status_code == 422
 
 
-def test_filing_name_conflict_409(dev):
-    _create_filing(dev, name="备案A")
-    resp = dev.post("/api/filings", json={"name": "备案A", "level": "二级"})
+def test_filing_name_conflict_409(sec):
+    _create_filing(sec, name="备案A")
+    resp = sec.post("/api/filings", json={"name": "备案A", "level": "二级"})
     assert resp.status_code == 409
 
 
-def test_filing_delete_guarded(dev):
-    filing = _create_filing(dev)
+def test_filing_delete_guarded(dev, sec):
+    filing = _create_filing(sec)
     _create_system(dev, filing_id=filing["id"])
-    assert dev.delete(f"/api/filings/{filing['id']}").status_code == 409
-    assert dev.delete("/api/filings/9999").status_code == 404
+    assert sec.delete(f"/api/filings/{filing['id']}").status_code == 409
+    assert sec.delete("/api/filings/9999").status_code == 404
+    assert dev.delete(f"/api/filings/{filing['id']}").status_code == 403
 
 
 # ── 系统 ─────────────────────────────────────────────
@@ -73,7 +80,7 @@ def test_filing_delete_guarded(dev):
 
 def test_system_crud_and_detail_timeline(dev, sec):
     code = "SYS-TL"
-    filing = _create_filing(dev)
+    filing = _create_filing(sec)
     system = _create_system(dev, filing_id=filing["id"], code=code)
     assert system["filing_name"] == "网银核心备案"
     assert system["filing_level"] == "三级"

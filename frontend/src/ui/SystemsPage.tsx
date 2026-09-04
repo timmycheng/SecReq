@@ -7,7 +7,7 @@ import {
 } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 
-import { api } from '../api'
+import { api, getStoredUser } from '../api'
 import { navigate } from '../router'
 import NetboxSystemImportModal from './NetboxSystemImportModal'
 import type { FilingRow, NetboxSystemRow, RoundSummary, SystemRow } from '../types'
@@ -224,6 +224,8 @@ function FilingsTab() {
   const [rows, setRows] = useState<FilingRow[]>([])
   const [loading, setLoading] = useState(false)
   const [editing, setEditing] = useState<Partial<FilingRow> | null>(null)
+  // 备案由安全侧权威维护(#192): 开发只读, 选择挂靠在系统表单完成
+  const isSecurity = getStoredUser()?.role === 'security'
 
   const reload = useCallback(() => {
     setLoading(true)
@@ -237,11 +239,15 @@ function FilingsTab() {
   return (
     <>
       <Space style={{ marginBottom: 12 }}>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ level: '二级' })}>
-          新增备案
-        </Button>
+        {isSecurity && (
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ level: '二级' })}>
+            新增备案
+          </Button>
+        )}
         <Typography.Text type="secondary">
-          备案是对外备案测评的少数主体, 定级在此登记; 系统挂靠备案后自动继承定级
+          {isSecurity
+            ? '备案是对外备案测评的少数主体, 定级在此登记; 系统挂靠备案后自动继承定级'
+            : '定级备案由安全管理员维护, 如需新增或调整请联系安全管理员'}
         </Typography.Text>
       </Space>
       <Table<FilingRow>
@@ -257,29 +263,31 @@ function FilingsTab() {
           { title: '下挂系统数', dataIndex: 'system_count', width: 110 },
           { title: '备注', dataIndex: 'note', ellipsis: true, render: (v: string | null) => v || '—' },
           { title: '最新评估', dataIndex: 'latest_round', width: 300, render: (_: unknown, r: FilingRow) => <RoundCell round={r.latest_round} /> },
-          {
-            title: '操作', width: 150,
-            render: (_: unknown, record: FilingRow) => (
-              <Space>
-                <Button size="small" onClick={() => setEditing(record)}>编辑</Button>
-                <Popconfirm
-                  title="删除该备案?"
-                  description="下挂系统需先解除关联"
-                  onConfirm={async () => {
-                    try {
-                      await api.deleteFiling(record.id)
-                      message.success('已删除')
-                      reload()
-                    } catch (e) {
-                      message.error((e as Error).message)
-                    }
-                  }}
-                >
-                  <Button size="small" danger>删除</Button>
-                </Popconfirm>
-              </Space>
-            ),
-          },
+          ...(isSecurity
+            ? [{
+                title: '操作', width: 150,
+                render: (_: unknown, record: FilingRow) => (
+                  <Space>
+                    <Button size="small" onClick={() => setEditing(record)}>编辑</Button>
+                    <Popconfirm
+                      title="删除该备案?"
+                      description="下挂系统需先解除关联"
+                      onConfirm={async () => {
+                        try {
+                          await api.deleteFiling(record.id)
+                          message.success('已删除')
+                          reload()
+                        } catch (e) {
+                          message.error((e as Error).message)
+                        }
+                      }}
+                    >
+                      <Button size="small" danger>删除</Button>
+                    </Popconfirm>
+                  </Space>
+                ),
+              }]
+            : []),
         ]}
       />
       {editing !== null && (
