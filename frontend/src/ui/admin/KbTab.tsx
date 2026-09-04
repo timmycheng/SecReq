@@ -1,12 +1,14 @@
-/* 知识库管理: 模板启停与编辑(写回 YAML 自动备份, 保存时全量校验)。
-   编辑弹窗含监管出处增删排序(#80); 下拉一律用 meta 下发的中文映射(#82)。 */
+/* 知识库管理: 模板新增/启停/编辑(写回 YAML 自动备份, 保存时全量校验)。
+   编辑弹窗含监管出处增删排序(#80); 下拉一律用 meta 下发的中文映射(#82)。
+   新增支持「复制为新模板」: 带入相近模板文案并自动建议下一个可用 id(#165)。 */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Button, Col, Collapse, Form, Input, Modal, Popconfirm, Row, Select, Space, Switch, Table, Tag,
-  Typography, message,
+  Tooltip, Typography, message,
 } from 'antd'
 import {
-  ArrowDownOutlined, ArrowUpOutlined, DeleteOutlined, PlusOutlined, ReloadOutlined,
+  ArrowDownOutlined, ArrowUpOutlined, CopyOutlined, DeleteOutlined, PlusOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons'
 
 import { api, type KbTemplateRow } from '../../api'
@@ -14,12 +16,33 @@ import { labelMapOf, useEnums } from '../../enums'
 import TriggerEditor, { type Trigger } from './TriggerEditor'
 import { PRIORITY_COLOR } from './shared'
 
+const ID_PATTERN = /^SEC-[A-Z0-9]+-\d{3}$/
+
+/** 建议下一个可用 id: SEC-DATA-007 → 同前缀最大序号 +1(新增 #165)。 */
+function suggestNextId(ids: string[], sourceId: string): string {
+  const match = sourceId.match(/^(.*-)(\d+)$/)
+  const prefix = match ? match[1] : `${sourceId}-`
+  const used = ids
+    .filter((id) => id.startsWith(prefix))
+    .map((id) => parseInt(id.slice(prefix.length), 10) || 0)
+  return `${prefix}${String((used.length ? Math.max(...used) : 0) + 1).padStart(3, '0')}`
+}
+
+function emptyTemplate(): KbTemplateRow {
+  return {
+    id: '', title: '', trigger_type: 'feature_category', priority: 'high',
+    suggested_phase: 'design', enabled: true,
+    trigger: { type: 'feature_category', condition: {} },
+    description: '', acceptance_criteria: '', trigger_reason: '', regulatory_ref: [],
+  }
+}
+
 export default function KbTab() {
   const enums = useEnums()
   const [rows, setRows] = useState<KbTemplateRow[]>([])
   const [loading, setLoading] = useState(false)
   const [keyword, setKeyword] = useState('')
-  const [editing, setEditing] = useState<KbTemplateRow | null>(null)
+  const [editing, setEditing] = useState<{ row: KbTemplateRow; mode: 'edit' | 'create' } | null>(null)
   const categoryLabels = labelMapOf(enums, 'category_labels')
 
   const reload = useCallback(() => {
@@ -41,10 +64,18 @@ export default function KbTab() {
     }
   }
 
+  const copyAsNew = (row: KbTemplateRow) => {
+    setEditing({
+      mode: 'create',
+      row: { ...row, id: suggestNextId(rows.map((r) => r.id), row.id), enabled: true },
+    })
+  }
+
   return (
     <>
       <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
-        停用后生成时跳过; 编辑写回 YAML 自动备份, 保存时全量校验。当前共 {rows.length} 条模板。
+        停用后生成时跳过; 新增/编辑写回 YAML 自动备份并校验(条件键写错会被拦截),
+        保存后下一轮生成即生效。当前共 {rows.length} 条模板。
       </Typography.Paragraph>
       <Space style={{ marginBottom: 12 }} wrap>
         <Input.Search
@@ -52,6 +83,9 @@ export default function KbTab() {
           onSearch={setKeyword}
         />
         <Button icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ mode: 'create', row: emptyTemplate() })}>
+          新增模板
+        </Button>
       </Space>
       <Table<KbTemplateRow>
         rowKey="id"
@@ -69,14 +103,22 @@ export default function KbTab() {
           { title: '启用', dataIndex: 'enabled', width: 80,
             render: (_v, r) => <Switch size="small" checked={r.enabled} onChange={() => void toggle(r)} /> },
           {
-            title: '操作', width: 80,
-            render: (_v, r) => <Button size="small" onClick={() => setEditing(r)}>编辑</Button>,
+            title: '操作', width: 170,
+            render: (_v, r) => (
+              <Space>
+                <Button size="small" onClick={() => setEditing({ mode: 'edit', row: r })}>编辑</Button>
+                <Tooltip title="带入该模板文案与触发条件, id 自动顺延, 适合新增相近规则">
+                  <Button size="small" icon={<CopyOutlined />} onClick={() => copyAsNew(r)}>复制为新模板</Button>
+                </Tooltip>
+              </Space>
+            ),
           },
         ]}
       />
       {editing && (
         <KbEditModal
-          row={editing}
+          row={editing.row}
+          mode={editing.mode}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); reload() }}
         />
@@ -85,8 +127,9 @@ export default function KbTab() {
   )
 }
 
-function KbEditModal({ row, onClose, onSaved }: {
+function KbEditModal({ row, mode, onClose, onSaved }: {
   row: KbTemplateRow
+  mode: 'edit' | 'create'
   onClose: () => void
   onSaved: () => void
 }) {
@@ -109,9 +152,12 @@ function KbEditModal({ row, onClose, onSaved }: {
     .map(([value, label]) => ({ value, label }))
   const phaseOptions = Object.entries(labelMapOf(enums, 'requirement_phases'))
     .map(([value, label]) => ({ value, label }))
+  const requiredIfCreate = mode === 'create'
+    ? [{ required: true, message: '新增模板必填' }] : []
   return (
     <Modal
-      title={`编辑知识库模板 ${row.id}`} open onCancel={onClose} width={760}
+      title={mode === 'create' ? '新增知识库模板' : `编辑知识库模板 ${row.id}`} open
+      onCancel={onClose} width={760}
       confirmLoading={saving}
       onOk={async () => {
         const values = await form.validateFields()
@@ -130,8 +176,12 @@ function KbEditModal({ row, onClose, onSaved }: {
         }
         setSaving(true)
         try {
-          await api.updateKbTemplate(row.id, { ...values, trigger })
-          message.success('已保存')
+          if (mode === 'create') {
+            await api.createKbTemplate({ ...values, trigger, enabled: true })
+          } else {
+            await api.updateKbTemplate(row.id, { ...values, trigger })
+          }
+          message.success(mode === 'create' ? '模板已新增, 下一轮生成即生效' : '已保存')
           onSaved()
         } catch (e) {
           message.error((e as Error).message)
@@ -144,26 +194,41 @@ function KbEditModal({ row, onClose, onSaved }: {
         ...row,
         trigger: JSON.stringify(row.trigger ?? {}, null, 2),
       }}>
+        {mode === 'create' && (
+          <Form.Item
+            name="id" label="模板编号"
+            rules={[
+              { required: true, message: '请输入模板编号' },
+              { pattern: ID_PATTERN, message: '格式: SEC-前缀-三位序号, 如 SEC-DATA-008' },
+            ]}
+            extra="复制为新模板时已自动建议下一个可用编号"
+          >
+            <Input placeholder="如 SEC-DATA-008" />
+          </Form.Item>
+        )}
         <Form.Item name="title" label="标题" rules={[{ required: true }]}>
           <Input />
         </Form.Item>
-        <Form.Item name="description" label="需求描述(生成后的需求正文, 支持 {{占位符}})">
+        <Form.Item
+          name="description" label="需求描述(生成后的需求正文, 支持 {{占位符}})"
+          rules={requiredIfCreate}
+        >
           <Input.TextArea rows={4} />
         </Form.Item>
-        <Form.Item name="acceptance_criteria" label="验收标准">
+        <Form.Item name="acceptance_criteria" label="验收标准" rules={requiredIfCreate}>
           <Input.TextArea rows={3} />
         </Form.Item>
-        <Form.Item name="trigger_reason" label="触发原因(展示给填报人)">
+        <Form.Item name="trigger_reason" label="触发原因(展示给填报人)" rules={requiredIfCreate}>
           <Input.TextArea rows={2} />
         </Form.Item>
         <Row gutter={16}>
           <Col span={8}>
-            <Form.Item name="priority" label="优先级">
+            <Form.Item name="priority" label="优先级" rules={requiredIfCreate}>
               <Select options={priorityOptions} />
             </Form.Item>
           </Col>
           <Col span={8}>
-            <Form.Item name="suggested_phase" label="建议阶段">
+            <Form.Item name="suggested_phase" label="建议阶段" rules={requiredIfCreate}>
               <Select options={phaseOptions} />
             </Form.Item>
           </Col>

@@ -24,6 +24,51 @@ EDITABLE_TEMPLATE_FIELDS = [
     "regulatory_ref", "enabled",
 ]
 
+# 各触发类目的合法 condition 键与 rule_key 取值, 与 rules/engine.py 的判定分支一一对应。
+# 意图: 条件键/rule_key 写错在保存时就被拦截, 而不是生成时静默不命中(引擎对未知
+# condition 键是 elif 链不匹配 → 空结果, 对未知 rule_key 才会报错跳过)。
+_TRIGGER_CONDITION_SPEC: dict[str, dict] = {
+    "feature_category": {"keys": {"category"}},
+    "permission_rule": {"keys": {"rule_key"},
+                        "rule_keys": {"critical_action_without_approval", "sod_conflict",
+                                      "super_admin_exists", "always"}},
+    "auth_method": {"keys": {"method"}},
+    "policy_baseline": {"keys": {"rule_key"},
+                        "rule_keys": {"password_strength", "lockout_threshold",
+                                      "session_timeout", "force_2fa", "always"}},
+    "data_asset": {"keys": {"classification", "level", "min_level", "c3_tag",
+                            "is_sensitive_pii", "mask_fields_any_of",
+                            "has_log_leakage_risk", "cross_border"}},
+    "api_endpoint": {"keys": {"public_exposed", "auth_required", "touches_sensitive_asset"}},
+    "compliance": {"keys": {"target"}},
+    "vulnerability": {"keys": {"severity_range"}},
+    "regulatory_trigger": {"keys": {"rule_key"},
+                           "rule_keys": {"l5_data_exists", "cross_border_exists",
+                                         "mobile_app_type", "ai_feature", "final_level_l3",
+                                         "sensitive_pii_exists", "djcp_l3_filing"}},
+    "external_system": {"keys": {"sensitive_only"}},
+    "license_risk": {"keys": {"risk"}},
+}
+
+
+def validate_trigger_condition(trigger: dict | None) -> None:
+    """按触发类目校验 condition 键与 rule_key 取值, 不合法即抛 ValueError。"""
+    ttype = (trigger or {}).get("type")
+    spec = _TRIGGER_CONDITION_SPEC.get(ttype)
+    if spec is None:
+        return  # trigger.type 枚举校验由写回后的 loader 全量校验兜底
+    condition = trigger.get("condition") or {}
+    unknown = set(condition) - spec["keys"]
+    if unknown:
+        raise ValueError(
+            f"触发类目「{ttype}」不支持条件键: {sorted(unknown)}, 合法键: {sorted(spec['keys'])}"
+            "(写错的键会导致模板静默不命中)")
+    rule_keys = spec.get("rule_keys")
+    if rule_keys and "rule_key" in condition and condition["rule_key"] not in rule_keys:
+        raise ValueError(
+            f"触发类目「{ttype}」的 rule_key 非法: {condition['rule_key']}, "
+            f"合法取值: {sorted(rule_keys)}")
+
 
 def _backup(path: Path) -> Path:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -73,6 +118,8 @@ def update_template(template_id: str, changes: dict) -> dict:
     updates = {k: v for k, v in changes.items() if k in EDITABLE_TEMPLATE_FIELDS}
     if not updates:
         return row
+    if "trigger" in updates:
+        validate_trigger_condition(updates["trigger"])
     new_data = copy.deepcopy(data)
     target = next(t for t in new_data.get("templates", []) if t.get("id") == template_id)
     for key, value in updates.items():
@@ -93,6 +140,7 @@ def add_template(template: dict) -> dict:
     """新增知识库模板(完整字段), 返回新模板。写入目标固定为 DEFAULT_KB_PATH。"""
     path = DEFAULT_KB_PATH
     template.pop("_path", None)  # 兼容历史调用残留: 该字段不写入 YAML
+    validate_trigger_condition(template.get("trigger"))
     data = _load_raw(path)
     ids = {t.get("id") for t in data.get("templates", [])}
     if template.get("id") in ids:

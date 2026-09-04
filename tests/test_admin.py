@@ -556,3 +556,69 @@ def test_infra_topology_roundtrip(api, sec):
 
     # dev 环境独立: prod 的保存不影响 dev
     assert "env" in (sec.get(f"/api/projects/{pid}/infra-topology", params={"env": "test"}).json())
+
+
+def test_kb_create_template_and_duplicate(sec, kb_files):
+    """新增模板(#165): POST 落盘可读; 重复 id 与缺必填字段被拦截。"""
+    payload = {
+        "id": "SEC-TST-901",
+        "title": "测试新增模板",
+        "description": "测试描述正文",
+        "priority": "high",
+        "suggested_phase": "design",
+        "acceptance_criteria": "测试验收标准",
+        "trigger_reason": "测试触发原因",
+        "trigger": {"type": "feature_category", "condition": {"category": "auth_login"}},
+        "regulatory_ref": [{"file": "测试文件", "clause": "第1条", "summary": "测试"}],
+        "asvs_ref": "V1.1.1",
+    }
+    resp = sec.post("/api/admin/knowledge-base", json=payload)
+    assert resp.status_code == 201, resp.text
+    rows = sec.get("/api/admin/knowledge-base").json()["templates"]
+    created = next(r for r in rows if r["id"] == "SEC-TST-901")
+    assert created["title"] == "测试新增模板"
+
+    dup = sec.post("/api/admin/knowledge-base", json=payload)
+    assert dup.status_code == 400
+
+    missing = {k: v for k, v in payload.items() if k != "acceptance_criteria"}
+    assert sec.post("/api/admin/knowledge-base", json=missing).status_code == 400
+
+
+def test_kb_update_saves_asvs_ref(sec, kb_files):
+    """修复(#165): asvs_ref 此前不在路由模型里, 编辑弹窗该输入框存不进去。"""
+    rows = sec.get("/api/admin/knowledge-base").json()["templates"]
+    target = rows[0]["id"]
+    resp = sec.put(f"/api/admin/knowledge-base/{target}", json={"asvs_ref": "V9.9.9"})
+    assert resp.status_code == 200, resp.text
+    rows = sec.get("/api/admin/knowledge-base").json()["templates"]
+    assert next(r for r in rows if r["id"] == target)["asvs_ref"] == "V9.9.9"
+
+
+def test_kb_rejects_unknown_condition_key_and_rule_key(sec, kb_files):
+    """防呆(#165): 条件键/rule_key 写错保存时报错, 而非生成时静默不命中。"""
+    base = {
+        "id": "SEC-TST-902",
+        "title": "条件键防呆", "description": "d", "priority": "high",
+        "suggested_phase": "design", "acceptance_criteria": "a",
+        "trigger_reason": "r",
+        "regulatory_ref": [{"file": "测试文件", "clause": "", "summary": ""}],
+    }
+    bad_key = {**base, "trigger": {"type": "feature_category",
+                                   "condition": {"catagory": "auth_login"}}}  # 拼写错误
+    resp = sec.post("/api/admin/knowledge-base", json=bad_key)
+    assert resp.status_code == 400 and "catagory" in resp.json()["detail"]
+
+    bad_rule = {**base, "id": "SEC-TST-903",
+                "trigger": {"type": "permission_rule",
+                            "condition": {"rule_key": "super_admin"}}}  # 引擎键是 super_admin_exists
+    resp = sec.post("/api/admin/knowledge-base", json=bad_rule)
+    assert resp.status_code == 400 and "super_admin_exists" in resp.json()["detail"]
+
+    # 编辑已有模板时同样拦截
+    rows = sec.get("/api/admin/knowledge-base").json()["templates"]
+    target = rows[0]["id"]
+    resp = sec.put(f"/api/admin/knowledge-base/{target}",
+                   json={"trigger": {"type": "data_asset",
+                                     "condition": {"nonsense_key": True}}})
+    assert resp.status_code == 400 and "nonsense_key" in resp.json()["detail"]
