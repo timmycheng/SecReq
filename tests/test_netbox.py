@@ -7,6 +7,8 @@ env 回退 / token 掩码 / 连接测试成败与超时 / 错误归因 / 列表�
 import httpx
 import pytest
 
+from conftest import api_as
+
 from services.netbox import NetboxApiError, NetboxClient, NetboxUnavailable
 from services.settings_service import get_netbox_config, get_setting, set_setting
 
@@ -322,11 +324,26 @@ def netbox_ready(api, sec, monkeypatch):
         def patch_device(self, device_id: int, payload: dict):
             return {"id": device_id}
 
+        system_objects: list[dict] = []
+        created_system: dict | None = None
+
+        def list_system_objects(self, slug: str, keyword=None, limit=25, offset=0):
+            rows = [o for o in FakeProxyClient.system_objects
+                    if not keyword or keyword.lower() in str(o.get("name") or "").lower()]
+            return {"count": len(rows), "results": rows[offset:offset + limit]}
+
+        def create_system_object(self, slug: str, payload: dict):
+            FakeProxyClient.created_system = payload
+            return {"id": 77, **payload,
+                    "url": f"{NB_BASE}/plugins/custom-objects/{slug}/objects/77"}
+
     monkeypatch.setattr("routers.netbox.NetboxClient", FakeProxyClient)
     FakeProxyClient.devices = []
     FakeProxyClient.created = None
     FakeProxyClient.create_error = None
     FakeProxyClient.unreachable = None
+    FakeProxyClient.system_objects = []
+    FakeProxyClient.created_system = None
     return FakeProxyClient
 
 
@@ -444,3 +461,63 @@ def test_infra_asset_netbox_ref_persists_via_save(api):
     assert saved[0]["netbox_ref_type"] == "virtualization.virtual-machine"
     rows = api.get(f"/api/projects/{pid}/infra-assets").json()
     assert rows[0]["netbox_ref_id"] == "31"
+
+
+# ────────────────────────── 系统清单互通(#154) ──────────────────────────
+
+def test_proxy_systems_field_map_trimming(netbox_ready, api, sec):
+    """系统清单代理按 field_map 裁剪: 自定义字段名映射生效。"""
+    saved = sec.put("/api/admin/netbox-config", json={
+        "base_url": NB_BASE, "token": NB_TOKEN, "system_slug": "sysobj",
+        "field_map": {"name": "title", "code": "sn", "owner": "keeper"},
+    })
+    assert saved.status_code == 200
+    netbox_ready.system_objects = [
+        {"id": 31, "title": "个人网银", "sn": "NB-001", "keeper": "张三",
+         "url": f"{NB_BASE}/plugins/custom-objects/sysobj/objects/31"},
+    ]
+    data = api.get("/api/netbox/systems").json()
+    assert data["count"] == 1
+    assert data["results"][0] == {
+        "id": 31, "name": "个人网银", "code": "NB-001", "owner": "张三",
+        "url": f"{NB_BASE}/plugins/custom-objects/sysobj/objects/31",
+    }
+
+
+def test_push_system_roundtrip_and_dedupe(netbox_ready, api, sec):
+    """推送台账系统: 名称查重 409 / 成功回填 netbox_object_id / 已关联 409 / 审计。"""
+    sid = api.post("/api/systems", json={"name": "个人网银", "owner_name": "张三"}).json()["id"]
+
+    netbox_ready.system_objects = [
+        {"id": 20, "name": "个人网银", "url": f"{NB_BASE}/plugins/custom-objects/system/objects/20"},
+    ]
+    dup = sec.post("/api/netbox/systems", json={
+        "system_id": sid, "name": "个人网银", "owner": "张三"})
+    assert dup.status_code == 409
+    assert "已存在同名系统" in dup.json()["detail"]
+
+    netbox_ready.system_objects = []
+    ok = sec.post("/api/netbox/systems", json={
+        "system_id": sid, "name": "个人网银", "code": "SRQ-001", "owner": "张三"})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["netbox_object_id"] == "77"
+    assert netbox_ready.created_system == {"name": "个人网银", "code": "SRQ-001", "owner": "张三"}
+
+    systems = api.get("/api/systems").json()
+    mine = next(sy for sy in systems if sy["id"] == sid)
+    assert mine["netbox_object_id"] == "77"
+
+    again = sec.post("/api/netbox/systems", json={"system_id": sid, "name": "个人网银"})
+    assert again.status_code == 409
+    assert "已关联" in again.json()["detail"]
+
+    logs = sec.get("/api/admin/audit-logs").json()
+    assert any(log["action"] == "netbox_push" for log in logs)
+
+
+def test_push_system_owner_guard(netbox_ready, api, sec):
+    """开发只可推送本人系统; 越权 404 不泄露存在性。"""
+    other = api_as(api, "sec_admin")  # 安全角色建的系统, owner_user_id 为 sec
+    sid = other.post("/api/systems", json={"name": "他人系统"}).json()["id"]
+    resp = api.post("/api/netbox/systems", json={"system_id": sid, "name": "他人系统"})
+    assert resp.status_code == 404

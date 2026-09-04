@@ -60,6 +60,7 @@ class FilingDetail(FilingOut):
 class SystemCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     code: str | None = Field(default=None, max_length=64)
+    netbox_object_id: str | None = Field(default=None, max_length=32)
     filing_id: int | None = None
     owner_name: str | None = Field(default=None, max_length=50)
 
@@ -77,6 +78,7 @@ class SystemOut(BaseModel):
     id: int
     name: str
     code: str | None = None
+    netbox_object_id: str | None = None
     filing_id: int | None = None
     owner_name: str | None = None
     created_at: datetime | None = None

@@ -9,7 +9,8 @@ import { PlusOutlined } from '@ant-design/icons'
 
 import { api } from '../api'
 import { navigate } from '../router'
-import type { FilingRow, RoundSummary, SystemRow } from '../types'
+import NetboxSystemImportModal from './NetboxSystemImportModal'
+import type { FilingRow, NetboxSystemRow, RoundSummary, SystemRow } from '../types'
 
 const LEVEL_COLORS: Record<string, string> = { 一级: 'blue', 二级: 'gold', 三级: 'red' }
 
@@ -61,6 +62,8 @@ export default function SystemsPage() {
 function SystemsTab() {
   const [rows, setRows] = useState<SystemRow[]>([])
   const [loading, setLoading] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [pushing, setPushing] = useState<number | null>(null)
 
   const reload = useCallback(() => {
     setLoading(true)
@@ -71,8 +74,78 @@ function SystemsTab() {
   }, [])
   useEffect(reload, [reload])
 
+  /** 导入所选(#154): 按名称/netbox_object_id 查重后逐个登记, 重复行跳过 */
+  const handleImported = async (selected: NetboxSystemRow[]) => {
+    let created = 0
+    const failures: string[] = []
+    for (const row of selected) {
+      const refId = String(row.id)
+      const dup = rows.some((r) => r.netbox_object_id === refId
+        || r.name.toLowerCase() === (row.name || '').toLowerCase())
+      if (dup) { continue }
+      try {
+        await api.createSystem({
+          name: row.name || `NetBox#${row.id}`,
+          code: row.code ?? undefined,
+          owner_name: row.owner ?? undefined,
+          netbox_object_id: refId,
+        })
+        created += 1
+      } catch (e) {
+        failures.push(`${row.name || refId}: ${(e as Error).message}`)
+      }
+    }
+    setImportOpen(false)
+    message.success(`已导入 ${created} 个系统${failures.length ? `; ${failures.length} 个失败` : ''}`)
+    if (failures.length) Modal.info({
+      title: '导入失败明细', width: 560,
+      content: failures.map((f, i) => <div key={i} style={{ fontSize: 12 }}>{f}</div>),
+    })
+    reload()
+  }
+
+  /** 推送到 NetBox(#154): 仅未关联行; 失败不回滚可重试 */
+  const handlePush = async (record: SystemRow) => {
+    setPushing(record.id)
+    try {
+      const res = await api.pushNetboxSystem({
+        system_id: record.id, name: record.name,
+        code: record.code ?? undefined, owner: record.owner_name ?? undefined,
+      })
+      message.success(`已推送到 NetBox${res.url ? ', 可点击名称旁徽标查看' : ''}`)
+      reload()
+    } catch (e) {
+      message.error((e as Error).message)
+    } finally {
+      setPushing(null)
+    }
+  }
+
+  /** 外链地址: 台账页挂载时拉一次 base_url(未配置静默) */
+  const [nbBaseUrl, setNbBaseUrl] = useState<string | undefined>(undefined)
+  useEffect(() => {
+    api.getNetboxStatus()
+      .then((s) => { if (s.configured) setNbBaseUrl(s.base_url) })
+      .catch(() => undefined)
+  }, [])
+
   const columns = [
-    { title: '系统名称', dataIndex: 'name' },
+    { title: '系统名称', dataIndex: 'name',
+      render: (v: string, record: SystemRow) => {
+        const link = nbBaseUrl && record.netbox_object_id
+          ? `${nbBaseUrl}/api/plugins/custom-objects/object-types/system/objects/${record.netbox_object_id}`
+          : undefined
+        return (
+          <Space size={6}>
+            <span>{v}</span>
+            {record.netbox_object_id && (
+              <Tag color="blue" style={{ marginRight: 0 }}>
+                {link ? <a href={link} target="_blank" rel="noreferrer">NetBox</a> : 'NetBox'}
+              </Tag>
+            )}
+          </Space>
+        )
+      } },
     { title: '系统编号', dataIndex: 'code', width: 140, render: (v: string | null) => v || '—' },
     {
       title: '所属备案 / 定级', dataIndex: 'filing_name', width: 220,
@@ -90,6 +163,14 @@ function SystemsTab() {
       render: (_: unknown, record: SystemRow) => (
         <Space>
           <Button size="small" onClick={() => navigate(`/system/${record.id}`)}>评估时间线</Button>
+          {!record.netbox_object_id && (
+            <Button
+              size="small" loading={pushing === record.id}
+              onClick={() => void handlePush(record)}
+            >
+              推送到 NetBox
+            </Button>
+          )}
           <Popconfirm
             title="删除该系统?"
             description="仅当下挂项目已清空才可删除"
@@ -111,14 +192,29 @@ function SystemsTab() {
   ]
 
   return (
-    <Table<SystemRow>
-      rowKey="id"
-      loading={loading}
-      dataSource={rows}
-      pagination={{ pageSize: 15 }}
-      locale={{ emptyText: <Empty description="还没有系统登记" /> }}
-      columns={columns}
-    />
+    <>
+      <Space style={{ marginBottom: 12 }}>
+        <Button icon={<PlusOutlined />} type="primary" onClick={() => setImportOpen(true)}>
+          从 NetBox 导入
+        </Button>
+        <Typography.Text type="secondary">
+          NetBox 是旁路增强: 未配置或断连时, 系统登记与建项流程完全不受影响
+        </Typography.Text>
+      </Space>
+      <Table<SystemRow>
+        rowKey="id"
+        loading={loading}
+        dataSource={rows}
+        pagination={{ pageSize: 15 }}
+        locale={{ emptyText: <Empty description="还没有系统登记" /> }}
+        columns={columns}
+      />
+      <NetboxSystemImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onSelected={(sel) => void handleImported(sel)}
+      />
+    </>
   )
 }
 

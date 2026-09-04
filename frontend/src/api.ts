@@ -5,7 +5,7 @@ import type {
   ApiEndpointRow, AuthConfigRow, ComponentRow, DataAssetRow,
   ExternalSystemRow, FeatureRow, FilingRow, GenerateSummary, GradingQuestion,
   InfraArchImageRow, InfraAssetRow, LabelMap, LoginInfo, MatrixEntryIn,
-  NetboxAssetRow,
+  NetboxAssetRow, NetboxSystemRow,
   PreviewResult, ProjectDetail, ProjectInfo, RequirementDiff, RequirementRow, RoleRow,
   ResourceRow, SurveyAnswer, SystemRow, VulnerabilityRow, VulnDbStatus, VulnDbVerifyResult,
   WizardState,
@@ -312,6 +312,14 @@ export const api = {
   /** NetBox 是否已配置 + base_url(构建外链用, 未配置不报错) */
   getNetboxStatus: () =>
     request<{ configured: boolean; base_url?: string }>('/api/netbox/status'),
+  /** NetBox 系统清单搜索(#154): 按 field_map 裁剪为 {id, name, code, owner, url} */
+  listNetboxSystems: (keyword: string, limit: number, offset: number) =>
+    request<{ count: number; results: NetboxSystemRow[] }>(
+      `/api/netbox/systems?keyword=${encodeURIComponent(keyword)}&limit=${limit}&offset=${offset}`),
+  /** 推送台账系统到 NetBox(#154): 成功回填 netbox_object_id */
+  pushNetboxSystem: (data: { system_id: number; name: string; code?: string; owner?: string }) =>
+    request<{ netbox_object_id: string; url?: string }>('/api/netbox/systems',
+      { method: 'POST', body: JSON.stringify(data) }),
   /** NetBox 资产搜索(#153): kind 为 devices / virtual-machines / ip-addresses */
   listNetboxAssets: (kind: 'devices' | 'virtual-machines' | 'ip-addresses',
                      keyword: string, limit: number, offset: number) =>

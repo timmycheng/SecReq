@@ -25,6 +25,10 @@ _NEW_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("c3_tag", "BOOLEAN DEFAULT 0"),
         ("uid", "VARCHAR(36)"),
     ],
+    # NetBox 系统互通(#154): 推送成功后回填的对象 id
+    "systems": [
+        ("netbox_object_id", "VARCHAR(32)"),
+    ],
     "projects": [
         ("offshore_vendor", "BOOLEAN DEFAULT 0"),
         ("owner_user_id", "INTEGER"),

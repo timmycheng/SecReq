@@ -60,6 +60,8 @@ export interface SystemRow {
   id: number
   name: string
   code?: string | null
+  /** NetBox custom-objects 对象 id(#154, 推送成功后回填) */
+  netbox_object_id?: string | null
   filing_id?: number | null
   owner_name?: string | null
   created_at?: string | null
@@ -287,6 +289,14 @@ export interface InfraAssetRow {
   /** NetBox 互通(#153): 导入/推送成功后回填的来源侧标识 */
   netbox_ref_type?: string | null
   netbox_ref_id?: string | null
+}
+
+export interface NetboxSystemRow {
+  id: number
+  name?: string | null
+  code?: string | null
+  owner?: string | null
+  url?: string | null
 }
 
 export interface NetboxAssetRow {
