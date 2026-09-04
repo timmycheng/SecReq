@@ -5,22 +5,13 @@
 - P0-1 生成改 upsert: 重新生成不再清空确认记录, 输入消失的需求标 obsolete;
 - P0-2 保存改按 uid 的整卷 upsert: 未改动的行主键不漂移, 溯源不断链。
 """
-from conftest import add_base_project
+from conftest import add_base_project, demo_features
 from models import ApiEndpoint, DataAsset, Feature, SecurityRequirement
 from rules import RuleEngine, load_knowledge_base
 from rules.context import RequirementContext
 from schemas.data_dictionary import DataAssetIn, DataFieldIn, DataTableIn
 from schemas.feature import FeatureIn
 from services.step_store import replace_data_assets, replace_features
-
-
-def _features():
-    return [
-        FeatureIn(name="登录", module="用户中心", categories=["auth_login"]),
-        FeatureIn(name="转账", module="支付模块", categories=["payment"],
-                  sensitivity="confidential", involves_payment=True),
-        FeatureIn(name="账单查询", module="支付模块", categories=["search"]),
-    ]
 
 
 def _saved_features_as_in(session, project_id):
@@ -45,7 +36,7 @@ def _feature_ids_by_name(session, project_id):
 def test_regenerate_preserves_confirmation(session):
     """确认过的需求在重新生成后应保持已确认状态(P0-1 修复护栏)。"""
     project = add_base_project(session)
-    replace_features(session, project.id, _features())
+    replace_features(session, project.id, demo_features())
 
     engine = RuleEngine(load_knowledge_base())
     first = engine.generate_and_save(RequirementContext.from_db(session, project.id), session)
@@ -80,7 +71,7 @@ def test_regenerate_preserves_confirmation(session):
 def test_saving_step_keeps_traceability(session):
     """保存向导步骤后, 已生成需求仍应能解析到正确的来源实体(P0-2 修复护栏)。"""
     project = add_base_project(session)
-    replace_features(session, project.id, _features())
+    replace_features(session, project.id, demo_features())
 
     engine = RuleEngine(load_knowledge_base())
     engine.generate_and_save(RequirementContext.from_db(session, project.id), session)
@@ -107,7 +98,7 @@ def test_saving_step_keeps_traceability(session):
 def test_regenerate_marks_removed_input_obsolete(session):
     """输入实体被删除后, 对应需求本轮未命中 → 标 obsolete 而非硬删(#66)。"""
     project = add_base_project(session)
-    replace_features(session, project.id, _features())
+    replace_features(session, project.id, demo_features())
     engine = RuleEngine(load_knowledge_base())
     first = engine.generate_and_save(RequirementContext.from_db(session, project.id), session)
     removed_req_ids = {
@@ -137,7 +128,7 @@ def test_regenerate_marks_removed_input_obsolete(session):
 def test_deleting_one_row_keeps_other_ids(session):
     """删除中间某一行后, 其余行的主键不应漂移(P0-2 修复护栏)。"""
     project = add_base_project(session)
-    replace_features(session, project.id, _features())
+    replace_features(session, project.id, demo_features())
     ids_before = _feature_ids_by_name(session, project.id)
 
     # 删除首行"登录", 保留其余两条(uid 原样回传)
@@ -155,7 +146,7 @@ def test_deleting_one_row_keeps_other_ids(session):
 def test_requirement_still_points_to_same_feature_after_deletion(session):
     """删除一个功能后, 其余功能对应的需求仍应溯源到同名功能(P0-2 修复护栏)。"""
     project = add_base_project(session)
-    replace_features(session, project.id, _features())
+    replace_features(session, project.id, demo_features())
 
     engine = RuleEngine(load_knowledge_base())
     engine.generate_and_save(RequirementContext.from_db(session, project.id), session)

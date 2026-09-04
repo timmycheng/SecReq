@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """pytest 公共夹具: 内存库会话 + 小型场景构造器。"""
+import shutil
 import sys
 from pathlib import Path
 
@@ -12,6 +13,18 @@ from sqlalchemy.orm import sessionmaker
 from models import (
     Project, init_db, make_engine,
 )
+from rules import RuleEngine
+
+
+@pytest.fixture(scope="session")
+def engine():
+    """整个会话共享一个 RuleEngine(知识库 YAML 只解析一次, ~44ms/次)。
+
+    共享安全性: generate() 入口即重置 self.skipped(rules/engine.py),
+    _handlers 为静态映射, 用例对 fixture 只调 generate() 与读 skipped,
+    无跨用例累积状态; 需要注入坏模板的容错用例自建引擎, 不用本 fixture。
+    """
+    return RuleEngine.load()
 
 
 @pytest.fixture()
@@ -41,6 +54,23 @@ def gen_for(session, project, engine):
     from rules.context import RequirementContext
     session.flush()
     return engine.generate(RequirementContext.from_db(session, project.id))
+
+
+def cleanup_output(code: str) -> None:
+    """删除仓库根 output/<code> 产物目录(生成/导出用例的兜底清理)。"""
+    out_dir = Path(__file__).resolve().parent.parent / "output" / code
+    shutil.rmtree(out_dir, ignore_errors=True)
+
+
+def demo_features():
+    """三条标准功能种子(登录/转账/账单查询): uid 稳定性与轮次继承测试共用。"""
+    from schemas.feature import FeatureIn
+    return [
+        FeatureIn(name="登录", module="用户中心", categories=["auth_login"]),
+        FeatureIn(name="转账", module="支付模块", categories=["payment"],
+                  sensitivity="confidential", involves_payment=True),
+        FeatureIn(name="账单查询", module="支付模块", categories=["search"]),
+    ]
 
 
 # ── 第三批: API 层公共夹具 ──────────────────────────────

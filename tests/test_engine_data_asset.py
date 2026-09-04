@@ -1,15 +1,7 @@
 # -*- coding: utf-8 -*-
 """数据资产/数据字典维度规则测试。"""
-import pytest
-
 from conftest import add_base_project, gen_for
 from models import DataAsset, DataField, DataTable
-from rules import RuleEngine
-
-
-@pytest.fixture()
-def engine():
-    return RuleEngine.load()
 
 
 def _add_asset(session, project, **kwargs) -> DataAsset:

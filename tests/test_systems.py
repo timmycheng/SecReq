@@ -4,12 +4,9 @@
 覆盖: CRUD 与唯一性冲突、删除保护、数据权限(开发仅见本人系统)、
 项目归属校验、当前基线动态计算、台账聚合、存量项目不受影响。
 """
-import shutil
-from pathlib import Path
-
 import pytest
 
-from conftest import api_as, login_as
+from conftest import api_as, cleanup_output, login_as
 
 
 @pytest.fixture()
@@ -35,11 +32,6 @@ def _create_system(client, name="手机银行系统", filing_id=None, code=None)
     })
     assert resp.status_code == 201, resp.text
     return resp.json()
-
-
-def _cleanup_output(code: str) -> None:
-    out_dir = Path(__file__).resolve().parent.parent / "output" / code
-    shutil.rmtree(out_dir, ignore_errors=True)
 
 
 # ── 备案 ─────────────────────────────────────────────
@@ -112,7 +104,7 @@ def test_system_crud_and_detail_timeline(dev, sec):
         target = next(p for p in projects if p["id"] == project["id"])
         assert target["is_current_baseline"] is True
     finally:
-        _cleanup_output(code)
+        cleanup_output(code)
 
 
 def test_system_unique_conflict_409(dev):
