@@ -1,13 +1,16 @@
-/* 项目列表: 全部项目表格(按角色过滤), 新建直通向导第一步; 空状态带首次使用引导。 */
+/* 项目列表: 全部项目表格(按角色过滤); 新建弹窗二选一(空白 / 按系统复制上一轮, #172);
+   空状态带首次使用引导。 */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Button, Card, Empty, Popconfirm, Select, Space, Table, Tag, message, Typography
+import {
+  Alert, Button, Card, Empty, Modal, Popconfirm, Radio, Select, Space, Table, Tag, message,
+  Typography,
 } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 
 import { api, getStoredUser } from '../api'
 import { labelOf, useEnums } from '../enums'
 import { navigate } from '../router'
-import type { ProjectDetail, SystemRow } from '../types'
+import type { ProjectDetail, RoundSummary, SystemRow } from '../types'
 
 export default function ProjectListPage() {
   const enums = useEnums()
@@ -16,6 +19,10 @@ export default function ProjectListPage() {
   const [systemFilter, setSystemFilter] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
+  // 新建弹窗(#172): 空白 / 按系统复制上一轮
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createMode, setCreateMode] = useState<'blank' | 'copy'>('blank')
+  const [copySystemId, setCopySystemId] = useState<number | undefined>()
   const isSecurity = getStoredUser()?.role === 'security'
 
   const reload = useCallback(() => {
@@ -33,15 +40,30 @@ export default function ProjectListPage() {
     [projects, systemFilter],
   )
 
-  /** 新建不再弹窗: 直接创建"未命名项目"并进入向导第一步补全信息。 */
+  const copySystem = systems.find((s) => s.id === copySystemId)
+  const latestRound: RoundSummary | undefined =
+    copySystem?.latest_round ?? copySystem?.rounds?.[0]
+
+  /** 新建(#172): 弹窗确认后创建; 复制模式按系统最新一轮整卷继承(#151 复制链路)。 */
   const handleCreate = async () => {
+    const from = createMode === 'copy' ? latestRound?.project_id : undefined
+    if (createMode === 'copy' && !from) {
+      message.warning('该系统还没有可复制的历史评估')
+      return
+    }
     setCreating(true)
     try {
-      const detail = await api.createProject({ name: '未命名项目' })
-      message.success('已创建, 请在第一步补全项目信息')
+      const detail = await api.createProject({
+        name: '未命名项目', from_project_id: from,
+      })
+      message.success(from
+        ? '已按上一轮评估创建新一轮, 请在向导中核对并修改变化部分'
+        : '已创建, 请在第一步补全项目信息')
+      setCreateOpen(false)
       navigate(`/wizard/${detail.id}`)
     } catch (e) {
       message.error((e as Error).message)
+    } finally {
       setCreating(false)
     }
   }
@@ -61,7 +83,7 @@ export default function ProjectListPage() {
               options={systems.map((s) => ({ value: s.id, label: s.name }))}
               onChange={(v) => setSystemFilter(v ?? null)}
             />
-            <Button type="primary" icon={<PlusOutlined />} loading={creating} onClick={() => void handleCreate()}>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
               新建项目
             </Button>
           </Space>
@@ -87,7 +109,7 @@ export default function ProjectListPage() {
                   </>
                 )}
               >
-                <Button type="primary" icon={<PlusOutlined />} onClick={() => void handleCreate()}>
+                <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
                   新建第一个项目
                 </Button>
               </Empty>
@@ -154,6 +176,52 @@ export default function ProjectListPage() {
           ]}
         />
       </Card>
+
+      <Modal
+        title="新建项目" open={createOpen} onCancel={() => setCreateOpen(false)} width={520}
+        footer={[
+          <Button key="cancel" onClick={() => setCreateOpen(false)}>取消</Button>,
+          <Button
+            key="ok" type="primary" loading={creating}
+            disabled={createMode === 'copy' && !latestRound}
+            onClick={() => void handleCreate()}
+          >
+            {createMode === 'copy' ? '创建新一轮评估' : '创建并进向导'}
+          </Button>,
+        ]}
+      >
+        <Radio.Group
+          value={createMode}
+          onChange={(e) => setCreateMode(e.target.value as 'blank' | 'copy')}
+          style={{ display: 'grid', gap: 8, marginBottom: 16 }}
+        >
+          <Radio value="blank">空白新建 —— 从第一步开始填写</Radio>
+          <Radio value="copy">按系统复制上一轮 —— 整卷继承向导数据, 只改变化部分</Radio>
+        </Radio.Group>
+        {createMode === 'copy' && (
+          <>
+            <Select
+              showSearch style={{ width: '100%' }} placeholder="选择所属系统"
+              optionFilterProp="label"
+              value={copySystemId}
+              options={systems.map((s) => ({ value: s.id, label: s.name }))}
+              onChange={setCopySystemId}
+            />
+            {copySystem && (latestRound ? (
+              <Alert
+                style={{ marginTop: 12 }} type="info" showIcon
+                message={`将复制「${latestRound.project_name}」(${latestRound.created_at?.slice(0, 10) || ''}{latestRound.status === 'generated' ? ', 已生成基线' : ''})`}
+                description="各步向导数据与上一轮一致; 组件漏洞记录不复制, 生成时重新查询。"
+              />
+            ) : (
+              <Alert
+                style={{ marginTop: 12 }} type="warning" showIcon
+                message="该系统还没有历史评估, 无法复制; 可改选空白新建"
+              />
+            ))}
+          </>
+        )}
+      </Modal>
     </div>
   )
 }

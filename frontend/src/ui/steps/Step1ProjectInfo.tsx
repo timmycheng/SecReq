@@ -57,6 +57,33 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
   const [sysCreating, setSysCreating] = useState(false)
   const watchedSystemId = Form.useWatch('system_id', form)
   const selectedSystem = systems.find((s) => s.id === watchedSystemId) ?? null
+  const latestRound = selectedSystem?.latest_round ?? selectedSystem?.rounds?.[0] ?? null
+  const [copying, setCopying] = useState(false)
+
+  /** 就地复制上一轮(#172): 当前项目已落库, 走 copy-from 先清后拷; 全部步骤数据变化, 整页重载 */
+  const doCopyFromLatest = async () => {
+    if (!latestRound) return
+    setCopying(true)
+    try {
+      await api.copyProjectFrom(ws.project.id, latestRound.project_id)
+      message.success(`已复制「${latestRound.project_name}」的向导数据, 页面将刷新`)
+      window.location.reload()
+    } catch (e) {
+      message.error((e as Error).message)
+      setCopying(false)
+    }
+  }
+
+  /** 一键清空(#172): 清空全部向导输入回到空白模板; 生成产出不动 */
+  const doResetWizard = async () => {
+    try {
+      await api.resetProjectWizard(ws.project.id)
+      message.success('已清空全部向导数据, 页面将刷新')
+      window.location.reload()
+    } catch (e) {
+      message.error((e as Error).message)
+    }
+  }
 
   const savedRef = useRef(JSON.stringify(snapshotOf(ws, cfg)))
 
@@ -202,12 +229,34 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
           label="所属系统(台账)"
           tooltip="归属系统后, 同一系统多次评估在系统台账下形成时间线, 最新一轮即当前基线"
           extra={(
-            <>找不到?&nbsp;
+            <Space size={4} wrap>
+              <span>找不到?</span>
               <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setSysCreating(true)}>
                 就地新建系统
               </Button>
-              (登记系统并挂靠定级备案)
-            </>
+              <span>(登记系统并挂靠定级备案)</span>
+              {selectedSystem && (
+                latestRound ? (
+                  <Button type="link" size="small" style={{ padding: 0 }} loading={copying}
+                    onClick={() => void doCopyFromLatest()}>
+                    复制上一轮({latestRound.created_at?.slice(0, 10) || latestRound.project_name})
+                  </Button>
+                ) : (
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    该系统暂无历史评估可复制
+                  </Typography.Text>
+                )
+              )}
+              <Popconfirm
+                title="清空当前项目的全部向导数据?"
+                description="各步骤输入将回到空白模板(生成产出不受影响), 不可恢复"
+                onConfirm={() => void doResetWizard()}
+              >
+                <Button type="link" size="small" style={{ padding: 0 }} danger>
+                  一键清空
+                </Button>
+              </Popconfirm>
+            </Space>
           )}
         >
           <Select
