@@ -180,3 +180,63 @@ def test_copy_remaps_fks_and_cleans_stale_ids(session):
     assert new_zone.uid == zone.uid and new_zone.id != zone.id
     assert new_entry.role_id != role.id and new_entry.resource_id != resource.id
     assert new_asset.uid == asset.uid and new_asset.id != asset.id
+
+
+def test_copy_clears_component_vuln_cache(session):
+    """回归(#169): 复制组件必须清空漏洞查询缓存, 否则缓存命中导致新轮次查不到漏洞。"""
+    from datetime import datetime
+
+    from models import SbomComponent
+
+    project = add_base_project(session)
+    now = datetime.now()
+    session.add(SbomComponent(
+        project_id=project.id, uid="comp-1", layer="runtime", name="log4j",
+        version="2.14.1", license="Apache-2.0",
+        last_osv_query_at=now, osv_query_fingerprint="local|v1|log4j|2.14.1|maven|",
+        vuln_status="hit", vuln_status_note="命中 2 条",
+    ))
+    session.commit()
+
+    nxt = _new_round(session, project, "R2", 1.0)
+    copied = session.query(SbomComponent).filter_by(project_id=nxt.id).one()
+    assert copied.last_osv_query_at is None
+    assert copied.osv_query_fingerprint is None
+    assert copied.vuln_status is None
+    assert copied.vuln_status_note is None
+    source = session.query(SbomComponent).filter_by(project_id=project.id).one()
+    assert source.osv_query_fingerprint == "local|v1|log4j|2.14.1|maven|"  # 来源不受影响
+
+
+def test_repair_stale_component_cache(session):
+    """启动自愈(#169): 有缓存但零漏洞记录的组件清缓存; 有记录的不动; 幂等。"""
+    from datetime import datetime
+
+    from models import SbomComponent, VulnerabilityRecord
+    from services.project_copy import repair_stale_component_cache
+
+    project = add_base_project(session)
+    now = datetime.now()
+    victim = SbomComponent(
+        project_id=project.id, uid="comp-v", layer="runtime", name="shiro",
+        version="1.5", last_osv_query_at=now, osv_query_fingerprint="fp-v",
+        vuln_status="hit",
+    )
+    healthy = SbomComponent(
+        project_id=project.id, uid="comp-h", layer="runtime", name="commons-io",
+        version="2.11", last_osv_query_at=now, osv_query_fingerprint="fp-h",
+        vuln_status="hit",
+    )
+    session.add_all([victim, healthy])
+    session.flush()
+    session.add(VulnerabilityRecord(component_id=healthy.id, cve_id="CVE-2026-0001",
+                                    severity="high"))
+    session.commit()
+
+    repaired = repair_stale_component_cache(session)
+    assert repaired == 1
+    session.refresh(victim)
+    session.refresh(healthy)
+    assert victim.osv_query_fingerprint is None and victim.vuln_status is None
+    assert healthy.osv_query_fingerprint == "fp-h" and healthy.vuln_status == "hit"
+    assert repair_stale_component_cache(session) == 0  # 幂等

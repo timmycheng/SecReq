@@ -6,7 +6,8 @@
   对齐做增量对比正依赖这一点(与 UidContinuityGuard 的设计哲学一致);
 - 主键/外键全部重排: 权限条目重挂新角色/资源, 资产关联以 uid 为准,
   旧主键引用(sensitive_asset_ids)置空防悬挂;
-- 组件漏洞记录不复制, 生成流水线会按组件重新查询。
+- 组件漏洞记录不复制, 生成流水线会按组件重新查询; 复制时同时清空组件上的
+  漏洞查询缓存字段, 否则「TTL 内指纹未变→跳过查询」会让新轮次永远查不到漏洞(#169)。
 """
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
@@ -14,7 +15,7 @@ from sqlalchemy.orm import Session
 from models import (
     ApiEndpoint, DataAsset, ExternalSystem,
     Feature, InfraAsset, InfraLayout, InfraLink, NetworkZone,
-    PermissionEntry, Project, Resource, Role, SbomComponent,
+    PermissionEntry, Project, Resource, Role, SbomComponent, VulnerabilityRecord,
 )
 
 
@@ -97,9 +98,16 @@ def copy_wizard_data(db: Session, source: Project, target: Project) -> None:
     for layout in db.query(InfraLayout).filter_by(project_id=src).all():
         db.add(_clone(layout, project_id=dst))
 
-    # 组件(不含漏洞记录)与接口(旧资产主键引用置空, 以 uids 为准)
+    # 组件与接口(旧资产主键引用置空, 以 uids 为准)。
+    # 组件必须清空漏洞查询缓存四件套: 漏洞记录按 component_id 挂表、复制时不带,
+    # 若缓存字段原样带过来, sync_vulnerabilities 的「TTL 内且指纹未变→跳过查询」
+    # 会立刻命中, 新轮次的漏洞将永远查不到(#169)
     for comp in db.query(SbomComponent).filter_by(project_id=src).all():
-        db.add(_clone(comp, project_id=dst))
+        db.add(_clone(
+            comp, project_id=dst,
+            last_osv_query_at=None, osv_query_fingerprint=None,
+            vuln_status=None, vuln_status_note=None,
+        ))
     for ep in db.query(ApiEndpoint).filter_by(project_id=src).all():
         db.add(_clone(ep, project_id=dst, sensitive_asset_ids=[]))
 
@@ -107,3 +115,33 @@ def copy_wizard_data(db: Session, source: Project, target: Project) -> None:
         db.add(_clone(ext, project_id=dst))
 
     db.commit()
+
+
+def repair_stale_component_cache(db: Session) -> int:
+    """启动自愈(#169): 已复制出来的项目组件带缓存但名下无漏洞记录 → 清缓存强制重查。
+
+    判定「有缓存状态但零漏洞记录」: 正常查过且确无漏洞的组件(status=not_found)被
+    清掉也只是多查一次, 无副作用; 而复制受害组件(status=hit 却无记录)由此恢复。
+    幂等, 返回修复的组件数。
+    """
+    cached = (
+        db.query(SbomComponent)
+        .filter(SbomComponent.last_osv_query_at.isnot(None))
+        .all()
+    )
+    if not cached:
+        return 0
+    ids_with_records = {
+        row[0] for row in db.query(VulnerabilityRecord.component_id).distinct().all()
+    }
+    repaired = 0
+    for comp in cached:
+        if comp.id in ids_with_records:
+            continue
+        comp.last_osv_query_at = None
+        comp.osv_query_fingerprint = None
+        comp.vuln_status = None
+        comp.vuln_status_note = None
+        repaired += 1
+    db.commit()
+    return repaired
