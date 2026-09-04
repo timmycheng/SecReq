@@ -17,6 +17,31 @@ _EPOCH = datetime.min
 _CHANGED_FIELDS = ("title", "description", "priority", "acceptance_criteria",
                    "category", "regulatory_ref")
 
+# 变更字段中文名(#176): 前端对比弹窗与 Word 差异章节共用同一口径
+FIELD_LABELS = {
+    "title": "需求标题",
+    "description": "需求内容",
+    "priority": "优先级",
+    "acceptance_criteria": "验收标准",
+    "category": "类目",
+    "regulatory_ref": "合规出处",
+}
+
+
+def _field_display(value) -> str:
+    """字段值的前后值展示形态: 合规出处(结构化列表)拼成可读句, 其余转字符串。"""
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        parts = []
+        for ref in value:
+            if isinstance(ref, dict):
+                parts.append(f"《{ref.get('file', '')}》{ref.get('clause') or ''}")
+            else:
+                parts.append(str(ref))
+        return "; ".join(p for p in parts if p.strip("《》"))
+    return str(value)
+
 
 def find_previous_round(db: Session, project: Project,
                         against: int | None = None) -> Project | None:
@@ -85,6 +110,16 @@ def diff_requirements(db: Session, current: Project, previous: Project) -> dict:
         if diff_fields:
             changed.append({
                 "fields": diff_fields,
+                # 字段级前后值(#176): 变更常由 描述/验收标准 变化触发,
+                # 只给字段名看不出「到底什么变了」
+                "field_values": {
+                    field: {
+                        "label": FIELD_LABELS[field],
+                        "previous": _field_display(getattr(prev, field)),
+                        "current": _field_display(getattr(cur, field)),
+                    }
+                    for field in diff_fields
+                },
                 "previous": _row(prev),
                 "current": _row(cur),
             })

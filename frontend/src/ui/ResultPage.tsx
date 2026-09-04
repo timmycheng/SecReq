@@ -27,6 +27,12 @@ const SEVERITY_COLOR: Record<string, string> = {
   critical: 'red', high: 'volcano', medium: 'gold', low: 'default',
 }
 
+/** 旧载荷无 field_values 时的字段名中文兜底(#176); 正常路径标签由后端 field_values 下发 */
+const DIFF_FIELD_FALLBACK_LABELS: Record<string, string> = {
+  title: '需求标题', description: '需求内容', priority: '优先级',
+  acceptance_criteria: '验收标准', category: '类目', regulatory_ref: '合规出处',
+}
+
 
 /** 漏洞严重度数值序(小=严重), 供汇聚取最高严重度(#95)。 */
 const SEVERITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
@@ -598,12 +604,33 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                     <Space size={8} wrap>
                       <Typography.Text code>{c.current.req_id}</Typography.Text>
                       <b>{c.current.title}</b>
-                      {c.fields.map((f) => <Tag key={f}>{f}</Tag>)}
                     </Space>
-                    <div style={{ color: '#888', marginTop: 4, fontSize: 12 }}>
-                      原优先级: {priorityLabels[c.previous.priority] ?? c.previous.priority}
-                      → 现: {priorityLabels[c.current.priority] ?? c.current.priority}
-                    </div>
+                    {/* 字段级前后值(#176): 只列真正变化的字段, 优先级未变不再出现「高 → 高」 */}
+                    {Object.entries(c.field_values ?? {}).map(([field, v]) => (
+                      <div key={field} style={{ marginTop: 6, fontSize: 12, display: 'flex', gap: 8 }}>
+                        <Tag style={{ flexShrink: 0 }}>{v.label}</Tag>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <Typography.Paragraph
+                            type="secondary" delete
+                            ellipsis={{ rows: 2, expandable: true }}
+                            style={{ marginBottom: 2 }}
+                          >
+                            {v.previous || '(空)'}
+                          </Typography.Paragraph>
+                          <Typography.Paragraph
+                            ellipsis={{ rows: 2, expandable: true }}
+                            style={{ marginBottom: 0 }}
+                          >
+                            {v.current || '(空)'}
+                          </Typography.Paragraph>
+                        </div>
+                      </div>
+                    ))}
+                    {Object.keys(c.field_values ?? {}).length === 0 && (
+                      <div style={{ color: '#888', marginTop: 4, fontSize: 12 }}>
+                        变化字段: {c.fields.map((f) => DIFF_FIELD_FALLBACK_LABELS[f] ?? f).join('、')}
+                      </div>
+                    )}
                   </Card>
                 ))}
               </div>

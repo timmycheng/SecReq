@@ -14,7 +14,7 @@ from rules.context import RequirementContext
 from schemas.feature import FeatureIn
 from services.project_copy import copy_wizard_data
 from services.project_service import create_project
-from services.requirement_diff import diff_requirements, find_previous_round
+from services.requirement_diff import FIELD_LABELS, diff_requirements, find_previous_round
 from services.step_store import replace_features
 
 from datetime import datetime, timedelta
@@ -92,6 +92,18 @@ def test_diff_detects_added_and_changed(session):
     assert any(r["req_id"].startswith("SEC-EXP") or "导出" in r["title"] for r in result["added"])
     assert result["summary"]["changed"] >= 1
     assert result["summary"]["removed"] == 0
+
+    # 字段级前后值(#176): 变更项能看出每个字段旧值→新值, 中文标签由后端下发
+    changed_with_values = [c for c in result["changed"] if c.get("field_values")]
+    assert changed_with_values, "变更项应携带字段级前后值"
+    for c in changed_with_values:
+        assert set(c["field_values"]) == set(c["fields"])
+        for v in c["field_values"].values():
+            assert v["label"] and v["previous"] != v["current"]
+    sample = changed_with_values[0]
+    sample_field = next(iter(sample["field_values"]))
+    assert sample["field_values"][sample_field]["label"] == FIELD_LABELS[sample_field]
+    assert sample["field_values"][sample_field]["previous"]
 
 
 def test_diff_detects_removed(session):

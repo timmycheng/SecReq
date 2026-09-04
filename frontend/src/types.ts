@@ -92,7 +92,13 @@ export interface RequirementDiff {
   }
   added?: DiffRow[]
   removed?: DiffRow[]
-  changed?: { fields: string[]; previous: DiffRow; current: DiffRow }[]
+  changed?: {
+    fields: string[]
+    /** 字段级前后值(#176): 变更常由 描述/验收标准 触发, 需展示旧值→新值 */
+    field_values?: Record<string, { label: string; previous: string; current: string }>
+    previous: DiffRow
+    current: DiffRow
+  }[]
   summary?: { current_total: number; previous_total: number; added: number; removed: number; changed: number }
 }
 
