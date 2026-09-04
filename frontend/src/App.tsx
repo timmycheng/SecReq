@@ -1,10 +1,10 @@
 /* 应用外壳: 未登录显示登录页; 已登录为 dashboard 布局(左侧菜单 + 顶栏用户区)。 */
 import { useEffect, useState } from 'react'
 import {
-  Avatar, ConfigProvider, App as AntdApp, Dropdown, Layout, Menu, Popover, Space, Tag,
+  Avatar, ConfigProvider, App as AntdApp, Dropdown, Layout, Menu, Space, Tag,
 } from 'antd'
 import {
-  ApartmentOutlined, CloudServerOutlined, QuestionCircleOutlined, SettingOutlined,
+  ApartmentOutlined, CloudServerOutlined, SettingOutlined,
   UnorderedListOutlined, UserOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
@@ -23,22 +23,6 @@ import WizardPage from './ui/WizardPage'
 import ResultPage from './ui/ResultPage'
 import AdminPage from './ui/AdminPage'
 import type { LoginInfo } from './types'
-
-const HELP_CONTENT = (
-  <div style={{ maxWidth: 340, fontSize: 13, lineHeight: 1.7 }}>
-    <p style={{ margin: 0, fontWeight: 600 }}>整个平台就是两件事:</p>
-    <p style={{ margin: '4px 0 0' }}>
-      <b>① 填报</b>(开发): 发起新评估 → 按向导逐步填写 → 一键「生成安全基线」。
-    </p>
-    <p style={{ margin: '2px 0' }}>
-      <b>② 确认</b>: 在产物页逐条/批量确认安全需求, 补齐报送事项确认 ——
-      缺什么, 页面会用红字列出来。
-    </p>
-    <p style={{ margin: '6px 0 0', color: '#888' }}>
-      开发只能看到自己创建的评估; 安全角色可以看到全部评估。
-    </p>
-  </div>
-)
 
 function AppBody() {
   const { message } = AntdApp.useApp()
@@ -141,11 +125,6 @@ function AppBody() {
               borderBottom: '1px solid #f0f0f0',
             }}
           >
-            <Popover content={HELP_CONTENT} title="怎么用?" trigger="click">
-              <Tag style={{ cursor: 'pointer' }}>
-                <QuestionCircleOutlined /> 怎么用
-              </Tag>
-            </Popover>
             <Dropdown menu={userMenu}>
               <Space style={{ cursor: 'pointer' }} size={8}>
                 <Avatar size={28} icon={<UserOutlined />} style={{ background: '#2f5597' }} />
