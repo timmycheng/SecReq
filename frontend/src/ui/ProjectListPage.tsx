@@ -1,4 +1,4 @@
-/* 评估列表: 全部项目表格(按角色过滤); 新建弹窗二选一(空白 / 按系统复制上一轮, #172);
+/* 评估列表: 全部项目表格(按角色过滤); 新建弹窗强制先选系统(可按上一轮复制, #195);
    空状态带首次使用引导。 */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
@@ -19,10 +19,10 @@ export default function ProjectListPage() {
   const [systemFilter, setSystemFilter] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
-  // 新建弹窗(#172): 空白 / 按系统复制上一轮
+  // 新建弹窗(#195): 必选系统 → 有上一轮默认复制, 可切换空白; 支持跳转新建系统
   const [createOpen, setCreateOpen] = useState(false)
-  const [createMode, setCreateMode] = useState<'blank' | 'copy'>('blank')
-  const [copySystemId, setCopySystemId] = useState<number | undefined>()
+  const [createMode, setCreateMode] = useState<'blank' | 'copy'>('copy')
+  const [createSystemId, setCreateSystemId] = useState<number | undefined>()
   const isSecurity = getStoredUser()?.role === 'security'
 
   const reload = useCallback(() => {
@@ -40,21 +40,25 @@ export default function ProjectListPage() {
     [projects, systemFilter],
   )
 
-  const copySystem = systems.find((s) => s.id === copySystemId)
+  const copySystem = systems.find((s) => s.id === createSystemId)
   const latestRound: RoundSummary | undefined =
     copySystem?.latest_round ?? copySystem?.rounds?.[0]
 
-  /** 新建(#172): 弹窗确认后创建; 复制模式按系统最新一轮整卷继承(#151 复制链路)。 */
+  /** 新建(#195): 必选系统; 有上一轮时默认整卷继承(#151 复制链路)。 */
   const handleCreate = async () => {
+    if (!createSystemId) {
+      message.warning('请先选择所属系统')
+      return
+    }
     const from = createMode === 'copy' ? latestRound?.project_id : undefined
     if (createMode === 'copy' && !from) {
-      message.warning('该系统还没有可复制的历史评估')
+      message.warning('该系统还没有可复制的历史评估, 请切换为空白新建')
       return
     }
     setCreating(true)
     try {
       const detail = await api.createProject({
-        name: '未命名评估', from_project_id: from,
+        name: '未命名评估', system_id: createSystemId, from_project_id: from,
       })
       message.success(from
         ? '已按上一轮评估创建新一轮, 请在向导中核对并修改变化部分'
@@ -66,6 +70,12 @@ export default function ProjectListPage() {
     } finally {
       setCreating(false)
     }
+  }
+
+  const openCreate = () => {
+    setCreateMode('copy')
+    setCreateSystemId(undefined)
+    setCreateOpen(true)
   }
 
   return (
@@ -83,7 +93,7 @@ export default function ProjectListPage() {
               options={systems.map((s) => ({ value: s.id, label: s.name }))}
               onChange={(v) => setSystemFilter(v ?? null)}
             />
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
               发起新评估
             </Button>
           </Space>
@@ -102,14 +112,14 @@ export default function ProjectListPage() {
                   <>
                     <p style={{ fontWeight: 600 }}>还没有评估</p>
                     <p style={{ color: '#888' }}>
-                      平台通过 8 步向导完成评估信息采集, 按行内安全知识库自动生成
+                      平台通过 6 步向导完成评估信息采集, 按行内安全知识库自动生成
                       安全需求清单、SBOM 漏洞清单与交付文档。
                       推荐顺序: 发起新评估 → 填写向导 → 生成基线 → 查看产物并确认需求。
                     </p>
                   </>
                 )}
               >
-                <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+                <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
                   发起第一个评估
                 </Button>
               </Empty>
@@ -180,47 +190,65 @@ export default function ProjectListPage() {
       <Modal
         title="发起新评估" open={createOpen} onCancel={() => setCreateOpen(false)} width={520}
         footer={[
+          <Button key="newsys" onClick={() => { setCreateOpen(false); navigate('/systems') }}>
+            新建系统
+          </Button>,
           <Button key="cancel" onClick={() => setCreateOpen(false)}>取消</Button>,
           <Button
             key="ok" type="primary" loading={creating}
-            disabled={createMode === 'copy' && !latestRound}
+            disabled={!createSystemId || (createMode === 'copy' && !latestRound)}
             onClick={() => void handleCreate()}
           >
-            {createMode === 'copy' ? '创建新一轮评估' : '创建并进向导'}
+            {createMode === 'copy' && latestRound ? '创建新一轮评估' : '创建并进向导'}
           </Button>,
         ]}
       >
-        <Radio.Group
-          value={createMode}
-          onChange={(e) => setCreateMode(e.target.value as 'blank' | 'copy')}
-          style={{ display: 'grid', gap: 8, marginBottom: 16 }}
-        >
-          <Radio value="blank">空白新建 —— 从第一步开始填写</Radio>
-          <Radio value="copy">按系统复制上一轮 —— 整卷继承向导数据, 只改变化部分</Radio>
-        </Radio.Group>
-        {createMode === 'copy' && (
+        <Typography.Text style={{ display: 'block', marginBottom: 8 }}>
+          选择所属系统<span style={{ color: '#cf1322' }}>(必选)</span>
+        </Typography.Text>
+        <Select
+          showSearch style={{ width: '100%' }} placeholder="选择所属系统"
+          optionFilterProp="label"
+          value={createSystemId}
+          options={systems.map((s) => ({
+            value: s.id,
+            label: s.filing_name ? `${s.name}(备案: ${s.filing_name})` : s.name,
+          }))}
+          onChange={(v) => {
+            setCreateSystemId(v)
+            // 无历史评估的系统自动切空白新建, 避免「创建」按钮被复制模式禁用
+            const sys = systems.find((it) => it.id === v)
+            setCreateMode(sys?.latest_round ?? sys?.rounds?.[0] ? 'copy' : 'blank')
+          }}
+          notFoundContent="还没有系统登记, 请先新建系统"
+        />
+        {createSystemId && (latestRound ? (
           <>
-            <Select
-              showSearch style={{ width: '100%' }} placeholder="选择所属系统"
-              optionFilterProp="label"
-              value={copySystemId}
-              options={systems.map((s) => ({ value: s.id, label: s.name }))}
-              onChange={setCopySystemId}
-            />
-            {copySystem && (latestRound ? (
+            <Radio.Group
+              value={createMode}
+              onChange={(e) => setCreateMode(e.target.value as 'blank' | 'copy')}
+              style={{ display: 'grid', gap: 8, marginTop: 16 }}
+            >
+              <Radio value="copy">按上一轮复制 —— 整卷继承向导数据, 只改变化部分</Radio>
+              <Radio value="blank">空白新建 —— 从第一步开始填写</Radio>
+            </Radio.Group>
+            {createMode === 'copy' && (
               <Alert
                 style={{ marginTop: 12 }} type="info" showIcon
                 message={`将复制「${latestRound.project_name}」(${latestRound.created_at?.slice(0, 10) || ''}{latestRound.status === 'generated' ? ', 已生成基线' : ''})`}
                 description="各步向导数据与上一轮一致; 组件漏洞记录不复制, 生成时重新查询。"
               />
-            ) : (
-              <Alert
-                style={{ marginTop: 12 }} type="warning" showIcon
-                message="该系统还没有历史评估, 无法复制; 可改选空白新建"
-              />
-            ))}
+            )}
           </>
-        )}
+        ) : (
+          <Alert
+            style={{ marginTop: 16 }} type="info" showIcon
+            message="该系统还没有历史评估, 将以空白新建"
+          />
+        ))}
+        <Typography.Text type="secondary" style={{ display: 'block', marginTop: 16, fontSize: 12 }}>
+          没有合适的系统? 点左下角「新建系统」先去系统台账登记(基本信息/基础设施/组件都在系统上维护)。
+        </Typography.Text>
       </Modal>
     </div>
   )

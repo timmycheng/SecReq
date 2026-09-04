@@ -148,8 +148,10 @@ def test_generate_summary_reports_skipped_templates(api, monkeypatch):
     )
 
     try:
+        from conftest import create_system_api
+        sid = create_system_api(api, "透传系统")["id"]
         resp = api.post("/api/projects", json={
-            "name": "跳过透传测试", "code": code, "type": "web", "user_scale": "under_1k"})
+            "name": "跳过透传测试", "code": code, "system_id": sid})
         assert resp.status_code == 201, resp.text
         pid = resp.json()["id"]
 

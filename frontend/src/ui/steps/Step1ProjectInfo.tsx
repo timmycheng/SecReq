@@ -130,6 +130,22 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
     }
   }
 
+  /** 绑定系统(#195): 创建时已必选; 此处支持更换(二次确认), 不可清空。 */
+  const handleSystemChange = (systemId: number | undefined) => {
+    if (systemId === undefined || systemId === ws.project.system_id) return
+    if (!ws.project.system_id) {
+      onSystemChange(systemId)
+      return
+    }
+    Modal.confirm({
+      title: '更换所属系统?',
+      content: '定级预填与系统清单将随新系统重新核对; 更换后原系统的时间线不再包含本评估。',
+      okText: '更换', cancelText: '取消',
+      onOk: () => onSystemChange(systemId),
+      onCancel: () => form.setFieldValue('system_id', ws.project.system_id),
+    })
+  }
+
   const reloadBaseline = () => {
     api.getGradingBaseline(ws.project.id).then(setBaseline).catch(() => undefined)
   }
@@ -253,14 +269,14 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
           )}
         >
           <Select
-            allowClear showSearch
+            showSearch
             placeholder="选择该评估所属的系统"
             optionFilterProp="label"
             options={systems.map((s) => ({
               value: s.id,
               label: s.filing_name ? `${s.name}(备案: ${s.filing_name})` : s.name,
             }))}
-            onChange={onSystemChange}
+            onChange={handleSystemChange}
           />
         </Form.Item>
         <Form.Item

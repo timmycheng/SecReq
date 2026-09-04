@@ -86,9 +86,9 @@ def test_copy_from_overwrites_existing_inputs(api, bound_projects):
     assert [f["name"] for f in features] == ["转账汇款", "账单查询"]
 
 
-def test_copy_from_guards(api):
+def test_copy_from_guards(api, bound_projects):
     """自身复制 400; 来源/目标不存在 404。"""
-    pid = _create_project(api, "某评估")
+    pid = bound_projects("某评估")
     self_copy = api.post(f"/api/projects/{pid}/copy-from", json={"from_project_id": pid})
     assert self_copy.status_code == 400
 
