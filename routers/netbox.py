@@ -2,7 +2,8 @@
 """NetBox 代理与写回端点(#153): 基础设施资产 导入/推送。
 
 - /api/netbox 前缀不在 OPEN_API_PREFIXES, 全局 auth_guard 自动要求登录;
-- 读取代理 require_login; 写回 require_write_roles(与向导写权限一致);
+- #196: NetBox 收敛为安全侧数据通道, 全部端点(含只读代理)仅 security 可用,
+  开发侧界面不渲染任何入口, 直调 API 一律 403;
 - 错误映射: 未配置 → 409 可读提示, 断连/超时 → 502(中文归因), 4xx → 502 透传 detail;
 - 兜底原则: NetBox 是旁路增强 —— 推送是保存后的旁路动作, 失败不回滚、可重试。
 """
@@ -12,9 +13,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-import shared.constants as C
 from models import InfraAsset, PlatformUser, Project, System
-from routers.common import ensure_project_access, get_db, require_login
+from routers.admin import require_security
+from routers.common import ensure_project_access, get_db
 from services.audit_service import audit
 from services.netbox import NetboxApiError, NetboxClient, NetboxUnavailable
 from services.settings_service import get_netbox_config
@@ -38,14 +39,14 @@ def _proxy_502(exc: Exception) -> HTTPException:
     return HTTPException(status_code=502, detail=str(exc))
 
 
-def _require_write_roles(user: PlatformUser) -> None:
-    """写回角色白名单与向导写权限一致; 非白名单 403。"""
-    if user.role not in C.WRITE_WIZARD_ROLES:
-        raise HTTPException(status_code=403, detail="无写回权限, 仅开发/安全角色可推送")
+def _require_security_role(user: PlatformUser) -> None:
+    """#196: NetBox 读写均收敛为安全角色; 其余角色 403。"""
+    if user.role != "security":
+        raise HTTPException(status_code=403, detail="仅安全角色可访问 NetBox 互通功能")
 
 
 @router.get("/status")
-def netbox_status(user: PlatformUser = Depends(require_login),
+def netbox_status(user: PlatformUser = Depends(require_security),
                   db: Session = Depends(get_db)):
     """前端构建 NetBox 外链用: 是否已配置 + base_url。"""
     cfg = get_netbox_config(db)
@@ -56,7 +57,7 @@ def netbox_status(user: PlatformUser = Depends(require_login),
 
 @router.get("/devices")
 def proxy_devices(keyword: str | None = None, limit: int = 25, offset: int = 0,
-                  user: PlatformUser = Depends(require_login),
+                  user: PlatformUser = Depends(require_security),
                   db: Session = Depends(get_db)):
     cfg, client = _client_or_409(db)
     try:
@@ -69,7 +70,7 @@ def proxy_devices(keyword: str | None = None, limit: int = 25, offset: int = 0,
 
 @router.get("/virtual-machines")
 def proxy_virtual_machines(keyword: str | None = None, limit: int = 25, offset: int = 0,
-                           user: PlatformUser = Depends(require_login),
+                           user: PlatformUser = Depends(require_security),
                            db: Session = Depends(get_db)):
     cfg, client = _client_or_409(db)
     try:
@@ -82,7 +83,7 @@ def proxy_virtual_machines(keyword: str | None = None, limit: int = 25, offset: 
 
 @router.get("/ip-addresses")
 def proxy_ip_addresses(keyword: str | None = None, limit: int = 25, offset: int = 0,
-                       user: PlatformUser = Depends(require_login),
+                       user: PlatformUser = Depends(require_security),
                        db: Session = Depends(get_db)):
     cfg, client = _client_or_409(db)
     try:
@@ -94,7 +95,7 @@ def proxy_ip_addresses(keyword: str | None = None, limit: int = 25, offset: int 
 
 
 @router.get("/options")
-def proxy_options(user: PlatformUser = Depends(require_login),
+def proxy_options(user: PlatformUser = Depends(require_security),
                   db: Session = Depends(get_db)):
     """推送弹窗下拉数据: sites/roles/device_types, 附 base_url 供外链。"""
     cfg, client = _client_or_409(db)
@@ -135,9 +136,9 @@ def _find_exact(rows: list[dict], key: str, value: str) -> dict | None:
 
 @router.post("/devices")
 def push_device(payload: NetboxDevicePushIn,
-                user: PlatformUser = Depends(require_login),
+                user: PlatformUser = Depends(require_security),
                 db: Session = Depends(get_db)):
-    _require_write_roles(user)
+    _require_security_role(user)
     asset = db.get(InfraAsset, payload.asset_id)
     project = db.get(Project, payload.project_id)
     # #194 资产挂系统: 资产须属于该评估所挂的系统, 访问口径随项目走
@@ -198,7 +199,7 @@ def push_device(payload: NetboxDevicePushIn,
 
 @router.get("/systems")
 def proxy_systems(keyword: str | None = None, limit: int = 25, offset: int = 0,
-                  user: PlatformUser = Depends(require_login),
+                  user: PlatformUser = Depends(require_security),
                   db: Session = Depends(get_db)):
     """custom-objects 系统清单代理: 按 field_map 裁剪为 {id, name, code, owner, url}。"""
     cfg, client = _client_or_409(db)
@@ -234,9 +235,9 @@ class NetboxSystemPushIn(BaseModel):
 
 @router.post("/systems")
 def push_system(payload: NetboxSystemPushIn,
-                user: PlatformUser = Depends(require_login),
+                user: PlatformUser = Depends(require_security),
                 db: Session = Depends(get_db)):
-    _require_write_roles(user)
+    _require_security_role(user)
     system = db.get(System, payload.system_id)
     if system is None or (
         user.role != "security" and system.owner_user_id not in (None, user.id)
@@ -287,10 +288,10 @@ class NetboxIpPushIn(BaseModel):
 
 @router.post("/ip-addresses")
 def push_ip_address(payload: NetboxIpPushIn,
-                    user: PlatformUser = Depends(require_login),
+                    user: PlatformUser = Depends(require_security),
                     db: Session = Depends(get_db)):
     """独立建 IP(不挂设备), 推送前按地址查重。"""
-    _require_write_roles(user)
+    _require_security_role(user)
     cfg, client = _client_or_409(db)
     try:
         dup = _find_exact(client.list_ip_addresses(keyword=payload.address, limit=100)["results"],

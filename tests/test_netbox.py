@@ -359,32 +359,35 @@ def _make_asset(api) -> tuple[int, int]:
     return pid, rows[0]["id"]
 
 
-def test_proxy_unconfigured_returns_409(api, monkeypatch):
+def test_proxy_unconfigured_returns_409(api, sec, monkeypatch):
+    """#196: NetBox 全端点仅安全角色; 开发直调一律 403。"""
+    assert api.get("/api/netbox/devices").status_code == 403
+    assert api.get("/api/netbox/status").status_code == 403
     _isolate_env(monkeypatch)
-    resp = api.get("/api/netbox/devices")
+    resp = sec.get("/api/netbox/devices")
     assert resp.status_code == 409
     assert "尚未配置" in resp.json()["detail"]
 
 
-def test_proxy_list_and_options(netbox_ready, api):
+def test_proxy_list_and_options(netbox_ready, sec):
     netbox_ready.devices = [
         {"id": 9, "name": "edge-sw01", "primary_ip": "10.0.0.2/24", "site": "总部机房",
          "role": "交换机", "device_type": "S5735", "status": "active",
          "url": f"{NB_BASE}/dcim/devices/9/"},
     ]
-    rows = api.get("/api/netbox/devices", params={"keyword": "edge"}).json()
+    rows = sec.get("/api/netbox/devices", params={"keyword": "edge"}).json()
     assert rows["count"] == 1 and rows["results"][0]["name"] == "edge-sw01"
 
-    options = api.get("/api/netbox/options").json()
+    options = sec.get("/api/netbox/options").json()
     assert options["base_url"] == NB_BASE
     assert options["sites"][0]["name"] == "总部机房"
     assert options["roles"][0]["id"] == 2
     assert options["device_types"][0]["model"] == "S5735"
 
 
-def test_proxy_unreachable_502(netbox_ready, api):
+def test_proxy_unreachable_502(netbox_ready, sec):
     netbox_ready.unreachable = NetboxUnavailable("地址不可达(连接失败), 请检查 NetBox 地址与网络")
-    resp = api.get("/api/netbox/devices")
+    resp = sec.get("/api/netbox/devices")
     assert resp.status_code == 502
     assert "不可达" in resp.json()["detail"]
 
@@ -469,7 +472,7 @@ def test_infra_asset_netbox_ref_persists_via_save(api):
 
 # ────────────────────────── 系统清单互通(#154) ──────────────────────────
 
-def test_proxy_systems_field_map_trimming(netbox_ready, api, sec):
+def test_proxy_systems_field_map_trimming(netbox_ready, sec):
     """系统清单代理按 field_map 裁剪: 自定义字段名映射生效。"""
     saved = sec.put("/api/admin/netbox-config", json={
         "base_url": NB_BASE, "token": NB_TOKEN, "system_slug": "sysobj",
@@ -480,7 +483,7 @@ def test_proxy_systems_field_map_trimming(netbox_ready, api, sec):
         {"id": 31, "title": "个人网银", "sn": "NB-001", "keeper": "张三",
          "url": f"{NB_BASE}/plugins/custom-objects/sysobj/objects/31"},
     ]
-    data = api.get("/api/netbox/systems").json()
+    data = sec.get("/api/netbox/systems").json()
     assert data["count"] == 1
     assert data["results"][0] == {
         "id": 31, "name": "个人网银", "code": "NB-001", "owner": "张三",
@@ -520,8 +523,11 @@ def test_push_system_roundtrip_and_dedupe(netbox_ready, api, sec):
 
 
 def test_push_system_owner_guard(netbox_ready, api, sec):
-    """开发只可推送本人系统; 越权 404 不泄露存在性。"""
+    """开发只可推送本人系统; 越权 404 不泄露存在性; 开发直调一律 403(#196)。"""
     other = api_as(api, "sec_admin")  # 安全角色建的系统, owner_user_id 为 sec
     sid = other.post("/api/systems", json={"name": "他人系统"}).json()["id"]
     resp = api.post("/api/netbox/systems", json={"system_id": sid, "name": "他人系统"})
-    assert resp.status_code == 404
+    assert resp.status_code == 403  # #196: 角色门控先于归属校验
+    other_sid = sec.post("/api/systems", json={"name": "安全侧推送系统"}).json()["id"]
+    ok = sec.post("/api/netbox/systems", json={"system_id": other_sid, "name": "安全侧推送系统"})
+    assert ok.status_code in (200, 409)  # 安全角色可推送(重复名由 NetBox 侧查重兜底)

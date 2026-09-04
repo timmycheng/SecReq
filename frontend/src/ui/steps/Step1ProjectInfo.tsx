@@ -8,7 +8,7 @@ import {
 } from 'antd'
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 
-import { api } from '../../api'
+import { api, getStoredUser } from '../../api'
 import type { GradingBaseline } from '../../api'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
 import type {
@@ -35,6 +35,7 @@ const EMPTY_EXT: ExternalSystemRow = {
 
 export default function Step1ProjectInfo({ ws, patch }: StepProps) {
   const enums = useEnums()
+  const isSecurity = getStoredUser()?.role === 'security'
   const [form] = Form.useForm<ProjectInfo>()
 
   // ── 外部系统 ──
@@ -241,9 +242,11 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
                 就地新建系统
               </Button>
               <span>(登记系统并挂靠定级备案; 规模/类型等基本信息在系统台账维护)</span>
-              <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setSysImporting(true)}>
-                从 NetBox 导入
-              </Button>
+              {isSecurity && (
+                <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setSysImporting(true)}>
+                  从 NetBox 导入
+                </Button>
+              )}
               {selectedSystem && (
                 latestRound ? (
                   <Button type="link" size="small" style={{ padding: 0 }} loading={copying}
@@ -502,6 +505,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
 
       {sysCreating && (
         <>
+        {isSecurity && (
         <NetboxSystemImportModal
           open={sysImporting}
           onClose={() => setSysImporting(false)}
@@ -534,6 +538,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
             })()
           }}
         />
+        )}
         <SystemQuickCreateModal
           filings={filings}
           onClose={() => setSysCreating(false)}
