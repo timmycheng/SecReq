@@ -20,27 +20,29 @@ jobs:
   # docs-only 改动跳过全部检查。注意必须用 job 级条件而不能用 workflow 级
   # paths-ignore: 后者被过滤时不会创建任何 check, 会卡死分支保护的必查状态
   # (docs-only PR 永远显示 waiting); job 被 if 跳过时报告 skipped, 视同成功。
+  # code 的语义是"存在非 docs 文件变更"(排除式写法), docs-only 时为 false。
   changes:
     name: 变更探测
     runs-on: ubuntu-latest
     outputs:
-      docs: ${{ steps.filter.outputs.docs }}
+      code: ${{ steps.filter.outputs.code }}
     steps:
       - uses: actions/checkout@v7
 
-      - name: 探测是否 docs-only 改动
+      - name: 探测是否存在代码或配置改动
         id: filter
         uses: dorny/paths-filter@v4
         with:
           filters: |
-            docs:
-              - "**/*.md"
-              - "docs/**"
+            code:
+              - "**"
+              - "!**/*.md"
+              - "!docs/**"
 
   backend-check:
     name: 后端检查
     needs: changes
-    if: needs.changes.outputs.docs != 'true'
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -72,7 +74,7 @@ jobs:
   e2e:
     name: E2E 主链路
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.docs != 'true'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -131,7 +133,7 @@ jobs:
   frontend-check:
     name: 前端检查
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.docs != 'true'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
