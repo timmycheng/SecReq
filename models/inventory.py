@@ -50,6 +50,11 @@ class InfraAsset(Base, UidMixin):
     os: Mapped[str | None] = mapped_column(String(100), comment="操作系统")
     quantity: Mapped[int | None] = mapped_column(Integer, comment="数量")
     purpose: Mapped[str | None] = mapped_column(String(300), comment="用途说明/网络区域")
+    # NetBox 互通(#153): 推送成功后回填, 仅作来源侧标识, 不参与规则引擎
+    netbox_ref_type: Mapped[str | None] = mapped_column(
+        String(40), comment="NetBox 对象类型(如 dcim.device/virtualization.virtual-machine/ipam.ip-address)")
+    netbox_ref_id: Mapped[str | None] = mapped_column(
+        String(32), comment="NetBox 对象 id, 用于回查与外链")
 
     project: Mapped[Project] = relationship(back_populates="infra_assets")
 

@@ -30,6 +30,9 @@ class InfraAssetIn(BaseModel):
     os: str | None = Field(default=None, max_length=100)
     quantity: int | None = Field(default=None, ge=1, le=10_000)
     purpose: str | None = Field(default=None, max_length=300)
+    # NetBox 互通(#153): 导入/推送成功后随整卷保存回传
+    netbox_ref_type: str | None = Field(default=None, max_length=40)
+    netbox_ref_id: str | None = Field(default=None, max_length=32)
 
 
 class InfraAssetListIn(BaseModel):
@@ -73,6 +76,8 @@ class InfraAssetOut(BaseModel):
     os: str | None = None
     quantity: int | None = None
     purpose: str | None = None
+    netbox_ref_type: str | None = None
+    netbox_ref_id: str | None = None
 
 
 class InfraArchImageIn(BaseModel):

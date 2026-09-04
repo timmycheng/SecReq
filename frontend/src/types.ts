@@ -284,6 +284,23 @@ export interface InfraAssetRow {
   os?: string | null
   quantity?: number | null
   purpose?: string | null
+  /** NetBox 互通(#153): 导入/推送成功后回填的来源侧标识 */
+  netbox_ref_type?: string | null
+  netbox_ref_id?: string | null
+}
+
+export interface NetboxAssetRow {
+  id: number
+  name?: string | null
+  primary_ip?: string | null
+  site?: string | null
+  role?: string | null
+  device_type?: string | null
+  platform?: string | null
+  dns_name?: string | null
+  address?: string | null
+  status?: string | null
+  url?: string | null
 }
 
 export interface InfraArchImageRow {
