@@ -109,8 +109,8 @@ function AppBody() {
               if (key === 'admin') navigate('/admin')
             }}
             items={[
-              { key: 'projects', icon: <UnorderedListOutlined />, label: '评估管理' },
               { key: 'systems', icon: <ApartmentOutlined />, label: '系统台账' },
+              { key: 'projects', icon: <UnorderedListOutlined />, label: '评估管理' },
               ...(user.role === 'security'
                 ? [{ key: 'admin', icon: <CloudServerOutlined />, label: '系统管理' }]
                 : []),
