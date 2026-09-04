@@ -26,6 +26,7 @@ class ProjectCreate(BaseModel):
 
     name: str = Field(min_length=1, max_length=200)
     code: str | None = Field(default=None, max_length=64, description="项目编码, 全局唯一; 不传自动生成")
+    system_id: int | None = Field(default=None, description="所属系统; 不传=未归属")
     type: str | None = None
     types: list[str] = Field(default_factory=list)
     user_scale: str | None = None
@@ -50,6 +51,7 @@ class ProjectUpdate(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
     code: str | None = Field(default=None, max_length=64, description="仅用于返回400: 编码不允许修改")
+    system_id: int | None = Field(default=None, description="所属系统; 传 null 解除归属")
     type: str | None = None
     types: list[str] | None = None
     user_scale: str | None = None
@@ -83,6 +85,7 @@ class ProjectOut(BaseModel):
     sec_contact_name: str | None
     compliance_targets: list[str]
     owner_user_id: int | None = None
+    system_id: int | None = None
     status: str
     created_at: datetime | None = None
 
@@ -94,6 +97,10 @@ class ProjectDetail(ProjectOut):
     grading_level: str | None = None
     owner_name: str | None = None
     counts: dict[str, int] = {}
+    system_name: str | None = None
+    filing_name: str | None = None
+    filing_level: str | None = None
+    is_current_baseline: bool = False
 
 
 def serialize_project(project) -> ProjectOut:

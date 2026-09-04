@@ -35,6 +35,10 @@ class Project(Base):
         Integer, ForeignKey("platform_users.id"), index=True,
         comment="创建人(数据权限: 开发仅见本人项目)",
     )
+    system_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("systems.id"), index=True,
+        comment="所属系统(空=未归属, 存量项目可后补)",
+    )
     status: Mapped[str] = mapped_column(String(20), default="draft", comment="项目状态")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
@@ -51,6 +55,7 @@ class Project(Base):
     requirements: Mapped[list["SecurityRequirement"]] = relationship(back_populates="project")  # noqa: F821
     review_gates: Mapped[list["ReviewGate"]] = relationship(back_populates="project")  # noqa: F821
     external_systems: Mapped[list["ExternalSystem"]] = relationship(back_populates="project")
+    system: Mapped["System | None"] = relationship(back_populates="projects")  # noqa: F821
 
 
 class GradingSurvey(Base):
