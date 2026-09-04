@@ -13,12 +13,15 @@
 定时级问卷在同文件 services/grading.py。
 """
 
+import base64
+import re
+
 from sqlalchemy.orm import Session
 
 from models import (
     ApiEndpoint, AuthConfig, DataAsset, DataField, DataTable, Feature,
-    InfraAsset, PermissionEntry, SecurityRequirement, SbomComponent,
-    VulnerabilityRecord, Resource, Role,
+    InfraArchImage, InfraAsset, PermissionEntry, Project, SecurityRequirement,
+    SbomComponent, VulnerabilityRecord, Resource, Role,
 )
 from models.database import gen_uid
 from schemas.component import ComponentIn
@@ -56,14 +59,45 @@ def _guard_uid_continuity(session: Session, project_id: int, items: list, uid_of
         )
 
 
-def _sync_rows(session: Session, project_id: int, model, items: list, fields_of,
-               uid_of) -> tuple[int, list]:
+def _guard_system_uid_continuity(session: Session, system_id: int, items: list, uid_of) -> None:
+    """系统清单版守卫(#194): 该系统下任一轮已生成需求 + 提交行全无 uid → 拒绝。
+
+    系统清单(基础设施/组件)被多轮生成的需求以 source_entity_uid 溯源,
+    整卷替换语义下静默接受无 uid 提交会与轮次守卫同样地断裂溯源。
+    """
+    if not items:
+        return
+    if any(uid_of(item) for item in items):
+        return
+    has_generated = (
+        session.query(SecurityRequirement.id)
+        .join(Project, SecurityRequirement.project_id == Project.id)
+        .filter(Project.system_id == system_id)
+        .first()
+        is not None
+    )
+    if has_generated:
+        raise UidContinuityError(
+            "该系统已有评估生成过需求, 但本次提交的全部行都缺少稳定标识(uid): "
+            "可能是页面版本过旧, 请刷新页面后重试"
+        )
+
+
+def _sync_rows(session: Session, scope_id: int, model, items: list, fields_of,
+               uid_of, scope_field: str = "project_id") -> tuple[int, list]:
     """通用 uid upsert: 返回 (保留/更新的已有行, 全部落库后的实体行)。
 
     items 为空时表示清空该步骤(合法操作, 不受 uid 守卫约束)。
+    scope_field 决定挂靠外键: 轮次实体用 project_id, 系统清单(#194)用 system_id。
     """
-    _guard_uid_continuity(session, project_id, items, uid_of)
-    existing = {row.uid: row for row in session.query(model).filter_by(project_id=project_id)}
+    if scope_field == "system_id":
+        _guard_system_uid_continuity(session, scope_id, items, uid_of)
+    else:
+        _guard_uid_continuity(session, scope_id, items, uid_of)
+    existing = {
+        row.uid: row
+        for row in session.query(model).filter_by(**{scope_field: scope_id})
+    }
     submitted_uids: set[str] = set()
     kept: list = []
     for item in items:
@@ -75,7 +109,7 @@ def _sync_rows(session: Session, project_id: int, model, items: list, fields_of,
             submitted_uids.add(uid)
             kept.append(row)
         else:
-            row = model(project_id=project_id, uid=uid or gen_uid(), **fields_of(item))
+            row = model(**{scope_field: scope_id}, uid=uid or gen_uid(), **fields_of(item))
             session.add(row)
             kept.append(row)
             if uid:
@@ -259,9 +293,9 @@ def _purge_components(session: Session, component_ids: list[int]) -> None:
 
 
 def replace_components(
-    session: Session, project_id: int, items: list[ComponentIn], source_type: str = "manual_input",
+    session: Session, system_id: int, items: list[ComponentIn], source_type: str = "manual_input",
 ) -> int:
-    """组件按 uid upsert; 被移除组件的漏洞记录随之清理, 保留组件的漏洞缓存不动。"""
+    """组件按 uid upsert(#194 起挂系统); 被移除组件的漏洞记录随之清理, 保留组件的漏洞缓存不动。"""
 
     def uid_of(item: ComponentIn):
         return item.uid
@@ -274,7 +308,8 @@ def replace_components(
             "source_type": source_type,
         }
 
-    kept, removed = _sync_rows(session, project_id, SbomComponent, items, fields_of, uid_of)
+    kept, removed = _sync_rows(
+        session, system_id, SbomComponent, items, fields_of, uid_of, scope_field="system_id")
     session.flush()
     _purge_components(session, [row.id for row in removed])
     session.commit()
@@ -282,16 +317,16 @@ def replace_components(
 
 
 def append_components(
-    session: Session, project_id: int, rows: list[dict],
+    session: Session, system_id: int, rows: list[dict],
 ) -> tuple[int, int]:
-    """SBOM 文件导入走追加语义: 按 组件名+版本 去重跳过已有条目。
+    """SBOM 文件导入走追加语义: 按 组件名+版本 去重跳过已有条目(#194 起挂系统)。
 
     返回 (新增数, 跳过的重复数)。rows 形态见 services/sbom_import.parse_sbom_file。
     新行 uid 由模型默认值(UUID4)生成。
     """
     existing = {
         (c.name.casefold(), c.version)
-        for c in session.query(SbomComponent).filter_by(project_id=project_id)
+        for c in session.query(SbomComponent).filter_by(system_id=system_id)
     }
     added = skipped = 0
     for row in rows:
@@ -301,7 +336,7 @@ def append_components(
             continue
         existing.add(key)
         session.add(SbomComponent(
-            project_id=project_id,
+            system_id=system_id,
             layer=row.get("layer") or "library",
             name=row["name"],
             version=row["version"],
@@ -349,7 +384,8 @@ def replace_api_endpoints(session: Session, project_id: int, endpoints: list[Api
     return len(endpoints)
 
 
-def replace_infra_assets(session: Session, project_id: int, infra_assets: list[InfraAssetIn]) -> int:
+def replace_infra_assets(session: Session, system_id: int, infra_assets: list[InfraAssetIn]) -> int:
+    """基础设施清单整卷保存(#194 起挂系统, 多轮共享)。"""
     def fields_of(item: InfraAssetIn):
         return {
             "asset_type": item.asset_type, "name": item.name, "env": item.env,
@@ -360,6 +396,60 @@ def replace_infra_assets(session: Session, project_id: int, infra_assets: list[I
             "netbox_ref_type": item.netbox_ref_type, "netbox_ref_id": item.netbox_ref_id,
         }
 
-    _sync_rows(session, project_id, InfraAsset, infra_assets, fields_of, lambda i: i.uid)
+    _sync_rows(session, system_id, InfraAsset, infra_assets, fields_of,
+               lambda i: i.uid, scope_field="system_id")
     session.commit()
     return len(infra_assets)
+
+
+# ── 架构图(#164, #194 起挂系统): 校验与落库收口到本模块, 供向导/系统双路由共用 ──
+_ARCH_DATA_URL_RE = re.compile(r"data:image/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)")
+MAX_ARCH_IMAGE_BYTES = 2 * 1024 * 1024
+
+
+class ArchImageError(Exception):
+    """架构图 data URL 非法或超限(路由层转 400/413)。"""
+
+    def __init__(self, message: str, status_code: int = 400):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def validate_arch_image_data_url(data_url: str) -> None:
+    """仅接受 png/jpg/webp 的 base64 data URL, 原图 ≤2MB。"""
+    m = _ARCH_DATA_URL_RE.fullmatch(data_url or "")
+    if not m:
+        raise ArchImageError("仅支持 png/jpg/webp 图片的 data URL")
+    try:
+        raw = base64.b64decode(m.group(2), validate=True)
+    except ValueError as exc:
+        raise ArchImageError("图片 base64 编码无效") from exc
+    if len(raw) > MAX_ARCH_IMAGE_BYTES:
+        raise ArchImageError(
+            f"架构图过大, 上限 {MAX_ARCH_IMAGE_BYTES // (1024 * 1024)} MB", status_code=413)
+
+
+def list_arch_images(session: Session, system_id: int) -> list:
+    return session.query(InfraArchImage).filter_by(system_id=system_id).all()
+
+
+def upsert_arch_image(session: Session, system_id: int, env: str, image_data_url: str):
+    """每环境一张(唯一约束兜底), 已有则覆盖。"""
+    validate_arch_image_data_url(image_data_url)
+    row = session.query(InfraArchImage).filter_by(system_id=system_id, env=env).first()
+    if row is None:
+        row = InfraArchImage(system_id=system_id, env=env, image_data_url=image_data_url)
+        session.add(row)
+    else:
+        row.image_data_url = image_data_url
+    session.commit()
+    return row
+
+
+def delete_arch_image(session: Session, system_id: int, env: str) -> bool:
+    row = session.query(InfraArchImage).filter_by(system_id=system_id, env=env).first()
+    if row is None:
+        return False
+    session.delete(row)
+    session.commit()
+    return True

@@ -12,10 +12,11 @@ import shared.constants as C
 from models import (
     ApiEndpoint, AuthConfig, DataAsset, DataField, DataTable, ExternalSystem, Feature,
     GradingSurvey, InfraAsset, PermissionEntry, Project, Resource, Role,
-    SbomComponent,
+    SbomComponent, System,
 )
 
 DEMO_PROJECT_CODE = "PRJ-IBANK-2026"
+DEMO_SYSTEM_NAME = "个人网银系统(演示)"
 
 
 def seed_demo_project(session: Session, overwrite: bool = True) -> Project:
@@ -26,10 +27,21 @@ def seed_demo_project(session: Session, overwrite: bool = True) -> Project:
             return existing
         _delete_project(session, existing)
 
+    # ── 演示系统(#194: 基本信息/基础设施/组件挂系统, 项目轮次挂系统之下) ──
+    system = session.query(System).filter_by(name=DEMO_SYSTEM_NAME).first()
+    if system is None:
+        system = System(name=DEMO_SYSTEM_NAME, user_scale="over_1m",
+                        is_public=True, types=["web"])
+        session.add(system)
+        session.flush()
+    else:
+        _clear_system_inventory(session, system.id)
+
     project = Project(
         name="示例项目",
         code=DEMO_PROJECT_CODE,
         type="web",
+        system_id=system.id,
         industry="零售金融-个人业务条线",
         user_scale="over_1m",
         deploy_env=["private_cloud"],
@@ -266,7 +278,7 @@ def seed_demo_project(session: Session, overwrite: bool = True) -> Project:
             source = "sbom_file"  # 首个组件标记为SBOM文件导入来源, 演示两种source_type
         session.add(
             SbomComponent(
-                project_id=project.id, layer=layer, name=name, version=version,
+                system_id=system.id, layer=layer, name=name, version=version,
                 purl=purl, license=lic, source_type=source,
                 ecosystem=ecosystem, distro=distro,
             )
@@ -312,13 +324,26 @@ def seed_demo_project(session: Session, overwrite: bool = True) -> Project:
     for a_type, name, env, ip, owner, sensitive in infra:
         session.add(
             InfraAsset(
-                project_id=project.id, asset_type=a_type, name=name,
+                system_id=system.id, asset_type=a_type, name=name,
                 env=env, ip=ip, owner=owner, holds_sensitive=sensitive,
             )
         )
 
     session.commit()
     return project
+
+
+def _clear_system_inventory(session: Session, system_id: int) -> None:
+    """重置演示系统的清单行(幂等重建种子数据用)。"""
+    from models import InfraArchImage, VulnerabilityRecord
+    component_ids = session.query(SbomComponent.id).filter_by(system_id=system_id)
+    session.query(VulnerabilityRecord).filter(
+        VulnerabilityRecord.component_id.in_(component_ids)
+    ).delete(synchronize_session=False)
+    session.query(SbomComponent).filter_by(system_id=system_id).delete(synchronize_session=False)
+    session.query(InfraAsset).filter_by(system_id=system_id).delete(synchronize_session=False)
+    session.query(InfraArchImage).filter_by(system_id=system_id).delete(synchronize_session=False)
+    session.flush()
 
 
 def _delete_project(session: Session, project: Project) -> None:

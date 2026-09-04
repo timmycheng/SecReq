@@ -17,13 +17,19 @@ class Project(Base):
     name: Mapped[str] = mapped_column(String(200), comment="项目名称")
     code: Mapped[str] = mapped_column(String(64), unique=True, comment="项目编码")
     type: Mapped[str] = mapped_column(String(32), default="", comment="主项目类型(兼容保留), 见 PROJECT_TYPES")
-    types: Mapped[list] = mapped_column(JSON, default=list, comment="项目类型多选, 见 PROJECT_TYPES")
+    types: Mapped[list] = mapped_column(
+        JSON, default=list, comment="项目类型多选(已停用, #194 起真相在 systems.types, 兼容回退用)"
+    )
     industry: Mapped[str | None] = mapped_column(String(100), comment="所属业务条目(已停用, 兼容保留)")
-    user_scale: Mapped[str] = mapped_column(String(32), default="", comment="用户规模, 见 USER_SCALES")
+    user_scale: Mapped[str] = mapped_column(
+        String(32), default="", comment="用户规模(已停用, #194 起真相在 systems.user_scale, 兼容回退用)"
+    )
     deploy_env: Mapped[list] = mapped_column(JSON, default=list, comment="部署环境(已停用, 兼容保留)")
-    is_public: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否涉及公网访问")
+    is_public: Mapped[bool] = mapped_column(
+        Boolean, default=False, comment="是否涉及公网访问(已停用, #194 起真相在 systems.is_public)"
+    )
     offshore_vendor: Mapped[bool] = mapped_column(
-        Boolean, default=False, comment="是否存在境外外包/境外供应商"
+        Boolean, default=False, comment="境外外包(已停用, #194 起真相在 systems.offshore_vendor)"
     )
     pm_name: Mapped[str | None] = mapped_column(String(50), comment="项目经理")
     dev_lead_name: Mapped[str | None] = mapped_column(String(50), comment="开发负责人")
@@ -49,13 +55,33 @@ class Project(Base):
     roles: Mapped[list["Role"]] = relationship(back_populates="project")  # noqa: F821
     resources: Mapped[list["Resource"]] = relationship(back_populates="project")  # noqa: F821
     auth_config: Mapped["AuthConfig | None"] = relationship(back_populates="project", uselist=False)  # noqa: F821
-    components: Mapped[list["SbomComponent"]] = relationship(back_populates="project")  # noqa: F821
     api_endpoints: Mapped[list["ApiEndpoint"]] = relationship(back_populates="project")  # noqa: F821
-    infra_assets: Mapped[list["InfraAsset"]] = relationship(back_populates="project")  # noqa: F821
     requirements: Mapped[list["SecurityRequirement"]] = relationship(back_populates="project")  # noqa: F821
     review_gates: Mapped[list["ReviewGate"]] = relationship(back_populates="project")  # noqa: F821
     external_systems: Mapped[list["ExternalSystem"]] = relationship(back_populates="project")
     system: Mapped["System | None"] = relationship(back_populates="projects")  # noqa: F821
+
+    # ── 系统字段解析器(#194): 真相在挂靠系统, 未归属/未填时回退本项目遗留列 ──
+
+    def effective_user_scale(self) -> str:
+        if self.system is not None and self.system.user_scale:
+            return self.system.user_scale
+        return self.user_scale or ""
+
+    def effective_types(self) -> list:
+        if self.system is not None and self.system.types:
+            return self.system.types
+        return self.types or []
+
+    def effective_is_public(self) -> bool:
+        if self.system is not None:
+            return bool(self.system.is_public)
+        return bool(self.is_public)
+
+    def effective_offshore_vendor(self) -> bool:
+        if self.system is not None:
+            return bool(self.system.offshore_vendor)
+        return bool(self.offshore_vendor)
 
 
 class GradingSurvey(Base):

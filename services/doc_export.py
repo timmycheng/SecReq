@@ -308,7 +308,7 @@ def build_full_docx(
         ("有效定级", f"等保{level}" if level else "未定级"),
         ("定级来源", grading_source),
         ("项目类型", "、".join(
-            C.label(C.PROJECT_TYPES, t) for t in (getattr(project, "types", None) or [])) or "—"),
+            C.label(C.PROJECT_TYPES, t) for t in (project.effective_types() or [])) or "—"),
         ("合规目标", "、".join(
             C.label(C.COMPLIANCE_TARGETS, t) for t in (project.compliance_targets or [])) or "—"),
         ("定级结论", survey or "—"),

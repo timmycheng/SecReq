@@ -426,7 +426,7 @@ def test_describe_sources_marks_active(monkeypatch, vulndb_path):
 # ── 同步流程接入 ──────────────────────────────────────
 
 def _add(session, project, **kwargs) -> SbomComponent:
-    comp = SbomComponent(project_id=project.id, layer="library", **kwargs)
+    comp = SbomComponent(system_id=project.system_id, layer="library", **kwargs)
     session.add(comp)
     session.flush()
     return comp

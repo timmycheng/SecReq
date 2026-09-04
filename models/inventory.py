@@ -1,10 +1,15 @@
 # -*- coding: utf-8 -*-
-"""Step8 API 接口清单与基础设施资产清单。"""
+"""Step8 API 接口清单与基础设施资产清单。
+
+基础设施资产与架构图自 #194 起挂系统(system_id)而非评估轮次: 系统承载稳定事实,
+多轮评估共享同一份清单; API 接口仍随轮次。
+"""
 from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models.database import Base, UidMixin
 from models.project import Project
+from models.system import System
 
 
 class ApiEndpoint(Base, UidMixin):
@@ -36,7 +41,10 @@ class InfraAsset(Base, UidMixin):
     __tablename__ = "infra_assets"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    project_id: Mapped[int] = mapped_column(Integer, ForeignKey("projects.id"), index=True)
+    system_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("systems.id"), index=True,
+        comment="所属系统(#194); 存量迁移外的历史行可为空",
+    )
     asset_type: Mapped[str] = mapped_column(String(20), comment="server/network/database/middleware")
     name: Mapped[str] = mapped_column(String(200), comment="名称")
     env: Mapped[str] = mapped_column(String(10), comment="dev/test/prod")
@@ -56,20 +64,21 @@ class InfraAsset(Base, UidMixin):
     netbox_ref_id: Mapped[str | None] = mapped_column(
         String(32), comment="NetBox 对象 id, 用于回查与外链")
 
-    project: Mapped[Project] = relationship(back_populates="infra_assets")
+    system: Mapped[System | None] = relationship(back_populates="infra_assets")
 
 
 class InfraArchImage(Base):
-    """架构图(#164): 按环境各一张, data URL(base64)存库。
-
-    随项目整卷复制/评估继承自动走通, 不依赖文件卷; 拓扑画布回退后
-    架构关系以图片 + 清单表达。
-    """
+    """架构图(#164): 按环境各一张, data URL(base64)存库, #194 起挂系统。"""
 
     __tablename__ = "infra_arch_images"
-    __table_args__ = (UniqueConstraint("project_id", "env", name="uq_arch_image_project_env"),)
+    __table_args__ = (UniqueConstraint("system_id", "env", name="uq_arch_image_system_env"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    project_id: Mapped[int] = mapped_column(Integer, ForeignKey("projects.id"), index=True)
+    system_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("systems.id"), index=True,
+        comment="所属系统(#194); 存量迁移外的历史行可为空",
+    )
     env: Mapped[str] = mapped_column(String(10), comment="环境 test/prod/dev, 每环境一张")
     image_data_url: Mapped[str] = mapped_column(Text, comment="图片 data URL(png/jpeg/webp, base64)")
+
+    system: Mapped[System | None] = relationship(back_populates="arch_images")

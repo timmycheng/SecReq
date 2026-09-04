@@ -172,8 +172,10 @@ def test_project_patch_detach_system(dev):
 
 def test_existing_projects_unaffected(session):
     """存量项目 system_id 为空即可正常工作(不强制回填)。"""
-    from conftest import add_base_project
-    project = add_base_project(session)
+    from models import Project
+    project = Project(name="遗留项目", code="PRJ-LEGACY")
+    session.add(project)
+    session.flush()
     assert project.system_id is None
 
 

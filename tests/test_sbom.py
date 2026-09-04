@@ -14,7 +14,7 @@ from services.sbom import (
 
 def _add_component(session, project, **kwargs) -> SbomComponent:
     defaults = dict(
-        project_id=project.id, layer="library", name="demo-lib",
+        system_id=project.system_id, layer="library", name="demo-lib",
         version="1.0.0", source_type="manual_input",
     )
     defaults.update(kwargs)

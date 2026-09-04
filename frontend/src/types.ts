@@ -64,6 +64,11 @@ export interface SystemRow {
   netbox_object_id?: string | null
   filing_id?: number | null
   owner_name?: string | null
+  /** ── 基本信息(#194 自评估上收, 系统承载) ── */
+  user_scale?: string | null
+  types?: string[]
+  is_public?: boolean
+  offshore_vendor?: boolean
   created_at?: string | null
   filing_name?: string | null
   filing_level?: string | null

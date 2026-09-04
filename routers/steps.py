@@ -4,9 +4,7 @@
 统一语义: POST 为该步骤整卷保存(整体替换)并返回落库后的最新实体;
 GET 读取当前值。枚举选项一律由 /api/meta/constants 提供, 本文件不重复定义。
 """
-import base64
 import logging
-import re
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
@@ -15,12 +13,12 @@ from sqlalchemy.orm import Session
 import shared.constants as C
 from models import (
     ApiEndpoint, AuthConfig, DataAsset, ExternalSystem, Feature, GradingSurvey,
-    InfraArchImage, InfraAsset, PermissionEntry, PlatformUser, Project, Resource, Role,
-    SbomComponent,
+    InfraAsset, PermissionEntry, PlatformUser, Project, Resource, Role,
+    SbomComponent, System,
 )
 from routers.common import (
     asset_to_out, component_to_out, get_accessible_project, get_db,
-    get_writable_project, require_login, survey_to_out,
+    get_writable_project, read_upload_limited, require_login, survey_to_out,
 )
 from services.audit_service import audit
 from schemas.auth import AuthConfigIn, AuthConfigOut, AuthDefaultsOut
@@ -40,39 +38,19 @@ from services.grading import GradingError, grade_survey
 from services.sbom_import import SbomParseError, import_sbom_file
 from services.settings_service import get_llm_config
 from services.step_store import (
-    MatrixIndexError, replace_api_endpoints, replace_components,
+    ArchImageError, MatrixIndexError, replace_api_endpoints, replace_components,
     UidContinuityError,
     replace_data_assets, replace_external_systems, replace_features,
     replace_infra_assets, replace_permission_matrix, upsert_auth_config,
+    delete_arch_image, list_arch_images, upsert_arch_image,
 )
 
 logger = logging.getLogger(__name__)
 
-# 上传文件体积上限; 按块读取并在累计超限时立刻 413, 避免一次性载入内存
-MAX_UPLOAD_BYTES = 5 * 1024 * 1024
-_CHUNK_SIZE = 64 * 1024
-# 架构图(#164)原始图片体积上限(base64 后随 JSON 走, 存库不落盘)
-MAX_ARCH_IMAGE_BYTES = 2 * 1024 * 1024
 _ARCH_ENVS = ("test", "prod", "dev")
-_ARCH_DATA_URL_RE = re.compile(r"data:image/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)")
 
-
-async def _read_limited(file: UploadFile, limit: int = MAX_UPLOAD_BYTES) -> bytes:
-    """按块读取上传文件; 累计超过 limit 立即抛 413。"""
-    chunks: list[bytes] = []
-    total = 0
-    while True:
-        chunk = await file.read(_CHUNK_SIZE)
-        if not chunk:
-            break
-        total += len(chunk)
-        if total > limit:
-            raise HTTPException(
-                status_code=413,
-                detail=f"上传文件过大, 上限 {limit // (1024 * 1024)} MB",
-            )
-        chunks.append(chunk)
-    return b"".join(chunks)
+# 上传读取统一走 common.read_upload_limited(默认 5MB 上限)
+_read_limited = read_upload_limited
 
 
 def _audit_step(db: Session, user: PlatformUser, project: Project,
@@ -383,10 +361,21 @@ def get_auth_defaults(project: Project = Depends(get_accessible_project), db: Se
     return AuthDefaultsOut(grading_level=level, defaults=numeric)
 
 
-# ── Step7 软件/框架清单(SBOM 来源) ────────────────────
+# ── 系统(#194): 基础设施/组件/架构图挂系统后的取数辅助 ──
+def _writable_system_or_409(project: Project) -> System:
+    """写系统清单要求项目已归属系统(未归属先在台账登记/绑定)。"""
+    system = project.system
+    if system is None:
+        raise HTTPException(
+            status_code=409,
+            detail="该评估尚未归属系统: 请先在第一步选择所属系统, 系统清单将随系统共享")
+    return system
+
+
+# ── Step7 软件/框架清单(SBOM 来源; #194 起读写绑定系统的清单) ────
 @router.get("/components", response_model=list[ComponentOut])
 def get_components(project: Project = Depends(get_accessible_project), db: Session = Depends(get_db)):
-    comps = db.query(SbomComponent).filter_by(project_id=project.id).order_by(SbomComponent.id).all()
+    comps = _system_components(db, project)
     return [component_to_out(c) for c in comps]
 
 
@@ -394,11 +383,12 @@ def get_components(project: Project = Depends(get_accessible_project), db: Sessi
 def save_components(payload: ComponentsSaveIn, project: Project = Depends(get_writable_project),
                     db: Session = Depends(get_db),
                     user: PlatformUser = Depends(require_login)):
+    system = _writable_system_or_409(project)
     try:
-        replace_components(db, project.id, payload.components)
+        replace_components(db, system.id, payload.components)
     except UidContinuityError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    comps = db.query(SbomComponent).filter_by(project_id=project.id).order_by(SbomComponent.id).all()
+    comps = _system_components(db, project)
     _audit_step(db, user, project, "components", len(comps))
     return [component_to_out(c) for c in comps]
 
@@ -409,12 +399,13 @@ async def import_sbom_file_route(project: Project = Depends(get_writable_project
                                  file: UploadFile = File(...),
                                  user: PlatformUser = Depends(require_login)):
     """上传 CycloneDX/SPDX 格式 SBOM 文件批量导入(source_type=sbom_file)。"""
+    system = _writable_system_or_409(project)
     if not file.filename or not file.filename.lower().endswith(
             (".json", ".spdx", ".cdx.json")):
         raise HTTPException(status_code=400, detail="请上传 .json(CycloneDX/SPDX JSON) 或 .spdx 文件")
     payload = await _read_limited(file)
     try:
-        result = import_sbom_file(db, project.id, file.filename, payload)
+        result = import_sbom_file(db, system.id, file.filename, payload)
     except SbomParseError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     _audit_step(db, user, project, "sbom_import", result.added)
@@ -475,27 +466,29 @@ def get_api_endpoints(project: Project = Depends(get_accessible_project),
     return [ApiEndpointOut.model_validate(e) for e in rows]
 
 
-# ── 基础设施清单(独立步骤) ────────────────────────────
+# ── 基础设施清单(#194 起读写绑定系统的清单) ───────────
 @router.post("/infra-assets", response_model=list[InfraAssetOut])
 def save_infra_assets(payload: InfraAssetListIn,
                       project: Project = Depends(get_writable_project),
                       db: Session = Depends(get_db),
                       user: PlatformUser = Depends(require_login)):
+    system = _writable_system_or_409(project)
     try:
-        replace_infra_assets(db, project.id, payload.assets)
+        replace_infra_assets(db, system.id, payload.assets)
     except UidContinuityError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    rows = db.query(InfraAsset).filter_by(project_id=project.id).order_by(InfraAsset.id).all()
+    rows = _system_infra(db, project)
     _audit_step(db, user, project, "infra_assets", len(rows))
     return [InfraAssetOut.model_validate(a) for a in rows]
 
 
-# ── 架构图(#164): 拓扑画布回退后, 每环境一张图 + 清单手填 ──
+# ── 架构图(#164): 拓扑画布回退后, 每环境一张图 + 清单手填(#194 起挂系统) ──
 @router.get("/arch-images", response_model=list[InfraArchImageOut])
 def get_arch_images(project: Project = Depends(get_accessible_project),
                     db: Session = Depends(get_db)):
-    rows = db.query(InfraArchImage).filter_by(project_id=project.id).all()
-    return [InfraArchImageOut.model_validate(r) for r in rows]
+    if project.system_id is None:
+        return []
+    return [InfraArchImageOut.model_validate(r) for r in list_arch_images(db, project.system_id)]
 
 
 @router.put("/arch-images/{env}", response_model=InfraArchImageOut)
@@ -505,38 +498,21 @@ def upload_arch_image(env: str, payload: InfraArchImageIn,
                       user: PlatformUser = Depends(require_login)):
     if env not in _ARCH_ENVS:
         raise HTTPException(status_code=404, detail=f"未知环境: {env}")
-    m = _ARCH_DATA_URL_RE.fullmatch(payload.image_data_url)
-    if not m:
-        raise HTTPException(status_code=400, detail="仅支持 png/jpg/webp 图片的 data URL")
+    system = _writable_system_or_409(project)
     try:
-        raw = base64.b64decode(m.group(2), validate=True)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="图片 base64 编码无效") from exc
-    if len(raw) > MAX_ARCH_IMAGE_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail=f"架构图过大, 上限 {MAX_ARCH_IMAGE_BYTES // (1024 * 1024)} MB",
-        )
-    row = db.query(InfraArchImage).filter_by(project_id=project.id, env=env).first()
-    if row is None:
-        row = InfraArchImage(project_id=project.id, env=env, image_data_url=payload.image_data_url)
-        db.add(row)
-    else:
-        row.image_data_url = payload.image_data_url
-    db.commit()
+        row = upsert_arch_image(db, system.id, env, payload.image_data_url)
+    except ArchImageError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     _audit_step(db, user, project, f"arch_image_{env}", 1)
     return InfraArchImageOut.model_validate(row)
 
 
 @router.delete("/arch-images/{env}")
-def delete_arch_image(env: str,
-                      project: Project = Depends(get_writable_project),
-                      db: Session = Depends(get_db),
-                      user: PlatformUser = Depends(require_login)):
-    row = db.query(InfraArchImage).filter_by(project_id=project.id, env=env).first()
-    if row is not None:
-        db.delete(row)
-        db.commit()
+def delete_arch_image_route(env: str,
+                            project: Project = Depends(get_writable_project),
+                            db: Session = Depends(get_db),
+                            user: PlatformUser = Depends(require_login)):
+    if project.system_id is not None and delete_arch_image(db, project.system_id, env):
         _audit_step(db, user, project, f"arch_image_{env}_delete", 1)
     return {"ok": True}
 
@@ -544,14 +520,20 @@ def delete_arch_image(env: str,
 @router.get("/infra-assets", response_model=list[InfraAssetOut])
 def get_infra_assets(project: Project = Depends(get_accessible_project),
                      db: Session = Depends(get_db)):
-    rows = db.query(InfraAsset).filter_by(project_id=project.id).order_by(InfraAsset.id).all()
-    return [InfraAssetOut.model_validate(a) for a in rows]
+    return [InfraAssetOut.model_validate(a) for a in _system_infra(db, project)]
 
 
-def get_inventory_body(db: Session, pid: int) -> dict:
-    endpoints = db.query(ApiEndpoint).filter_by(project_id=pid).order_by(ApiEndpoint.id).all()
-    infra = db.query(InfraAsset).filter_by(project_id=pid).order_by(InfraAsset.id).all()
-    return {
-        "api_endpoints": [ApiEndpointOut.model_validate(e).model_dump() for e in endpoints],
-        "infra_assets": [InfraAssetOut.model_validate(a).model_dump() for a in infra],
-    }
+def _system_components(db: Session, project: Project) -> list[SbomComponent]:
+    """绑定系统的组件清单(未归属系统返回空)。"""
+    if project.system_id is None:
+        return []
+    return (db.query(SbomComponent).filter_by(system_id=project.system_id)
+            .order_by(SbomComponent.id).all())
+
+
+def _system_infra(db: Session, project: Project) -> list[InfraAsset]:
+    """绑定系统的基础设施清单(未归属系统返回空)。"""
+    if project.system_id is None:
+        return []
+    return (db.query(InfraAsset).filter_by(system_id=project.system_id)
+            .order_by(InfraAsset.id).all())

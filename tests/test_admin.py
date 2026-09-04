@@ -7,7 +7,7 @@ import uuid
 
 import pytest
 
-from conftest import api_as
+from conftest import api_as, create_system_api
 from services.auth_service import SEED_DEFAULT_PASSWORD
 
 
@@ -531,10 +531,16 @@ def test_api_import_parse_requires_input(sec, api):
 
 def test_arch_image_roundtrip(api, sec):
     """架构图(#164): 每环境一张 data URL, PUT 幂等覆盖, 类型/编码/大小校验, 删除幂等。"""
-    pid = api.post("/api/projects", json={"name": "架构图项目"}).json()["id"]
+    system = create_system_api(api, "架构图系统")
+    pid = api.post("/api/projects", json={
+        "name": "架构图项目", "system_id": system["id"]}).json()["id"]
     assert sec.get(f"/api/projects/{pid}/arch-images").json() == []
 
     png = "data:image/png;base64," + base64.b64encode(b"png-bytes").decode()
+    # 未归属系统的评估不允许写系统清单(#194)
+    loose = api.post("/api/projects", json={"name": "未归属项目"}).json()["id"]
+    assert api.put(f"/api/projects/{loose}/arch-images/prod",
+                   json={"image_data_url": png}).status_code == 409
     resp = sec.put(f"/api/projects/{pid}/arch-images/prod", json={"image_data_url": png})
     assert resp.status_code == 200, resp.text
     assert resp.json()["env"] == "prod"

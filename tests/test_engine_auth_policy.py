@@ -79,7 +79,7 @@ def test_force_2fa_small_scale_not_flagged_skips(session, engine):
 def test_force_2fa_large_scale_recommends(session, engine):
     """用户规模>10万 → 强制2FA建议(DESIGN.md 模块2 规则3)。"""
     project = add_base_project(session)
-    project.user_scale = "over_1m"
+    project.system.user_scale = "over_1m"
     session.add(GradingSurvey(project_id=project.id, suggested_level="二级", answers_json=[]))
     session.add(AuthConfig(project_id=project.id, auth_methods=["password"], force_2fa=False))
     mfa = next(r for r in gen_for(session, project, engine) if r.template_id == "SEC-V2-004")

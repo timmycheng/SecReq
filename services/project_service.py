@@ -53,7 +53,10 @@ def create_project(session: Session, data: dict, owner_user_id: int | None = Non
 
 
 def populate_project_types(session: Session) -> int:
-    """存量项目 types 为空时按单值 type 回填(类型多选改造), 幂等。"""
+    """存量项目 types 为空时按单值 type 回填(类型多选改造), 幂等。
+
+    #194 起系统是类型真相源: 回填后同步镜像到已挂靠且尚无类型的系统。
+    """
 
     rows = session.query(Project).filter(Project.types.is_(None)).all()
     rows += [r for r in session.query(Project).filter(
@@ -66,6 +69,8 @@ def populate_project_types(session: Session) -> int:
         project.types = [project.type] if project.type else []
         project.type = project.types[0] if project.types else ""
         flag_modified(project)
+        if project.system is not None and not project.system.types and project.types:
+            project.system.types = list(project.types)
     if seen:
         session.commit()
     return len(seen)
@@ -118,14 +123,8 @@ def delete_project_cascade(session: Session, project_id: int) -> None:
     session.query(Role).filter_by(project_id=pid).delete(synchronize_session=False)
     session.query(Resource).filter_by(project_id=pid).delete(synchronize_session=False)
 
-    session.query(VulnerabilityRecord).filter(
-        VulnerabilityRecord.component_id.in_(
-            session.query(SbomComponent.id).filter_by(project_id=pid))
-    ).delete(synchronize_session=False)
-    session.query(SbomComponent).filter_by(project_id=pid).delete(synchronize_session=False)
-
+    # 组件/基础设施/架构图自 #194 起挂系统(多轮共享), 不随项目级联删除
     session.query(ApiEndpoint).filter_by(project_id=pid).delete(synchronize_session=False)
-    session.query(InfraAsset).filter_by(project_id=pid).delete(synchronize_session=False)
     session.query(ExternalSystem).filter_by(project_id=pid).delete(synchronize_session=False)
     session.query(AuthConfig).filter_by(project_id=pid).delete(synchronize_session=False)
     session.query(GradingSurvey).filter_by(project_id=pid).delete(synchronize_session=False)
@@ -142,8 +141,10 @@ def delete_project_cascade(session: Session, project_id: int) -> None:
 
 
 def project_counts(session: Session, project_id: int) -> dict[str, int]:
-    """列表卡片用的各步骤条目数。"""
+    """列表卡片用的各步骤条目数。组件/基础设施(#194 挂系统)按绑定系统计。"""
     pid = project_id
+    project = session.get(Project, pid)
+    system_id = project.system_id if project else None
     return {
         "features": session.query(Feature).filter_by(project_id=pid).count(),
         "data_assets": session.query(DataAsset).filter_by(project_id=pid).count(),
@@ -152,14 +153,17 @@ def project_counts(session: Session, project_id: int) -> dict[str, int]:
         "permission_entries": session.query(PermissionEntry).join(
             Role, PermissionEntry.role_id == Role.id
         ).filter(Role.project_id == pid).count(),
-        "components": session.query(SbomComponent).filter_by(project_id=pid).count(),
+        "components": session.query(SbomComponent).filter_by(system_id=system_id).count()
+        if system_id is not None else 0,
         "api_endpoints": session.query(ApiEndpoint).filter_by(project_id=pid).count(),
-        "infra_assets": session.query(InfraAsset).filter_by(project_id=pid).count(),
+        "infra_assets": session.query(InfraAsset).filter_by(system_id=system_id).count()
+        if system_id is not None else 0,
         "external_systems": session.query(ExternalSystem).filter_by(project_id=pid).count(),
         "requirements": session.query(SecurityRequirement).filter_by(project_id=pid).count(),
         "vulnerabilities": session.query(VulnerabilityRecord).join(
             SbomComponent, VulnerabilityRecord.component_id == SbomComponent.id
-        ).filter(SbomComponent.project_id == pid).count(),
+        ).filter(SbomComponent.system_id == system_id).count()
+        if system_id is not None else 0,
     }
 
 

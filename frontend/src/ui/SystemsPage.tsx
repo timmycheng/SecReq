@@ -2,12 +2,13 @@
    台账是"看系统"的主入口: 同一系统多次评估在系统详情页形成时间线, 避免评估列表平行记录。 */
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Button, Card, Empty, Form, Input, Modal, Popconfirm, Select, Space, Table, Tabs, Tag,
+  Button, Card, Empty, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tabs, Tag,
   Typography, message,
 } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 
 import { api, getStoredUser } from '../api'
+import { optionsOf, useEnums } from '../enums'
 import { navigate } from '../router'
 import NetboxSystemImportModal from './NetboxSystemImportModal'
 import type { FilingRow, NetboxSystemRow, RoundSummary, SystemRow } from '../types'
@@ -60,9 +61,12 @@ export default function SystemsPage() {
 /* ── 系统视角 ─────────────────────────────────────── */
 
 function SystemsTab() {
+  const enums = useEnums()
   const [rows, setRows] = useState<SystemRow[]>([])
+  const [filings, setFilings] = useState<FilingRow[]>([])
   const [loading, setLoading] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [editing, setEditing] = useState<Partial<SystemRow> | null>(null)
   const [pushing, setPushing] = useState<number | null>(null)
 
   const reload = useCallback(() => {
@@ -73,6 +77,7 @@ function SystemsTab() {
       .finally(() => setLoading(false))
   }, [])
   useEffect(reload, [reload])
+  useEffect(() => { api.listFilings().then(setFilings).catch(() => undefined) }, [])
 
   /** 导入所选(#154): 按名称/netbox_object_id 查重后逐个登记, 重复行跳过 */
   const handleImported = async (selected: NetboxSystemRow[]) => {
@@ -159,10 +164,11 @@ function SystemsTab() {
     { title: '负责人', dataIndex: 'owner_name', width: 100, render: (v: string | null) => v || '—' },
     { title: '最新评估', dataIndex: 'latest_round', width: 330, render: (_: unknown, r: SystemRow) => <RoundCell round={r.latest_round} /> },
     {
-      title: '操作', width: 220,
+      title: '操作', width: 260,
       render: (_: unknown, record: SystemRow) => (
         <Space>
           <Button size="small" onClick={() => navigate(`/system/${record.id}`)}>评估时间线</Button>
+          <Button size="small" onClick={() => setEditing(record)}>编辑</Button>
           {!record.netbox_object_id && (
             <Button
               size="small" loading={pushing === record.id}
@@ -194,11 +200,17 @@ function SystemsTab() {
   return (
     <>
       <Space style={{ marginBottom: 12 }}>
-        <Button icon={<PlusOutlined />} type="primary" onClick={() => setImportOpen(true)}>
+        <Button
+          icon={<PlusOutlined />} type="primary"
+          onClick={() => setEditing({ user_scale: '1k_to_100k', types: [], is_public: false, offshore_vendor: false })}
+        >
+          新建系统
+        </Button>
+        <Button icon={<PlusOutlined />} onClick={() => setImportOpen(true)}>
           从 NetBox 导入
         </Button>
         <Typography.Text type="secondary">
-          NetBox 是旁路增强: 未配置或断连时, 系统登记与建项流程完全不受影响
+          规模/类型/公网等基本信息在系统上维护, 挂靠定级备案后评估自动继承定级
         </Typography.Text>
       </Space>
       <Table<SystemRow>
@@ -214,7 +226,90 @@ function SystemsTab() {
         onClose={() => setImportOpen(false)}
         onSelected={(sel) => void handleImported(sel)}
       />
+      {editing !== null && (
+        <SystemFormModal
+          value={editing}
+          filings={filings}
+          enums={enums}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); reload() }}
+        />
+      )}
     </>
+  )
+}
+
+/** 系统新建/编辑表单(#194): 身份 + 挂靠备案 + 基本信息(规模/类型/公网/境外外包)。 */
+function SystemFormModal({ value, filings, enums, onSaved, onClose }: {
+  value: Partial<SystemRow>
+  filings: FilingRow[]
+  enums: ReturnType<typeof useEnums>
+  onSaved: () => void
+  onClose: () => void
+}) {
+  const [form] = Form.useForm<Partial<SystemRow>>()
+  const isEdit = value.id !== undefined
+  return (
+    <Modal
+      title={isEdit ? '编辑系统' : '新建系统'}
+      open
+      onCancel={onClose}
+      onOk={() => form.validateFields()
+        .then(async (v) => {
+          try {
+            if (isEdit) await api.updateSystem(value.id!, v)
+            else await api.createSystem(v)
+            message.success('已保存')
+            onSaved()
+          } catch (e) {
+            message.error((e as Error).message)
+          }
+        })
+        .catch(() => { /* 校验失败留在弹窗 */ })}
+    >
+      <Form form={form} layout="vertical" initialValues={value}>
+        <Form.Item name="name" label="系统名称" rules={[{ required: true, message: '请输入系统名称' }]}>
+          <Input placeholder="如: 个人网银系统" />
+        </Form.Item>
+        <Form.Item name="code" label="系统编号">
+          <Input placeholder="内部台账编号, 选填" />
+        </Form.Item>
+        <Form.Item
+          name="filing_id" label="挂靠定级备案"
+          extra="挂靠后系统继承备案定级; 备案由安全管理员维护, 暂无合适项可先跳过"
+        >
+          <Select
+            allowClear placeholder="选择备案(选填)"
+            options={filings.map((f) => ({
+              value: f.id, label: `${f.name}(${f.code ? `${f.code} / ` : ''}等保${f.level})`,
+            }))}
+          />
+        </Form.Item>
+        <Form.Item name="owner_name" label="系统负责人">
+          <Input placeholder="选填" />
+        </Form.Item>
+        <Form.Item name="user_scale" label="用户规模" rules={[{ required: true, message: '请选择' }]}>
+          <Select options={optionsOf(enums, 'user_scales')} placeholder="选择规模" />
+        </Form.Item>
+        <Form.Item
+          name="types" label="业务类型(可多选)"
+          extra="一个系统可能同时包含多种形态, 如 App + 后台管理; 驱动移动应用类安全需求"
+        >
+          <Select mode="multiple" options={optionsOf(enums, 'project_types')} placeholder="选择全部适用类型" />
+        </Form.Item>
+        <Space size={32}>
+          <Form.Item name="is_public" label="是否涉及公网访问" valuePropName="checked">
+            <Switch checkedChildren="是" unCheckedChildren="否" />
+          </Form.Item>
+          <Form.Item
+            name="offshore_vendor" label="存在境外外包/供应商" valuePropName="checked"
+            tooltip="勾选后触发《数据出境安全评估申报》监管报送类需求"
+          >
+            <Switch checkedChildren="是" unCheckedChildren="否" />
+          </Form.Item>
+        </Space>
+      </Form>
+    </Modal>
   )
 }
 

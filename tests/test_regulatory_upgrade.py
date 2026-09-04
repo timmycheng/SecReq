@@ -229,13 +229,14 @@ def test_regulatory_trigger_extra_cases():
     # App 台账
     session, project = _make_session_with_asset()
     project.type = "mobile_app"
+    project.system.types = ["mobile_app"]
     reqs = gen_for(session, project, RuleEngine.load())
     assert any(r.template_id == "SEC-REG-004" for r in reqs)
     session.close()
 
     # 境外供应商触发出境申报
     session, project = _make_session_with_asset()
-    project.offshore_vendor = True
+    project.system.offshore_vendor = True
     reqs = gen_for(session, project, RuleEngine.load())
     assert any(r.template_id == "SEC-REG-002" for r in reqs)
     session.close()

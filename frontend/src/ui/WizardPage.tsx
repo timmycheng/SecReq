@@ -1,4 +1,4 @@
-/* 8 步向导容器: 装载整卷状态并分步渲染。
+/* 6+2 步向导容器: 装载整卷状态并分步渲染(#194 过渡期仍含组件/基础设施步)。
 
 职责划分: 各步骤组件通过 StepHandleContext 注册 save/isDirty(内聚各自的 API 调用与校验),
 本容器负责状态装载、统一吸底导航(保存并下一步/上一步)、未保存修改的离开拦截、
@@ -165,7 +165,7 @@ export default function WizardPage({ projectId }: { projectId: number }) {
   }
 
   const done: boolean[] = [
-    Boolean(ws.project.name && ws.project.user_scale && ws.survey?.effective_level),
+    Boolean(ws.project.name && ws.survey?.effective_level),
     ws.features.length > 0,
     ws.data_assets.length > 0,
     ws.roles.length > 0 && ws.resources.length > 0,

@@ -64,7 +64,7 @@ def test_vuln_sheet_uses_orm_relationship_for_component(session):
     """生产调用链传 ORM 记录时, 漏洞清单组件列输出 name@version 而非「—」(#14)。"""
     from models import SbomComponent, VulnerabilityRecord
 
-    comp = SbomComponent(project_id=1, layer="runtime", name="openssl", version="1.1.1k")
+    comp = SbomComponent(system_id=1, layer="runtime", name="openssl", version="1.1.1k")
     session.add(comp)
     session.flush()
     session.add(VulnerabilityRecord(

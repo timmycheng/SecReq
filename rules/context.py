@@ -45,7 +45,7 @@ class RequirementContext:
 
     @property
     def user_scale_text(self) -> str:
-        return C.label(C.USER_SCALES, self.project.user_scale, "未知规模")
+        return C.label(C.USER_SCALES, self.project.effective_user_scale(), "未知规模")
 
     # ── 工厂方法 ──────────────────────────────────────
 
@@ -79,16 +79,22 @@ class RequirementContext:
             .all()
         )
         ctx.auth_config = session.query(AuthConfig).filter_by(project_id=project_id).first()
+        # 组件与基础设施自 #194 起挂系统: 取绑定系统的当前清单(未绑定系统则为空,
+        # 触发口径不变 —— 同数据同触发, 仅取数来源随实体归属调整)
         ctx.components = (
             session.query(SbomComponent)
-            .filter_by(project_id=project_id)
+            .filter_by(system_id=project.system_id)
             .options(orm.selectinload(SbomComponent.vulnerabilities))
             .all()
+            if project.system_id is not None else []
         )
         ctx.api_endpoints = (
             session.query(ApiEndpoint).filter_by(project_id=project_id).all()
         )
-        ctx.infra_assets = session.query(InfraAsset).filter_by(project_id=project_id).all()
+        ctx.infra_assets = (
+            session.query(InfraAsset).filter_by(system_id=project.system_id).all()
+            if project.system_id is not None else []
+        )
         ctx.external_systems = (
             session.query(ExternalSystem).filter_by(project_id=project_id).all()
         )

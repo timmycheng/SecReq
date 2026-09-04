@@ -70,7 +70,7 @@ def test_no_compliance_targets_no_rules(session, engine):
 
 def _add_component_with_vuln(session, project, name, version,
                              cve, severity, score, fix=None):
-    comp = SbomComponent(project_id=project.id, layer="library",
+    comp = SbomComponent(system_id=project.system_id, layer="library",
                          name=name, version=version, purl=f"pkg:generic/{name}@{version}")
     session.add(comp)
     session.flush()

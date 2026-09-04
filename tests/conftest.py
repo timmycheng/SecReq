@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
 from models import (
-    Project, init_db, make_engine,
+    Project, System, init_db, make_engine,
 )
 from rules import RuleEngine
 
@@ -39,14 +39,29 @@ def session():
 
 
 def add_base_project(session) -> Project:
-    """最小可用项目(无任何子数据), 用例按需补充维度输入。"""
+    """最小可用项目(无任何子数据, 已挂靠系统), 用例按需补充维度输入。
+
+    #194 起评估强制挂靠系统(基本信息/基础设施/组件都在系统上), 夹具同步:
+    系统携带默认规模, 组件/基础设施用例以 project.system_id 归属。
+    """
+    n = session.query(System).count() + 1
+    system = System(name=f"测试系统{n:02d}", user_scale="1k_to_100k", is_public=False)
+    session.add(system)
+    session.flush()
     project = Project(
         name="测试项目", code="PRJ-T001", type="web",
-        user_scale="1k_to_100k", deploy_env=["private_cloud"], is_public=False,
+        deploy_env=["private_cloud"], system_id=system.id,
     )
     session.add(project)
     session.flush()
     return project
+
+
+def create_system_api(client, name: str) -> dict:
+    """经 API 建一个系统(挂靠系统是写清单类用例的前置, #194)。"""
+    resp = client.post("/api/systems", json={"name": name})
+    assert resp.status_code == 201, resp.text
+    return resp.json()
 
 
 def gen_for(session, project, engine):

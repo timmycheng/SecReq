@@ -6,16 +6,15 @@
   对齐做增量对比正依赖这一点(与 UidContinuityGuard 的设计哲学一致);
 - 主键/外键全部重排: 权限条目重挂新角色/资源, 资产关联以 uid 为准,
   旧主键引用(sensitive_asset_ids)置空防悬挂;
-- 组件漏洞记录不复制, 生成流水线会按组件重新查询; 复制时同时清空组件上的
-  漏洞查询缓存字段, 否则「TTL 内指纹未变→跳过查询」会让新轮次永远查不到漏洞(#169)。
+- 基础设施/架构图/组件自 #194 起挂系统共享, 不属于轮次数据, 不参与复制。
 """
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 
 from models import (
     ApiEndpoint, AuthConfig, DataAsset, DataField, DataTable, ExternalSystem,
-    Feature, GradingSurvey, InfraArchImage, InfraAsset,
-    PermissionEntry, Project, Resource, Role, SbomComponent, VulnerabilityRecord,
+    Feature, GradingSurvey, PermissionEntry, Project, Resource, Role,
+    SbomComponent, VulnerabilityRecord,
 )
 
 
@@ -82,22 +81,7 @@ def copy_wizard_data(db: Session, source: Project, target: Project) -> None:
     if source.auth_config:
         db.add(_clone(source.auth_config, project_id=dst))
 
-    # 基础设施清单与架构图(#164): 拓扑回退后清单整卷复制, 架构图 data URL 随库走
-    for asset in db.query(InfraAsset).filter_by(project_id=src).all():
-        db.add(_clone(asset, project_id=dst))
-    for img in db.query(InfraArchImage).filter_by(project_id=src).all():
-        db.add(_clone(img, project_id=dst))
-
-    # 组件与接口(旧资产主键引用置空, 以 uids 为准)。
-    # 组件必须清空漏洞查询缓存四件套: 漏洞记录按 component_id 挂表、复制时不带,
-    # 若缓存字段原样带过来, sync_vulnerabilities 的「TTL 内且指纹未变→跳过查询」
-    # 会立刻命中, 新轮次的漏洞将永远查不到(#169)
-    for comp in db.query(SbomComponent).filter_by(project_id=src).all():
-        db.add(_clone(
-            comp, project_id=dst,
-            last_osv_query_at=None, osv_query_fingerprint=None,
-            vuln_status=None, vuln_status_note=None,
-        ))
+    # 基础设施/架构图/组件自 #194 起挂系统共享, 不随轮次复制; 接口仍随轮次
     for ep in db.query(ApiEndpoint).filter_by(project_id=src).all():
         db.add(_clone(ep, project_id=dst, sensitive_asset_ids=[]))
 
@@ -156,13 +140,7 @@ def reset_wizard_data(db: Session, project_id: int) -> None:
     db.query(Role).filter_by(project_id=project_id).delete(synchronize_session=False)
     db.query(Resource).filter_by(project_id=project_id).delete(synchronize_session=False)
     db.query(ApiEndpoint).filter_by(project_id=project_id).delete(synchronize_session=False)
-    db.query(InfraArchImage).filter_by(project_id=project_id).delete(synchronize_session=False)
-    db.query(InfraAsset).filter_by(project_id=project_id).delete(synchronize_session=False)
-    component_ids = db.query(SbomComponent.id).filter_by(project_id=project_id)
-    db.query(VulnerabilityRecord).filter(
-        VulnerabilityRecord.component_id.in_(component_ids)
-    ).delete(synchronize_session=False)
-    db.query(SbomComponent).filter_by(project_id=project_id).delete(synchronize_session=False)
+    # 基础设施/架构图/组件挂系统(#194), 不随「一键清空」清除
     asset_ids = db.query(DataAsset.id).filter_by(project_id=project_id)
     table_ids = db.query(DataTable.id).filter(DataTable.asset_id.in_(asset_ids))
     db.query(DataField).filter(DataField.table_id.in_(table_ids)).delete(synchronize_session=False)

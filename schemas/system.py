@@ -63,6 +63,11 @@ class SystemCreate(BaseModel):
     netbox_object_id: str | None = Field(default=None, max_length=32)
     filing_id: int | None = None
     owner_name: str | None = Field(default=None, max_length=50)
+    # ── 基本信息(#194 自项目上收) ──
+    user_scale: str | None = Field(default=None, max_length=32)
+    types: list[str] = Field(default_factory=list)
+    is_public: bool = False
+    offshore_vendor: bool = False
 
 
 class SystemUpdate(BaseModel):
@@ -70,6 +75,10 @@ class SystemUpdate(BaseModel):
     code: str | None = Field(default=None, max_length=64)
     filing_id: int | None = None
     owner_name: str | None = Field(default=None, max_length=50)
+    user_scale: str | None = Field(default=None, max_length=32)
+    types: list[str] | None = None
+    is_public: bool | None = None
+    offshore_vendor: bool | None = None
 
 
 class SystemOut(BaseModel):
@@ -81,6 +90,10 @@ class SystemOut(BaseModel):
     netbox_object_id: str | None = None
     filing_id: int | None = None
     owner_name: str | None = None
+    user_scale: str | None = None
+    types: list[str] = Field(default_factory=list)
+    is_public: bool = False
+    offshore_vendor: bool = False
     created_at: datetime | None = None
 
 

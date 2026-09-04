@@ -420,7 +420,7 @@ class RuleEngine:
         if rule_key == "force_2fa":
             cfg = ctx.auth_config
             flagged = bool(cfg.force_2fa) if cfg else False
-            large_scale = ctx.project.user_scale in ("100k_to_1m", "over_1m")
+            large_scale = ctx.project.effective_user_scale() in ("100k_to_1m", "over_1m")
             top_level = ctx.grading_level == "三级"
             if not (flagged or large_scale or top_level):
                 return []
@@ -587,7 +587,7 @@ class RuleEngine:
 
         if key == "cross_border_exists":
             assets = [a for a in ctx.data_assets if a.cross_border_transfer]
-            offshore = bool(getattr(ctx.project, "offshore_vendor", False))
+            offshore = bool(ctx.project.effective_offshore_vendor())
             if not assets and not offshore:
                 return []
             detail = []
@@ -733,8 +733,9 @@ class RuleEngine:
 
 
 def project_types(project) -> list[str]:
-    """项目类型多选(兼容存量单值: types 为空回退 [type])。"""
-    types = list(getattr(project, "types", None) or [])
+    """项目类型多选(#194 起真相在挂靠系统, 兼容存量单值回退)。"""
+    types = list(project.effective_types() if hasattr(project, "effective_types")
+                 else (getattr(project, "types", None) or []))
     if not types:
         single = getattr(project, "type", "")
         types = [single] if single else []

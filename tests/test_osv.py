@@ -73,11 +73,11 @@ class FakeOsv:
 def _seed_components(session):
     project = add_base_project(session)
     comps = [
-        SbomComponent(project_id=project.id, layer="library", name="log4j-core",
+        SbomComponent(system_id=project.system_id, layer="library", name="log4j-core",
                       version="2.14.1", purl=LOG4J_PURL),
-        SbomComponent(project_id=project.id, layer="library", name="fastjson",
+        SbomComponent(system_id=project.system_id, layer="library", name="fastjson",
                       version="1.2.70", purl=FASTJSON_PURL),
-        SbomComponent(project_id=project.id, layer="frontend", name="vue",
+        SbomComponent(system_id=project.system_id, layer="frontend", name="vue",
                       version="3.3.4", purl="pkg:npm/vue@3.3.4"),
     ]
     session.add_all(comps)
@@ -202,7 +202,7 @@ def test_severity_dedup_keeps_stricter_when_same_cve_listed_twice(session):
     from services.osv import _replace_component_vulns
 
     project = add_base_project(session)
-    comp = SbomComponent(project_id=project.id, layer="library", name="fastjson",
+    comp = SbomComponent(system_id=project.system_id, layer="library", name="fastjson",
                          version="1.2.70", purl=FASTJSON_PURL)
     session.add(comp)
     session.flush()
@@ -325,7 +325,7 @@ def test_vulnerability_engine_rule_fires_after_sync(session):
     vuln_reqs = [r for r in reqs if r.template_id.startswith("SEC-V14-801")]
     by_comp = {r.source_entity_id: r for r in vuln_reqs}
     names = {
-        c.name: c.id for c in session.query(SbomComponent).filter_by(project_id=project.id)
+        c.name: c.id for c in session.query(SbomComponent).filter_by(system_id=project.system_id)
     }
     assert set(by_comp) == {names["log4j-core"], names["fastjson"]}
 

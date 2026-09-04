@@ -172,7 +172,7 @@ def write_cyclonedx_file(bom: dict, path: str | Path) -> Path:
 
 
 def generate_project_sbom(session: Session, project_id: int) -> tuple[dict, list[SbomComponent]]:
-    """从数据库读取项目组件并生成 CycloneDX 字典。
+    """从数据库读取评估所挂系统的组件并生成 CycloneDX 字典(#194 组件挂系统)。
 
     返回 (bom字典, 组件列表); 组件 purl 可能已被补齐回写, 由调用方决定是否 commit。
     """
@@ -180,6 +180,8 @@ def generate_project_sbom(session: Session, project_id: int) -> tuple[dict, list
     if project is None:
         raise ValueError(f"评估不存在: id={project_id}")
     components = (
-        session.query(SbomComponent).filter_by(project_id=project_id).order_by(SbomComponent.id).all()
+        session.query(SbomComponent).filter_by(system_id=project.system_id)
+        .order_by(SbomComponent.id).all()
+        if project.system_id is not None else []
     )
     return build_cyclonedx(project, components), components
