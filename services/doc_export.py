@@ -252,7 +252,6 @@ def build_full_docx(
 def _diff_chapter(doc: Document, diff: dict) -> None:
     """「与上一轮差异」章节(评估继承 #151): 分期建设场景下审阅者最关心增量。"""
     prev_code = (diff.get("previous_project") or {}).get("project_code") or "上一轮"
-    summary = diff.get("summary") or {}
     added_rows = diff.get("added") or []
     removed_rows = diff.get("removed") or []
     changed_rows = diff.get("changed") or []

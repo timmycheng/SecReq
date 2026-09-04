@@ -177,5 +177,6 @@ def test_copy_remaps_fks_and_cleans_stale_ids(session):
         Role, PermissionEntry.role_id == Role.id
     ).filter(Role.project_id == nxt.id).one()
     new_zone = session.query(NetworkZone).filter_by(project_id=nxt.id).one()
+    assert new_zone.uid == zone.uid and new_zone.id != zone.id
     assert new_entry.role_id != role.id and new_entry.resource_id != resource.id
     assert new_asset.uid == asset.uid and new_asset.id != asset.id
