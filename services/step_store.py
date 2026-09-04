@@ -357,6 +357,7 @@ def replace_infra_assets(session: Session, project_id: int, infra_assets: list[I
             "cpu_cores": item.cpu_cores, "memory_gb": item.memory_gb,
             "disk_gb": item.disk_gb, "os": item.os, "quantity": item.quantity,
             "purpose": item.purpose,
+            "netbox_ref_type": item.netbox_ref_type, "netbox_ref_id": item.netbox_ref_id,
         }
 
     _sync_rows(session, project_id, InfraAsset, infra_assets, fields_of, lambda i: i.uid)

@@ -5,6 +5,7 @@ import type {
   ApiEndpointRow, AuthConfigRow, ComponentRow, DataAssetRow,
   ExternalSystemRow, FeatureRow, FilingRow, GenerateSummary, GradingQuestion,
   InfraArchImageRow, InfraAssetRow, LabelMap, LoginInfo, MatrixEntryIn,
+  NetboxAssetRow,
   PreviewResult, ProjectDetail, ProjectInfo, RequirementDiff, RequirementRow, RoleRow,
   ResourceRow, SurveyAnswer, SystemRow, VulnerabilityRow, VulnDbStatus, VulnDbVerifyResult,
   WizardState,
@@ -301,6 +302,23 @@ export const api = {
     return request<{ total: number; invalid: number; rows: { index: number; name: string; method: string; path: string; auth_required: boolean; public_exposed: boolean; error?: string | null }[] }>(
       `/api/projects/${projectId}/api-endpoints/parse`, { method: 'POST', body })
   },
+  /** NetBox 是否已配置 + base_url(构建外链用, 未配置不报错) */
+  getNetboxStatus: () =>
+    request<{ configured: boolean; base_url?: string }>('/api/netbox/status'),
+  /** NetBox 资产搜索(#153): kind 为 devices / virtual-machines / ip-addresses */
+  listNetboxAssets: (kind: 'devices' | 'virtual-machines' | 'ip-addresses',
+                     keyword: string, limit: number, offset: number) =>
+    request<{ count: number; results: NetboxAssetRow[] }>(
+      `/api/netbox/${kind}?keyword=${encodeURIComponent(keyword)}&limit=${limit}&offset=${offset}`),
+  getNetboxOptions: () =>
+    request<{ sites: { id: number; name: string }[]; roles: { id: number; name: string }[];
+      device_types: { id: number; model: string }[]; base_url: string }>('/api/netbox/options'),
+  pushNetboxDevice: (data: {
+    project_id: number; asset_id: number; name: string;
+    site_id: number; role_id: number; device_type_id: number; ip_address?: string
+  }) =>
+    request<{ netbox_ref_type: string; netbox_ref_id: string; url: string; note?: string }>(
+      '/api/netbox/devices', { method: 'POST', body: JSON.stringify(data) }),
   listArchImages: (id: number) =>
     request<InfraArchImageRow[]>(`/api/projects/${id}/arch-images`),
   saveArchImage: (id: number, env: string, imageDataUrl: string) =>

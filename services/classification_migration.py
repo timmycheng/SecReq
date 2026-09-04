@@ -32,6 +32,9 @@ _NEW_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("system_id", "INTEGER"),
     ],
     "infra_assets": [
+        # NetBox 互通(#153): 推送成功后回填的来源侧标识
+        ("netbox_ref_type", "VARCHAR(40)"),
+        ("netbox_ref_id", "VARCHAR(32)"),
         ("cpu_cores", "INTEGER"),
         ("memory_gb", "INTEGER"),
         ("disk_gb", "INTEGER"),
@@ -112,15 +115,19 @@ _INFRA_ASSETS_REBUILD_SQL: list[str] = [
         disk_gb INTEGER,
         os VARCHAR(100),
         quantity INTEGER,
-        purpose VARCHAR(300)
+        purpose VARCHAR(300),
+        netbox_ref_type VARCHAR(40),
+        netbox_ref_id VARCHAR(32)
     )
     """,
     """
     INSERT INTO infra_assets_rebuilt
         (id, project_id, uid, asset_type, name, env, ip, owner, holds_sensitive,
-         cpu_cores, memory_gb, disk_gb, os, quantity, purpose)
+         cpu_cores, memory_gb, disk_gb, os, quantity, purpose,
+         netbox_ref_type, netbox_ref_id)
     SELECT id, project_id, uid, asset_type, name, env, ip, owner, holds_sensitive,
-           cpu_cores, memory_gb, disk_gb, os, quantity, purpose
+           cpu_cores, memory_gb, disk_gb, os, quantity, purpose,
+           netbox_ref_type, netbox_ref_id
     FROM infra_assets
     """,
     "DROP TABLE infra_assets",

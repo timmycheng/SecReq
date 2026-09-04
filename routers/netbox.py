@@ -1,0 +1,222 @@
+# -*- coding: utf-8 -*-
+"""NetBox 代理与写回端点(#153): 基础设施资产 导入/推送。
+
+- /api/netbox 前缀不在 OPEN_API_PREFIXES, 全局 auth_guard 自动要求登录;
+- 读取代理 require_login; 写回 require_write_roles(与向导写权限一致);
+- 错误映射: 未配置 → 409 可读提示, 断连/超时 → 502(中文归因), 4xx → 502 透传 detail;
+- 兜底原则: NetBox 是旁路增强 —— 推送是保存后的旁路动作, 失败不回滚、可重试。
+"""
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+import shared.constants as C
+from models import InfraAsset, PlatformUser, Project
+from routers.common import ensure_project_access, get_db, require_login
+from services.audit_service import audit
+from services.netbox import NetboxApiError, NetboxClient, NetboxUnavailable
+from services.settings_service import get_netbox_config
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/netbox", tags=["netbox"])
+
+
+def _client_or_409(db: Session) -> tuple[dict, NetboxClient]:
+    """取配置并建客户端; 未配置一律 409 可读提示。"""
+    cfg = get_netbox_config(db)
+    if not cfg:
+        raise HTTPException(
+            status_code=409, detail="NetBox 尚未配置, 请在 系统管理 → NetBox 互通 填写地址与 Token")
+    return cfg, NetboxClient(cfg["base_url"], cfg["token"])
+
+
+def _proxy_502(exc: Exception) -> HTTPException:
+    """NetBox 侧故障统一 502: 断连/超时带中文归因, 4xx 透传 detail。"""
+    return HTTPException(status_code=502, detail=str(exc))
+
+
+def _require_write_roles(user: PlatformUser) -> None:
+    """写回角色白名单与向导写权限一致; 非白名单 403。"""
+    if user.role not in C.WRITE_WIZARD_ROLES:
+        raise HTTPException(status_code=403, detail="无写回权限, 仅开发/安全角色可推送")
+
+
+@router.get("/status")
+def netbox_status(user: PlatformUser = Depends(require_login),
+                  db: Session = Depends(get_db)):
+    """前端构建 NetBox 外链用: 是否已配置 + base_url。"""
+    cfg = get_netbox_config(db)
+    return {"configured": bool(cfg), "base_url": (cfg or {}).get("base_url")}
+
+
+# ────────────────────────── 只读代理 ──────────────────────────
+
+@router.get("/devices")
+def proxy_devices(keyword: str | None = None, limit: int = 25, offset: int = 0,
+                  user: PlatformUser = Depends(require_login),
+                  db: Session = Depends(get_db)):
+    cfg, client = _client_or_409(db)
+    try:
+        return client.list_devices(keyword=keyword, limit=limit, offset=offset)
+    except (NetboxUnavailable, NetboxApiError) as exc:
+        raise _proxy_502(exc) from exc
+    finally:
+        client.close()
+
+
+@router.get("/virtual-machines")
+def proxy_virtual_machines(keyword: str | None = None, limit: int = 25, offset: int = 0,
+                           user: PlatformUser = Depends(require_login),
+                           db: Session = Depends(get_db)):
+    cfg, client = _client_or_409(db)
+    try:
+        return client.list_virtual_machines(keyword=keyword, limit=limit, offset=offset)
+    except (NetboxUnavailable, NetboxApiError) as exc:
+        raise _proxy_502(exc) from exc
+    finally:
+        client.close()
+
+
+@router.get("/ip-addresses")
+def proxy_ip_addresses(keyword: str | None = None, limit: int = 25, offset: int = 0,
+                       user: PlatformUser = Depends(require_login),
+                       db: Session = Depends(get_db)):
+    cfg, client = _client_or_409(db)
+    try:
+        return client.list_ip_addresses(keyword=keyword, limit=limit, offset=offset)
+    except (NetboxUnavailable, NetboxApiError) as exc:
+        raise _proxy_502(exc) from exc
+    finally:
+        client.close()
+
+
+@router.get("/options")
+def proxy_options(user: PlatformUser = Depends(require_login),
+                  db: Session = Depends(get_db)):
+    """推送弹窗下拉数据: sites/roles/device_types, 附 base_url 供外链。"""
+    cfg, client = _client_or_409(db)
+    try:
+        return {
+            "sites": client.list_sites(),
+            "roles": client.list_device_roles(),
+            "device_types": client.list_device_types(),
+            "base_url": cfg["base_url"],
+        }
+    except (NetboxUnavailable, NetboxApiError) as exc:
+        raise _proxy_502(exc) from exc
+    finally:
+        client.close()
+
+
+# ────────────────────────── 写回 ──────────────────────────
+
+class NetboxDevicePushIn(BaseModel):
+    """推送一条基础设施资产为 NetBox 设备; 成功后回填 asset 的 netbox_ref_*。"""
+
+    project_id: int
+    asset_id: int
+    name: str = Field(min_length=1, max_length=200)
+    site_id: int
+    role_id: int
+    device_type_id: int
+    ip_address: str | None = Field(default=None, max_length=64)
+
+
+def _find_exact(rows: list[dict], key: str, value: str) -> dict | None:
+    lowered = value.strip().lower()
+    for row in rows:
+        if str(row.get(key) or "").strip().lower() == lowered:
+            return row
+    return None
+
+
+@router.post("/devices")
+def push_device(payload: NetboxDevicePushIn,
+                user: PlatformUser = Depends(require_login),
+                db: Session = Depends(get_db)):
+    _require_write_roles(user)
+    asset = db.get(InfraAsset, payload.asset_id)
+    if asset is None or asset.project_id != payload.project_id:
+        raise HTTPException(status_code=404, detail=f"资产不存在: id={payload.asset_id}")
+    project = db.get(Project, asset.project_id)
+    ensure_project_access(user, project)
+    if asset.netbox_ref_id:
+        raise HTTPException(status_code=409,
+                            detail=f"该资产已关联 NetBox 对象({asset.netbox_ref_id}), 无需重复推送")
+
+    cfg, client = _client_or_409(db)
+    try:
+        # 名称查重: NetBox 侧已存在同名设备则拒绝(附外链), 失败可重试不回滚
+        dup = _find_exact(client.list_devices(keyword=payload.name, limit=100)["results"],
+                          "name", payload.name)
+        if dup:
+            raise HTTPException(
+                status_code=409,
+                detail=f"NetBox 已存在同名设备「{payload.name}」: {dup.get('url') or '(无外链)'}")
+
+        device = client.create_device({
+            "name": payload.name,
+            "site": payload.site_id,
+            "role": payload.role_id,
+            "device_type": payload.device_type_id,
+            "status": "active",
+        })
+        device_id = device.get("id")
+        note = None
+        if payload.ip_address:
+            # 可选建 IP 并挂设备主 IP; IP 环节失败不影响设备结果(旁路不回滚)
+            try:
+                ip = client.create_ip_address({"address": payload.ip_address, "status": "active"})
+                client.patch_device(device_id, {"primary_ip4": {"address": ip["address"]}})
+            except (NetboxUnavailable, NetboxApiError) as exc:
+                logger.warning("推送设备 %s 的可选 IP 失败(设备已建): %s", payload.name, exc)
+                note = f"设备已创建, 但 IP {payload.ip_address} 创建/挂载失败: {exc}"
+
+        asset.netbox_ref_type = "dcim.device"
+        asset.netbox_ref_id = str(device_id)
+        db.commit()
+        audit(db, user.username, "netbox_push",
+              {"asset_id": asset.id, "netbox_device_id": device_id})
+        return {
+            "netbox_ref_type": asset.netbox_ref_type,
+            "netbox_ref_id": asset.netbox_ref_id,
+            "url": device.get("display_url") or device.get("url")
+                or f"{cfg['base_url']}/dcim/devices/{device_id}/",
+            **({"note": note} if note else {}),
+        }
+    except (NetboxUnavailable, NetboxApiError) as exc:
+        raise _proxy_502(exc) from exc
+    finally:
+        client.close()
+
+
+class NetboxIpPushIn(BaseModel):
+    address: str = Field(min_length=1, max_length=64)
+    status: str = Field(default="active", max_length=32)
+
+
+@router.post("/ip-addresses")
+def push_ip_address(payload: NetboxIpPushIn,
+                    user: PlatformUser = Depends(require_login),
+                    db: Session = Depends(get_db)):
+    """独立建 IP(不挂设备), 推送前按地址查重。"""
+    _require_write_roles(user)
+    cfg, client = _client_or_409(db)
+    try:
+        dup = _find_exact(client.list_ip_addresses(keyword=payload.address, limit=100)["results"],
+                          "address", payload.address)
+        if dup:
+            raise HTTPException(
+                status_code=409,
+                detail=f"NetBox 已存在该地址 {payload.address}: {dup.get('url') or '(无外链)'}")
+        created = client.create_ip_address({"address": payload.address, "status": payload.status})
+        audit(db, user.username, "netbox_push", {"netbox_ip": payload.address})
+        return {"id": created.get("id"), "address": created.get("address"),
+                "url": created.get("display_url") or created.get("url")}
+    except (NetboxUnavailable, NetboxApiError) as exc:
+        raise _proxy_502(exc) from exc
+    finally:
+        client.close()

@@ -268,3 +268,179 @@ def test_netbox_system_fields_unconfigured(api, sec, monkeypatch):
     resp = sec.get("/api/admin/netbox-config/system-fields")
     assert resp.status_code == 409
     assert "尚未配置" in resp.json()["detail"]
+
+
+# ────────────────────────── /api/netbox 代理与写回(#153) ──────────────────────────
+
+@pytest.fixture()
+def netbox_ready(api, sec, monkeypatch):
+    """配置好 NetBox 并桩掉 routers.netbox.NetboxClient; 返回可编程的 Fake 类。"""
+    _isolate_env(monkeypatch)
+    saved = sec.put("/api/admin/netbox-config", json={
+        "base_url": NB_BASE, "token": NB_TOKEN, "system_slug": "system",
+        "field_map": {"name": "name", "code": "code", "owner": "owner"},
+    })
+    assert saved.status_code == 200
+
+    class FakeProxyClient:
+        devices: list[dict] = []
+        created: dict | None = None
+        create_error: Exception | None = None
+        unreachable: Exception | None = None
+
+        def __init__(self, base_url: str, token: str, timeout: float = 10.0, transport=None):
+            pass
+
+        def close(self):
+            pass
+
+        def list_devices(self, keyword=None, limit=25, offset=0):
+            if FakeProxyClient.unreachable:
+                raise FakeProxyClient.unreachable
+            rows = [d for d in FakeProxyClient.devices
+                    if not keyword or keyword.lower() in str(d.get("name") or "").lower()]
+            return {"count": len(rows), "results": rows[offset:offset + limit]}
+
+        def list_sites(self):
+            return [{"id": 1, "name": "总部机房", "slug": "hq"}]
+
+        def list_device_roles(self):
+            return [{"id": 2, "name": "交换机", "slug": "switch"}]
+
+        def list_device_types(self):
+            return [{"id": 3, "model": "S5735", "slug": "s5735"}]
+
+        def create_device(self, payload: dict):
+            if FakeProxyClient.create_error:
+                raise FakeProxyClient.create_error
+            FakeProxyClient.created = payload
+            return {"id": 42, "url": f"{NB_BASE}/dcim/devices/42/"}
+
+        def create_ip_address(self, payload: dict):
+            return {"id": 7, "address": payload["address"]}
+
+        def patch_device(self, device_id: int, payload: dict):
+            return {"id": device_id}
+
+    monkeypatch.setattr("routers.netbox.NetboxClient", FakeProxyClient)
+    FakeProxyClient.devices = []
+    FakeProxyClient.created = None
+    FakeProxyClient.create_error = None
+    FakeProxyClient.unreachable = None
+    return FakeProxyClient
+
+
+def _make_asset(api) -> tuple[int, int]:
+    """建项目并保存一条基础设施资产, 返回 (project_id, asset_id)。"""
+    pid = api.post("/api/projects", json={"name": "NetBox 资产项目"}).json()["id"]
+    rows = api.post(f"/api/projects/{pid}/infra-assets", json={
+        "assets": [{"asset_type": "server", "name": "E2E 应用服务器", "env": "prod",
+                    "quantity": 1}],
+    }).json()
+    return pid, rows[0]["id"]
+
+
+def test_proxy_unconfigured_returns_409(api, monkeypatch):
+    _isolate_env(monkeypatch)
+    resp = api.get("/api/netbox/devices")
+    assert resp.status_code == 409
+    assert "尚未配置" in resp.json()["detail"]
+
+
+def test_proxy_list_and_options(netbox_ready, api):
+    netbox_ready.devices = [
+        {"id": 9, "name": "edge-sw01", "primary_ip": "10.0.0.2/24", "site": "总部机房",
+         "role": "交换机", "device_type": "S5735", "status": "active",
+         "url": f"{NB_BASE}/dcim/devices/9/"},
+    ]
+    rows = api.get("/api/netbox/devices", params={"keyword": "edge"}).json()
+    assert rows["count"] == 1 and rows["results"][0]["name"] == "edge-sw01"
+
+    options = api.get("/api/netbox/options").json()
+    assert options["base_url"] == NB_BASE
+    assert options["sites"][0]["name"] == "总部机房"
+    assert options["roles"][0]["id"] == 2
+    assert options["device_types"][0]["model"] == "S5735"
+
+
+def test_proxy_unreachable_502(netbox_ready, api):
+    netbox_ready.unreachable = NetboxUnavailable("地址不可达(连接失败), 请检查 NetBox 地址与网络")
+    resp = api.get("/api/netbox/devices")
+    assert resp.status_code == 502
+    assert "不可达" in resp.json()["detail"]
+
+
+def test_push_device_roundtrip_and_dedupe(netbox_ready, api, sec):
+    """推送成功回填 netbox_ref; 重复推送 409; NetBox 同名设备 409 带外链; 审计留痕。"""
+    pid, asset_id = _make_asset(api)
+
+    # NetBox 侧已有同名设备 → 409 带外链
+    netbox_ready.devices = [{"id": 5, "name": "E2E 应用服务器", "url": f"{NB_BASE}/dcim/devices/5/"}]
+    dup = sec.post("/api/netbox/devices", json={
+        "project_id": pid, "asset_id": asset_id, "name": "E2E 应用服务器",
+        "site_id": 1, "role_id": 2, "device_type_id": 3, "ip_address": "10.0.0.9/24",
+    })
+    assert dup.status_code == 409
+    assert "/dcim/devices/5/" in dup.json()["detail"]
+
+    # 无同名 → 建设备 + 可选 IP 挂主 IP + 回填 ref
+    netbox_ready.devices = []
+    ok = sec.post("/api/netbox/devices", json={
+        "project_id": pid, "asset_id": asset_id, "name": "E2E 应用服务器",
+        "site_id": 1, "role_id": 2, "device_type_id": 3, "ip_address": "10.0.0.9/24",
+    })
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["netbox_ref_id"] == "42"
+    assert netbox_ready.created["role"] == 2  # NetBox 4.x 角色字段为 role
+
+    assets = api.get(f"/api/projects/{pid}/infra-assets").json()
+    assert assets[0]["netbox_ref_type"] == "dcim.device"
+    assert assets[0]["netbox_ref_id"] == "42"
+
+    # 已关联 → 再推 409
+    again = sec.post("/api/netbox/devices", json={
+        "project_id": pid, "asset_id": asset_id, "name": "E2E 应用服务器",
+        "site_id": 1, "role_id": 2, "device_type_id": 3,
+    })
+    assert again.status_code == 409
+    assert "已关联" in again.json()["detail"]
+
+    logs = sec.get("/api/admin/audit-logs").json()
+    assert any(log["action"] == "netbox_push" for log in logs)
+
+
+def test_push_device_netbox_4xx_passthrough(netbox_ready, api, sec):
+    """NetBox 4xx → 502 透传 detail; SecReq 资产行不回滚。"""
+    pid, asset_id = _make_asset(api)
+    netbox_ready.create_error = NetboxApiError("NetBox 返回 400: Invalid site")
+    resp = sec.post("/api/netbox/devices", json={
+        "project_id": pid, "asset_id": asset_id, "name": "E2E 应用服务器",
+        "site_id": 999, "role_id": 2, "device_type_id": 3,
+    })
+    assert resp.status_code == 502
+    assert "Invalid site" in resp.json()["detail"]
+    assets = api.get(f"/api/projects/{pid}/infra-assets").json()
+    assert assets[0]["netbox_ref_id"] is None  # 失败不回填, 行数据无损
+
+
+def test_push_device_role_and_project_guard(netbox_ready, api, sec):
+    """资产不属于该项目 → 404; 越权项目 → 404(不泄露存在性)。"""
+    pid, asset_id = _make_asset(api)
+    resp = sec.post("/api/netbox/devices", json={
+        "project_id": pid + 1, "asset_id": asset_id, "name": "x",
+        "site_id": 1, "role_id": 2, "device_type_id": 3,
+    })
+    assert resp.status_code == 404
+
+
+def test_infra_asset_netbox_ref_persists_via_save(api):
+    """整卷保存带回 netbox_ref_*(导入场景): 落库并回读一致。"""
+    pid = api.post("/api/projects", json={"name": "NetBox 导入项目"}).json()["id"]
+    saved = api.post(f"/api/projects/{pid}/infra-assets", json={
+        "assets": [{"asset_type": "server", "name": "db-vm01", "env": "prod",
+                    "netbox_ref_type": "virtualization.virtual-machine",
+                    "netbox_ref_id": "31"}],
+    }).json()
+    assert saved[0]["netbox_ref_type"] == "virtualization.virtual-machine"
+    rows = api.get(f"/api/projects/{pid}/infra-assets").json()
+    assert rows[0]["netbox_ref_id"] == "31"
