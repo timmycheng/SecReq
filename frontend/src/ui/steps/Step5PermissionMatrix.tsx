@@ -6,7 +6,7 @@ import { useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import {
   Alert, Button, Checkbox, Input, Popover, Select, Space,
-  Tag, Typography, message,
+  Tag, Tooltip, Typography, message,
 } from 'antd'
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 
@@ -86,7 +86,9 @@ export default function Step5PermissionMatrix({ ws, patch }: StepProps) {
         const roleName = roles[Number(riStr)]?.name ?? '?'
         const risky = Object.keys(cell).filter((a) => highRisk.has(a) && !cell[a])
         if (res.criticality === 'critical' && risky.length) {
-          list.push(`角色「${roleName}」对关键资源「${res.name}」的 ${risky.map((a) => actionsMap[a]).join('/')} 操作未勾选「需审批」, 单人即可生效 — 将触发高优先级整改需求`)
+          const labels = risky.map((a) => actionsMap[a] ?? a).map((l) => `「${l}」`).join('')
+          // 「需审批」= 执行前需第二人复核; 措辞避免「审批操作未勾选需审批」式自指(#175)
+          list.push(`角色「${roleName}」对关键资源「${res.name}」拥有${labels}权限但未开启复核(需审批), 单人即可执行 — 将触发高优先级整改需求`)
         }
         const conflictPairs: [string, string][] = [['create', 'approve'], ['update', 'approve'], ['config_change', 'approve']]
         for (const [a, b] of conflictPairs) {
@@ -200,7 +202,7 @@ export default function Step5PermissionMatrix({ ws, patch }: StepProps) {
         <div>
           <Space size={16} wrap style={{ marginBottom: 4 }}>
             <Typography.Text strong>权限矩阵</Typography.Text>
-            <Typography.Text type="secondary">点击单元格勾选操作 · 带 * 表示该操作需审批 · 红色「高危」Tag 表示关键资源上免审批将触发整改</Typography.Text>
+            <Typography.Text type="secondary">点击单元格勾选操作 · 带 * 表示该操作需审批(执行前需第二人复核) · 红色「高危」Tag 表示关键资源上免审批将触发整改</Typography.Text>
           </Space>
           {/* 横向滚动只作用于矩阵自身: 滚动条紧贴矩阵下方, 角色列固定左侧(#142) */}
           <div style={{ overflowX: 'auto' }}>
@@ -328,13 +330,15 @@ function MatrixCellPopover({ children, granted, actionsMap, highRisk, onToggleAc
               </Checkbox>
               {' '}
               {action in granted && highRisk.has(action) && (
-                <Checkbox
-                  style={{ marginLeft: 28 }}
-                  checked={!!granted[action]}
-                  onChange={(e) => onToggleApproval(action, e.target.checked)}
-                >
-                  需审批
-                </Checkbox>
+                <Tooltip title="勾选 = 该操作执行前需第二人复核; 关键资源上的高危操作免审批将触发整改需求">
+                  <Checkbox
+                    style={{ marginLeft: 28 }}
+                    checked={!!granted[action]}
+                    onChange={(e) => onToggleApproval(action, e.target.checked)}
+                  >
+                    需审批
+                  </Checkbox>
+                </Tooltip>
               )}
             </div>
           ))}
