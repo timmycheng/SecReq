@@ -151,3 +151,86 @@ export function infoSection(rows: [string, string][]): string {
     `<tr><td ${TD_HEAD}>${escapeHtml(k)}</td><td ${TD}>${v}</td></tr>`).join('')}</table>`
 }
 
+/** 合规目标 → 需求监管出处文件名关键词(与 shared/constants.py 的口径一致)。 */
+const COMPLIANCE_KEYWORDS: Record<string, string> = {
+  djcp_l3: '等级保护', pipl: '个人信息', pci_dss: 'PCI',
+}
+
+export interface SummaryInput {
+  projectName: string
+  requirements: RequirementLike[]
+  vulns: VulnLike[]
+  complianceTargets: string[]
+  complianceLabels: Record<string, string>
+}
+
+/** 执行摘要章节(#162): 结论 + 关键数字 + Top 风险 + 合规覆盖, 与结果页/Word 导出同口径。 */
+export function executiveSummarySection(input: SummaryInput): string {
+  const { projectName, requirements, vulns } = input
+  const crit = requirements.filter((r) => r.priority === 'critical').length
+  const high = requirements.filter((r) => r.priority === 'high').length
+  const critV = vulns.filter((v) => v.severity === 'critical').length
+  const highV = vulns.filter((v) => v.severity === 'high').length
+  const confirmed = requirements.filter((r) => r.reg_confirmed).length
+
+  let text: string; let detail: string; let color: string
+  if (crit || critV) {
+    text = `不建议直接通过: 存在 ${crit} 条关键需求与 ${critV} 个严重漏洞`
+    detail = '关键项为硬性安全要求, 建议整改闭环后复评; 优先处理下表 Top 风险。'
+    color = '#c00000'
+  } else if (high || highV) {
+    text = `有条件通过: 无关键(critical)项, 有 ${high} 条高优先级需求与 ${highV} 个高危漏洞`
+    detail = '建议按 Top 风险排期整改, 其余需求按建议阶段落实。'
+    color = '#d46900'
+  } else {
+    text = `基线整体可控: 共 ${requirements.length} 条需求, 均非 critical/high`
+    detail = '按建议阶段落实即可, 无需额外整改决策。'
+    color = '#1e7d32'
+  }
+
+  const top = requirements
+    .filter((r) => r.priority === 'critical' || r.priority === 'high')
+    .sort((a, b) => (a.priority === 'critical' ? -1 : 1) - (b.priority === 'critical' ? -1 : 1))
+    .slice(0, 5)
+  const topRows = top.map((r) => `<tr>
+      <td ${td(r.priority === 'critical' ? 'color:#c00000;font-weight:bold' : '')}>${escapeHtml(r.req_id)}</td>
+      <td ${td()}>${escapeHtml(r.title)}</td>
+      <td ${td(r.priority === 'critical' ? 'color:#c00000' : '')}>${escapeHtml(r.priority === 'critical' ? '紧急' : '高')}</td>
+      <td ${td('font-size:9.5pt')}>${escapeHtml(r.source_label ?? '—')}</td>
+    </tr>`).join('')
+
+  const coverage = input.complianceTargets.map((code) => {
+    const keyword = COMPLIANCE_KEYWORDS[code]
+    const label = input.complianceLabels[code] ?? code
+    const count = keyword
+      ? requirements.filter((r) => (r.regulatory_ref ?? []).some((f) => (f.file ?? '').includes(keyword))).length
+      : 0
+    return `${escapeHtml(label)}: ${count || '未直接命中'}`
+  }).join(';')
+
+  return `${sectionHeading(`${projectName} 执行摘要`)}
+  <p style="margin:6pt 0;font-size:12pt;font-weight:bold;color:${color}">${escapeHtml(text)}</p>
+  ${para(escapeHtml(detail))}
+  <table ${REQ_TABLE}>
+    <tr>
+      <th ${td('background:#eee;font-weight:bold')}>安全需求</th>
+      <th ${td('background:#eee;font-weight:bold')}>紧急(critical)</th>
+      <th ${td('background:#eee;font-weight:bold')}>高(high)</th>
+      <th ${td('background:#eee;font-weight:bold')}>已确认</th>
+      <th ${td('background:#eee;font-weight:bold')}>严重漏洞</th>
+      <th ${td('background:#eee;font-weight:bold')}>高危漏洞</th>
+    </tr>
+    <tr><td ${td()}><b>${requirements.length}</b></td><td ${td('color:#c00000')}>${crit}</td>
+      <td ${td()}>${high}</td><td ${td()}>${confirmed}</td>
+      <td ${td('color:#c00000')}>${critV}</td><td ${td()}>${highV}</td></tr>
+  </table><br/>
+  ${top.length ? `<p style="margin:6pt 0;font-weight:bold;font-size:11pt">Top 风险</p>
+  <table ${REQ_TABLE}>
+    <tr><th ${td('background:#eee;font-weight:bold;width:16%')}>编号</th>
+      <th ${td('background:#eee;font-weight:bold')}>需求标题</th>
+      <th ${td('background:#eee;font-weight:bold;width:10%')}>优先级</th>
+      <th ${td('background:#eee;font-weight:bold;width:20%')}>来源</th></tr>
+    ${topRows}
+  </table><br/>` : ''}
+  <p style="margin:4pt 0;font-size:10.5pt;color:#666">合规目标覆盖: ${coverage}(按需求监管出处统计)。</p>`
+}

@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
 """「下载 Word 文档」产物导出(走查整改: 全文下载用 .docx, 分区粘贴用前端 HTML 剪贴板)。
 
-生成《安全需求说明书》: 封面标题 + 项目概况与定级 + 安全需求清单(全文平铺)
-+ 漏洞清单。中文字体: 标题黑体、正文宋体; 表格带边框, 表头灰底。
+生成《安全需求说明书》, 结构对齐"结论先行"的审阅动线(#162):
+封面/目录 → 一、执行摘要(自动结论+关键数字+Top风险+合规覆盖)
+→ 二、项目概况与定级(含所属系统与定级来源)
+→ 三、安全需求清单(按类目分章, 每章小结+表格)
+→ 四、漏洞清单 → 五、与上一轮差异(评估继承场景, 可选)。
+中文字体: 标题黑体、正文宋体; 表格带边框, 表头灰底。
 """
 import io
 from datetime import datetime
@@ -17,6 +21,11 @@ import shared.constants as C
 
 _HEADER_FILL = "EDEDED"
 _CRITICAL_RED = RGBColor(0xC0, 0x00, 0x00)
+_ORANGE = RGBColor(0xD4, 0x69, 0x00)
+_GREEN = RGBColor(0x1E, 0x7D, 0x32)
+_GREY = RGBColor(0x59, 0x59, 0x59)
+
+_PRIORITY_ORDER = {p: i for i, p in enumerate(["critical", "high", "medium", "low"])}
 
 
 def _set_cn_font(run, name: str = "宋体", size: float = 10.5, bold: bool = False,
@@ -65,13 +74,17 @@ def _heading(doc: Document, text: str) -> None:
     para.paragraph_format.space_after = Pt(6)
 
 
-def _note(doc: Document, text: str) -> None:
-    """小号灰色说明段(数据来源声明、覆盖缺口提示)。"""
+def _para(doc: Document, text: str, size: float = 10.5, bold: bool = False,
+          color: RGBColor | None = None) -> None:
     para = doc.add_paragraph()
     run = para.add_run(text)
-    _set_cn_font(run, size=8.5, color=RGBColor(0x59, 0x59, 0x59))
-    para.paragraph_format.space_before = Pt(2)
-    para.paragraph_format.space_after = Pt(6)
+    _set_cn_font(run, size=size, bold=bold, color=color)
+    para.paragraph_format.space_after = Pt(4)
+
+
+def _note(doc: Document, text: str) -> None:
+    """小号灰色说明段(数据来源声明、覆盖缺口提示)。"""
+    _para(doc, text, size=8.5, color=_GREY)
 
 
 #: 数据来源 → 人读文案(导出文档里必须交代来源, 便于合规说明)
@@ -119,6 +132,130 @@ def _uncovered_note(doc: Document, components: list) -> None:
     _note(doc, "以下组件需人工确认: " + " ".join(lines))
 
 
+def _conclusion(requirements: list, vulnerabilities: list) -> tuple[str, str, RGBColor]:
+    """自动结论(与结果页执行摘要同口径): 按 critical/high 的需求与漏洞分档。"""
+    crit = sum(1 for r in requirements if r.priority == "critical")
+    high = sum(1 for r in requirements if r.priority == "high")
+    crit_v = sum(1 for v in vulnerabilities if v.severity == "critical")
+    high_v = sum(1 for v in vulnerabilities if v.severity == "high")
+    if crit or crit_v:
+        return (f"不建议直接通过: 存在 {crit} 条关键需求与 {crit_v} 个严重漏洞",
+                "关键项为硬性安全要求, 建议整改闭环后复评; 优先处理下表 Top 风险。",
+                _CRITICAL_RED)
+    if high or high_v:
+        return (f"有条件通过: 无关键(critical)项, 有 {high} 条高优先级需求与 {high_v} 个高危漏洞",
+                "建议按 Top 风险排期整改, 其余需求按建议阶段落实。",
+                _ORANGE)
+    return (f"基线整体可控: 共 {len(requirements)} 条需求, 均非 critical/high",
+            "按建议阶段落实即可, 无需额外整改决策。",
+            _GREEN)
+
+
+def _ref_files(requirement) -> list[str]:
+    return [ref.get("file", "") for ref in (getattr(requirement, "regulatory_ref", None) or [])
+            if ref.get("file")]
+
+
+def _executive_summary(doc: Document, project, requirements: list,
+                       vulnerabilities: list) -> None:
+    """一、执行摘要: 结论先行, 30 秒回答"能不能过、先看什么"(#162)。"""
+    _heading(doc, "一、执行摘要")
+    text, detail, color = _conclusion(requirements, vulnerabilities)
+    _para(doc, text, size=12, bold=True, color=color)
+    _para(doc, detail, size=9.5, color=_GREY)
+
+    crit = sum(1 for r in requirements if r.priority == "critical")
+    high = sum(1 for r in requirements if r.priority == "high")
+    confirmed = sum(1 for r in requirements if getattr(r, "reg_confirmed", False))
+    crit_v = sum(1 for v in vulnerabilities if v.severity == "critical")
+    high_v = sum(1 for v in vulnerabilities if v.severity == "high")
+    numbers = _add_table(doc,
+                         ["安全需求", "紧急(critical)", "高(high)", "已确认", "严重漏洞", "高危漏洞"],
+                         [2.4] * 6)
+    values = [str(len(requirements)), str(crit), str(high), str(confirmed),
+              str(crit_v), str(high_v)]
+    row = numbers.add_row().cells
+    for i, value in enumerate(values):
+        _cell_text(row[i], value, bold=(i == 0), red=(i in (1, 4) and value != "0"))
+
+    top = sorted(
+        (r for r in requirements if r.priority in ("critical", "high")),
+        key=lambda r: (_PRIORITY_ORDER.get(r.priority, 9), r.req_id),
+    )[:5]
+    if top:
+        _para(doc, "Top 风险(完整清单见第三章):", size=10.5, bold=True)
+        table = _add_table(doc, ["编号", "优先级", "需求标题", "来源"], [3.4, 1.8, 7.4, 4.8])
+        for r in top:
+            row = table.add_row().cells
+            _cell_text(row[0], r.req_id, red=r.priority == "critical")
+            _cell_text(row[1], C.label(C.REQUIREMENT_PRIORITY_LABELS, r.priority),
+                       red=r.priority == "critical")
+            _cell_text(row[2], r.title)
+            _cell_text(row[3], getattr(r, "source_label", None) or "—")
+
+    if project.compliance_targets:
+        lines = []
+        for code in project.compliance_targets:
+            keyword = C.COMPLIANCE_FILE_KEYWORDS.get(code)
+            label = C.label(C.COMPLIANCE_TARGETS, code)
+            count = sum(1 for r in requirements if keyword
+                        and any(keyword in f for f in _ref_files(r)))
+            lines.append(f"{label}: {count} 条" if count else f"{label}: 未直接命中")
+        _para(doc, "合规目标覆盖: " + ";".join(lines) + "(按需求监管出处统计)。", size=9.5)
+
+
+def _requirements_by_category(doc: Document, requirements: list) -> None:
+    """三、安全需求清单: 按类目分章, 每章一句小结 + 减负表格(类目列省去)。"""
+    _heading(doc, f"三、安全需求清单(共 {len(requirements)} 条, 按类目分章)")
+    if not requirements:
+        doc.add_paragraph("尚未生成安全需求, 请先在向导确认页执行「生成安全基线」。")
+        return
+
+    groups: dict[str, list] = {}
+    for r in sorted(requirements, key=lambda r: (_PRIORITY_ORDER.get(r.priority, 9), r.req_id)):
+        groups.setdefault(r.category, []).append(r)
+    label_values = list(C.TRIGGER_CATEGORY_LABELS.values())
+    ordered = sorted(groups.items(),
+                     key=lambda kv: label_values.index(kv[0]) if kv[0] in label_values else 99)
+
+    for idx, (label, rows) in enumerate(ordered, start=1):
+        crit = sum(1 for r in rows if r.priority == "critical")
+        high = sum(1 for r in rows if r.priority == "high")
+        _heading(doc, f"3.{idx} {label}(共 {len(rows)} 条)")
+        summary = f"其中紧急(critical){crit} 条、高(high){high} 条。" if crit or high \
+            else "无紧急/高优先级条目。"
+        sources = {getattr(r, "source_label", None) or "" for r in rows} - {""}
+        if sources:
+            summary += f"主要来源: {'、'.join(sorted(sources)[:3])}。"
+        _para(doc, summary, size=9.5, color=_GREY)
+
+        table = _add_table(doc,
+                           ["序号", "需求内容", "优先级", "来源", "验收标准", "合规依据/确认"],
+                           [1.0, 7.0, 1.5, 2.6, 3.4, 2.9])
+        for no, req in enumerate(rows, start=1):
+            row = table.add_row().cells
+            _cell_text(row[0], str(no), red=req.priority == "critical")
+
+            content = row[1]
+            content.text = ""
+            p1 = content.paragraphs[0]
+            _set_cn_font(p1.add_run(f"[{req.req_id}] {req.title}"), bold=True)
+            p2 = content.add_paragraph()
+            _set_cn_font(p2.add_run(req.description or ""))
+
+            _cell_text(row[2], C.label(C.REQUIREMENT_PRIORITY_LABELS, req.priority),
+                       red=req.priority == "critical")
+            _cell_text(row[3], getattr(req, "source_label", None)
+                       or (f"{req.source_entity_type}#{req.source_entity_id}"
+                           if getattr(req, "source_entity_type", None) else "—"))
+            _cell_text(row[4], req.acceptance_criteria or "—")
+            refs = ";\n".join(f"《{ref.get('file', '')}》{ref.get('clause', '')}"
+                              for ref in (getattr(req, "regulatory_ref", None) or [])
+                              if ref.get("file"))
+            confirmed = "✓ 已确认" if getattr(req, "reg_confirmed", False) else "□ 未确认"
+            _cell_text(row[5], (refs or "—") + f"\n{confirmed}", size=8.5)
+
+
 def build_full_docx(
     project,
     requirements: list,
@@ -135,7 +272,7 @@ def build_full_docx(
     section = doc.sections[0]
     section.page_width, section.page_height = Cm(21.0), Cm(29.7)  # A4 纵向
 
-    # 标题
+    # 封面标题
     title = doc.add_paragraph()
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
     _set_cn_font(title.add_run(f"{project.name} 安全需求说明书"), name="黑体", size=20, bold=True)
@@ -146,15 +283,30 @@ def build_full_docx(
         size=9,
     )
 
-    # 一、项目概况与定级
-    _heading(doc, "一、项目概况与定级")
+    # 目录(静态章节清单)
+    _heading(doc, "目录")
+    for entry in ["一、执行摘要", "二、项目概况与定级", "三、安全需求清单(按类目分章)",
+                  "四、漏洞清单", *(["五、与上一轮差异"] if diff_data is not None else [])]:
+        _para(doc, entry, size=10.5)
+
+    # 一、执行摘要
+    _executive_summary(doc, project, requirements, vulnerabilities)
+
+    # 二、项目概况与定级
+    _heading(doc, "二、项目概况与定级")
     survey = project_survey(project)
     survey_obj = getattr(project, "survey", None)
     level = survey_obj.effective_level() if survey_obj else ""
+    system = getattr(project, "system", None)
+    filing = getattr(system, "filing", None) if system else None
+    grading_source = (f"定级备案《{filing.name}》等保{filing.level}(系统挂靠继承)"
+                      if filing else (survey or "—"))
     meta_rows = [
         ("项目名称", project.name),
         ("项目编码", project.code),
+        ("所属系统", system.name if system else "未归属(可在项目中编辑归属)"),
         ("有效定级", f"等保{level}" if level else "未定级"),
+        ("定级来源", grading_source),
         ("项目类型", "、".join(
             C.label(C.PROJECT_TYPES, t) for t in (getattr(project, "types", None) or [])) or "—"),
         ("合规目标", "、".join(
@@ -171,51 +323,11 @@ def build_full_docx(
         _cell_text(row.cells[1], value, size=10)
         row.cells[0].width, row.cells[1].width = Cm(3.5), Cm(13.0)
 
-    # 二、安全需求清单(全文平铺)
-    _heading(doc, f"二、安全需求清单(共 {len(requirements)} 条)")
-    if requirements:
-        priority_order = {p: i for i, p in enumerate(["critical", "high", "medium", "low"])}
-        sorted_reqs = sorted(
-            requirements,
-            key=lambda r: (priority_order.get(r.priority, 9), r.req_id),
-        )
-        table = _add_table(
-            doc,
-            ["序号", "需求内容", "优先级", "类目/来源", "验收标准", "合规依据/确认"],
-            [1.0, 7.2, 1.4, 2.6, 3.4, 2.9],
-        )
-        for idx, req in enumerate(sorted_reqs, start=1):
-            row = table.add_row().cells
-            _cell_text(row[0], str(idx), red=req.priority == "critical")
+    # 三、安全需求清单(按类目分章)
+    _requirements_by_category(doc, requirements)
 
-            content = row[1]
-            content.text = ""
-            p1 = content.paragraphs[0]
-            _set_cn_font(p1.add_run(f"[{req.req_id}] {req.title}"), bold=True)
-            p2 = content.add_paragraph()
-            _set_cn_font(p2.add_run(req.description or ""))
-            p3 = content.add_paragraph()
-            _set_cn_font(p3.add_run(f"验收标准: {req.acceptance_criteria or '—'}"))
-
-            _cell_text(row[2], C.label(C.REQUIREMENT_PRIORITY_LABELS, req.priority),
-                       red=req.priority == "critical")
-
-            source = getattr(req, "source_label", None) or f"{req.source_entity_type}#{req.source_entity_id}"
-            _cell_text(row[3], f"{req.category}\n{source}")
-
-            refs = ";\n".join(
-                f"《{ref.get('file', '')}》{ref.get('clause', '')}"
-                for ref in (getattr(req, "regulatory_ref", None) or [])
-                if ref.get("file")
-            )
-            confirmed = "✓ 已确认" if getattr(req, "reg_confirmed", False) else "□ 未确认"
-            _cell_text(row[4], refs or "—", size=8.5)
-            _cell_text(row[5], confirmed, size=8.5)
-    else:
-        doc.add_paragraph("尚未生成安全需求, 请先在向导确认页执行「生成安全基线」。")
-
-    # 三、漏洞清单
-    _heading(doc, f"三、漏洞清单(共 {len(vulnerabilities)} 条)")
+    # 四、漏洞清单
+    _heading(doc, f"四、漏洞清单(共 {len(vulnerabilities)} 条)")
     if vulnerabilities:
         comp_by_id = {c.id: c for c in (components or [])}
         table = _add_table(
@@ -241,6 +353,7 @@ def build_full_docx(
     else:
         doc.add_paragraph("未发现漏洞记录。")
 
+    # 五、与上一轮差异(评估继承场景)
     if diff_data is not None:
         _diff_chapter(doc, diff_data)
 
@@ -255,7 +368,7 @@ def _diff_chapter(doc: Document, diff: dict) -> None:
     added_rows = diff.get("added") or []
     removed_rows = diff.get("removed") or []
     changed_rows = diff.get("changed") or []
-    _heading(doc, f"四、与上一轮({prev_code})差异")
+    _heading(doc, f"五、与上一轮({prev_code})差异")
     if not (added_rows or removed_rows or changed_rows):
         doc.add_paragraph(f"与上一轮({prev_code})对比, 安全需求无变化。")
         return

@@ -17,7 +17,7 @@ import type {
 import { batchConfirm, confirmOne, unconfirmedAll, unconfirmedRegulatory } from './assist'
 import GlossaryTip from './GlossaryTip'
 import {
-  copyRichHtml, docShell, requirementsSection, vulnsSection,
+  copyRichHtml, docShell, executiveSummarySection, requirementsSection, vulnsSection,
 } from './wordExport'
 
 const PRIORITY_COLOR: Record<string, string> = {
@@ -271,6 +271,25 @@ export default function ResultPage({ projectId }: { projectId: number }) {
             `${project.code}_安全需求说明书.docx`)}
         >
           下载 Word 文档
+        </Button>
+        <Button
+          icon={<CopyOutlined />}
+          onClick={() => {
+            const enumsCompliance = labelMapOf(enums, 'compliance_targets')
+            void copySection(
+              '执行摘要',
+              docShell(`${project.name} 执行摘要`, [], executiveSummarySection({
+                projectName: project.name,
+                requirements: hitAll,
+                vulns: vulns ?? [],
+                complianceTargets: project.compliance_targets ?? [],
+                complianceLabels: enumsCompliance,
+              })),
+              `${project.name} 执行摘要`,
+            )
+          }}
+        >
+          复制执行摘要
         </Button>
         <Button onClick={() => void downloadFile(`/api/projects/${projectId}/export/xlsx`)}>
           <DownloadOutlined /> 需求跟踪表.xlsx(Jira 可导入)

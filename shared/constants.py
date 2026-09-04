@@ -467,6 +467,13 @@ COMPLIANCE_TARGETS = {
     "pci_dss": "PCI-DSS银行卡安全",
 }
 
+# 合规目标 → 需求监管出处文件名关键词(执行摘要/Word 摘要的覆盖统计口径, #156/#162)
+COMPLIANCE_FILE_KEYWORDS = {
+    "djcp_l3": "等级保护",
+    "pipl": "个人信息",
+    "pci_dss": "PCI",
+}
+
 # ── 安全需求 ──────────────────────────────────────────
 REQUIREMENT_PRIORITY_LABELS = {
     "critical": "紧急",
