@@ -1,19 +1,32 @@
-/* 系统详情: 备案定级事实 + 评估时间线(全部轮次) + 发起新一轮评估。
-   同一系统多次评估在这里形成时间线; 最新已生成轮次即"当前有效基线"。 */
+/* 系统详情: 备案定级事实 + 评估时间线(全部轮次) + 基础设施清单(#177) + 发起新一轮评估。
+   同一系统多次评估在这里形成时间线; 最新已生成轮次即"当前有效基线",
+   其基础设施清单作为该系统现状的单一事实来源只读展示。 */
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Alert, Button, Card, Descriptions, Space, Spin, Tag, Timeline, Typography, message,
+  Alert, Button, Card, Descriptions, Space, Spin, Table, Tag, Timeline, Typography, message,
 } from 'antd'
 import { ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons'
 
 import { api } from '../api'
+import { labelMapOf, useEnums } from '../enums'
 import { navigate } from '../router'
 import { LevelTag, RoundCell } from './SystemsPage'
-import type { SystemRow } from '../types'
+import type { InfraAssetRow, SystemRow } from '../types'
+
+const ENV_LABELS: Record<string, string> = { prod: '生产', test: '测试', dev: '开发' }
+
+/** 基础设施清单取自最新一轮评估(优先已生成轮次, #177)。 */
+function pickInfraSourceRound(system: SystemRow) {
+  const rounds = system.rounds ?? []
+  return rounds.find((r) => r.status === 'generated') ?? rounds[0] ?? null
+}
 
 export default function SystemDetailPage({ systemId }: { systemId: number }) {
+  const enums = useEnums()
   const [system, setSystem] = useState<SystemRow | null>(null)
   const [creating, setCreating] = useState(false)
+  /** 基础设施清单缓存: 记录来源轮次 project_id, 防止切换系统时串显旧数据(#177) */
+  const [infra, setInfra] = useState<{ roundId: number; rows: InfraAssetRow[] } | null>(null)
 
   const reload = useCallback(() => {
     api.getSystem(systemId)
@@ -21,6 +34,17 @@ export default function SystemDetailPage({ systemId }: { systemId: number }) {
       .catch((e: Error) => message.error(e.message))
   }, [systemId])
   useEffect(reload, [reload])
+
+  useEffect(() => {
+    if (!system) return
+    const round = pickInfraSourceRound(system)
+    if (!round) return
+    let cancelled = false
+    api.getInfraAssets(round.project_id)
+      .then((rows) => { if (!cancelled) setInfra({ roundId: round.project_id, rows }) })
+      .catch(() => { if (!cancelled) setInfra({ roundId: round.project_id, rows: [] }) })
+    return () => { cancelled = true }
+  }, [system])
 
   if (!system) {
     return <div style={{ padding: 24 }}><Spin /></div>
@@ -118,6 +142,67 @@ export default function SystemDetailPage({ systemId }: { systemId: number }) {
           />
         )}
       </Card>
+      <InfraOverviewCard
+        system={system}
+        infra={infra}
+        typeLabels={labelMapOf(enums, 'infra_asset_types')}
+      />
     </div>
+  )
+}
+
+/** 基础设施清单(#177): 聚合最新一轮评估(优先已生成)登记的资产, 只读展示系统现状。 */
+function InfraOverviewCard({ system, infra, typeLabels }: {
+  system: SystemRow
+  infra: { roundId: number; rows: InfraAssetRow[] } | null
+  typeLabels: Record<string, string>
+}) {
+  const round = pickInfraSourceRound(system)
+  const rows = round && infra?.roundId === round.project_id ? infra.rows : null
+  return (
+    <Card
+      title="基础设施清单"
+      style={{ marginTop: 16 }}
+      variant="borderless"
+      extra={round && rows !== null && (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          来自 {round.created_at?.slice(0, 10) || ''} 评估「{round.project_name}」
+        </Typography.Text>
+      )}
+    >
+      {!round ? (
+        <Typography.Text type="secondary">
+          还没有评估轮次, 发起新一轮评估并在「基础设施」步登记清单后, 这里将汇总展示系统现状。
+        </Typography.Text>
+      ) : rows === null ? (
+        <Spin />
+      ) : rows.length === 0 ? (
+        <Typography.Text type="secondary">
+          该轮评估未登记基础设施清单, 可在向导「基础设施」步补填。
+        </Typography.Text>
+      ) : (
+        <Table<InfraAssetRow>
+          rowKey={(r) => r.uid ?? String(r.id ?? `${r.name}@${r.env}`)}
+          dataSource={rows}
+          size="small"
+          pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100] }}
+          columns={[
+            { title: '类型', dataIndex: 'asset_type', width: 110,
+              render: (v) => <Tag color={v === 'network' ? 'geekblue' : 'default'}>{typeLabels[v] ?? v}</Tag> },
+            { title: '名称', dataIndex: 'name' },
+            { title: '环境', dataIndex: 'env', width: 80,
+              render: (v) => ENV_LABELS[v] ?? v },
+            { title: 'IP/地址', dataIndex: 'ip', width: 130, render: (v) => v || '—' },
+            { title: '规格', render: (_v, r) => r.asset_type === 'server'
+              ? [r.cpu_cores && `${r.cpu_cores}核`, r.memory_gb && `${r.memory_gb}G内存`, r.disk_gb && `${r.disk_gb}G盘`, r.os]
+                .filter(Boolean).join(' / ') || '—'
+              : (r.purpose || '—') },
+            { title: '数量', dataIndex: 'quantity', width: 70, render: (v) => v ?? '—' },
+            { title: '承载敏感数据', dataIndex: 'holds_sensitive', width: 110,
+              render: (v: boolean) => (v ? <Tag color="red">是</Tag> : '否') },
+          ]}
+        />
+      )}
+    </Card>
   )
 }
