@@ -1,6 +1,6 @@
 /* 产物页(Web 形式展示, 走查整改): 安全需求清单平铺(描述全文/来源中文/批量确认)、
    漏洞清单、组件与许可证、定级与策略说明; 每个视图可「复制到 Word」(HTML 剪贴板, 粘贴即排版)。 */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Key, ReactNode } from 'react'
 import {
   Alert, Breadcrumb, Button, Card, Descriptions, Modal, Progress, Select, Space, Spin,
@@ -86,43 +86,6 @@ export default function ResultPage({ projectId }: { projectId: number }) {
   // 两轮增量对比(评估继承): 有上一轮已生成评估时展示"新增/移除/变更"摘要条
   const [diff, setDiff] = useState<RequirementDiff | null>(null)
   const [diffOpen, setDiffOpen] = useState(false)
-  // 需求清单横向滚动: 表格自身滚动容器(.ant-table-body)与吸底悬浮滚动条双向同步
-  const reqWrapRef = useRef<HTMLDivElement>(null)
-  const reqScrollEndRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const wrap = reqWrapRef.current
-    if (!wrap) return
-    const body = () => wrap.querySelector<HTMLElement>('.ant-table-body')
-    const bar = () => wrap.querySelector<HTMLElement>('.req-h-scroll')
-    const onScroll = (e: Event) => {
-      const target = e.target
-      if (!(target instanceof HTMLElement) || !target.classList.contains('ant-table-body')) return
-      const el = bar()
-      if (el) el.scrollLeft = target.scrollLeft
-    }
-    wrap.addEventListener('scroll', onScroll, true)
-    // 表格底边进入视口后原生滚动条已可用, 悬浮条隐藏避免双滚动条; 无横向溢出(超宽屏)时同样隐藏(#144)
-    // IO 负责布局变化(翻页/数据刷新), window scroll/resize 兜底滚动场景
-    const updateBarVisibility = () => {
-      const el = bar()
-      const bodyEl = body()
-      if (!el || !bodyEl) return
-      const noOverflow = bodyEl.scrollWidth <= bodyEl.clientWidth
-      el.style.display = noOverflow || bodyEl.getBoundingClientRect().bottom <= window.innerHeight + 1
-        ? 'none' : 'block'
-    }
-    const io = new IntersectionObserver(updateBarVisibility)
-    if (reqScrollEndRef.current) io.observe(reqScrollEndRef.current)
-    window.addEventListener('scroll', updateBarVisibility, true)
-    window.addEventListener('resize', updateBarVisibility)
-    updateBarVisibility()
-    return () => {
-      wrap.removeEventListener('scroll', onScroll, true)
-      window.removeEventListener('scroll', updateBarVisibility, true)
-      window.removeEventListener('resize', updateBarVisibility)
-      io.disconnect()
-    }
-  }, [requirements])
 
   const priorityLabels = labelMapOf(enums, 'priority_labels')
   const severityLabels = labelMapOf(enums, 'severity_labels')
@@ -388,13 +351,10 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                     本清单复制到 Word
                   </Button>
                 </Space>
-                <div ref={reqWrapRef} className="req-sticky-wrap">
                 <Table<RequirementRow>
                   rowKey="req_id"
                   dataSource={filtered}
                   size="small"
-                  scroll={{ x: 1920 }}
-                  sticky
                   pagination={{
                     defaultPageSize: 10,
                     showSizeChanger: true,
@@ -404,6 +364,11 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                     selectedRowKeys: selectedKeys,
                     onChange: setSelectedKeys,
                     selections: true,
+                  }}
+                  expandable={{
+                    expandedRowRender: (r) => <ReqDetail r={r} />,
+                    rowExpandable: (r) => Boolean(r.description || r.acceptance_criteria
+                      || r.trigger_reason || (r.regulatory_ref ?? []).length),
                   }}
                   title={() => (
                     <Space size={12} wrap>
@@ -417,64 +382,45 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                         </Button>
                       )}
                       <Typography.Text type="secondary">
-                        标题/内容合并展示, 验收标准/触发来源分列; 确认动作替代责任人指派, 支持批量勾选
+                        默认只列关键列, 点击行首 + 展开描述全文/验收标准/触发原因与合规出处; 支持批量确认
                       </Typography.Text>
                     </Space>
                   )}
                   columns={[
+                    { title: '编号', dataIndex: 'req_id', width: 130 },
                     {
-                      title: '优先级', dataIndex: 'priority', width: 72,
+                      title: '需求标题', dataIndex: 'title',
+                      render: (t, r) => (
+                        <Typography.Text
+                          strong={r.priority === 'critical'}
+                          style={{ color: r.priority === 'critical' ? '#c00000' : undefined, fontSize: 13 }}
+                          ellipsis={{ tooltip: t }}
+                        >
+                          {t}
+                        </Typography.Text>
+                      ),
+                    },
+                    {
+                      title: '优先级', dataIndex: 'priority', width: 80,
                       render: (p) => <Tag color={PRIORITY_COLOR[p]}>{priorityLabels[p] ?? p}</Tag>,
                     },
-                    { title: '编号', dataIndex: 'req_id', width: 140 },
                     {
-                      title: '需求标题/内容', dataIndex: 'title', width: 620,
-                      render: (t, r) => (
-                        <div>
-                          <b>{t}</b>
-                          <div style={{ color: '#555', whiteSpace: 'pre-line', marginTop: 2 }}>
-                            {numberedToLines(r.description)}
-                          </div>
-                        </div>
-                      ),
-                    },
-                    {
-                      title: '验收标准', dataIndex: 'acceptance_criteria',
-                      width: 320,
-                      render: (a) => (
-                        <div style={{ color: '#888', fontSize: 12, whiteSpace: 'pre-line' }}>
-                          {numberedToLines(a)}
-                        </div>
-                      ),
-                    },
-                    {
-                      title: '类目', dataIndex: 'category', width: 100,
+                      title: '类目', dataIndex: 'category', width: 110,
                       render: (c) => <Tag>{c}</Tag>,
                     },
                     {
-                      title: '触发来源', dataIndex: 'trigger_reason', width: 260,
-                      render: (reason, r) => (
-                        <div style={{ fontSize: 12 }}>
-                          <div>{r.source_label
-                            ?? (r.source_entity_type ? `${r.source_entity_type}#${r.source_entity_id}` : '来源未定位')}</div>
-                          <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
-                            {reason || '触发原因未记录(存量数据)'}
-                          </Typography.Text>
-                        </div>
-                      ),
+                      title: '触发来源', dataIndex: 'source_label', width: 220, ellipsis: true,
+                      render: (label, r) => label
+                        ?? (r.source_entity_type ? `${r.source_entity_type}#${r.source_entity_id}` : '来源未定位'),
                     },
                     {
-                      title: '合规依据', dataIndex: 'regulatory_ref', width: 260,
+                      title: '合规依据', dataIndex: 'regulatory_ref', width: 100,
                       render: (refs: RequirementRow['regulatory_ref']) => (refs ?? []).length
-                        ? (refs ?? []).map((ref, i) => (
-                          <Tag key={i} color="blue" style={{ whiteSpace: 'normal' }}>
-                            《{ref.file}》{ref.clause || ''}
-                          </Tag>
-                        ))
+                        ? <Tag color="blue">{(refs ?? []).length} 条出处</Tag>
                         : '—',
                     },
                     {
-                      title: '确认', dataIndex: 'reg_confirmed', width: 110, fixed: 'right',
+                      title: '确认', dataIndex: 'reg_confirmed', width: 110,
                       render: (v: boolean, r) => (v
                         ? <Tag color="success">已确认{r.confirmed_by ? `·${r.confirmed_by}` : ''}</Tag>
                         : <Button size="small" type="link" onClick={() => void doConfirmOne(r)}>确认</Button>),
@@ -482,23 +428,6 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                   ]}
                   rowClassName={(r) => (r.priority === 'critical' ? 'row-critical' : '')}
                 />
-                {/* 表格底边哨兵: 进入视口即隐藏吸底悬浮条(原生滚动条已可用), 避免 double scrollbar(#144) */}
-                <div ref={reqScrollEndRef} style={{ height: 1 }} />
-                {/* 吸底悬浮横向滚动条: 行高较大时免去"翻到表格底部拖滚动条再翻回"; 宽度须与表格 scroll.x 一致 */}
-                <div
-                  className="req-h-scroll"
-                  onScroll={(e) => {
-                    const body = reqWrapRef.current?.querySelector<HTMLElement>('.ant-table-body')
-                    if (body) body.scrollLeft = (e.target as HTMLElement).scrollLeft
-                  }}
-                  style={{
-                    position: 'sticky', bottom: 0, zIndex: 30, background: '#fff',
-                    overflowX: 'auto', overflowY: 'hidden', height: 14,
-                  }}
-                >
-                  <div style={{ width: 1920, height: 1 }} />
-                </div>
-                </div>
               </>
             ),
           },
@@ -699,6 +628,43 @@ function DiffSection({ title, rows }: { title: ReactNode; rows: DiffRow[] }) {
           { title: '来源', dataIndex: 'source_label', ellipsis: true },
         ]}
       />
+    </div>
+  )
+}
+
+/** 需求行展开详情(#158): 描述全文/验收标准/触发原因/合规出处, 与原宽表信息等价。 */
+function ReqDetail({ r }: { r: RequirementRow }) {
+  return (
+    <div style={{ padding: '4px 8px', background: '#fafafa', borderRadius: 4 }}>
+      <Typography.Title level={5} style={{ margin: '4px 0 8px' }}>
+        {r.title}
+        <Typography.Text type="secondary" style={{ marginLeft: 8, fontSize: 12, fontWeight: 400 }}>
+          建议阶段: {r.suggested_phase === 'design' ? '设计' : r.suggested_phase === 'development' ? '开发' : '测试'}
+        </Typography.Text>
+      </Typography.Title>
+      <div style={{ whiteSpace: 'pre-line', lineHeight: 1.8 }}>{numberedToLines(r.description)}</div>
+      <div style={{ marginTop: 10 }}>
+        <Typography.Text type="secondary">验收标准: </Typography.Text>
+        <span style={{ whiteSpace: 'pre-line' }}>{numberedToLines(r.acceptance_criteria)}</span>
+      </div>
+      <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
+        <div>
+          触发原因: {r.trigger_reason || '未记录(存量数据)'}
+          {r.source_label ? `(来源: ${r.source_label})` : ''}
+        </div>
+      </div>
+      {(r.regulatory_ref ?? []).length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <Typography.Text type="secondary">合规依据: </Typography.Text>
+          <Space size={[6, 6]} wrap style={{ marginTop: 4 }}>
+            {(r.regulatory_ref ?? []).map((ref, i) => (
+              <Tag key={i} color="blue" style={{ whiteSpace: 'normal' }}>
+                《{ref.file}》{ref.clause || ''}{ref.summary ? `—— ${ref.summary}` : ''}
+              </Tag>
+            ))}
+          </Space>
+        </div>
+      )}
     </div>
   )
 }
