@@ -7,7 +7,7 @@ ensure_schema_upgrade 的 _NEW_COLUMNS 未登记这两张表 —— 修复前, �
 (即本文件用例修复前的失败形态)。
 """
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect as sa_inspect, text
 from sqlalchemy.orm import sessionmaker
 
 from models import SbomComponent, VulnerabilityRecord
@@ -41,6 +41,48 @@ _LEGACY_DDL = [
         summary VARCHAR(500)
     )
     """,
+    # v2.5.x 拓扑画布(#93)时期的表形态: zone_id 带 FK, 三张画布表
+    """
+    CREATE TABLE infra_assets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL,
+        asset_type VARCHAR(20) NOT NULL,
+        name VARCHAR(200) NOT NULL,
+        env VARCHAR(10) NOT NULL,
+        ip VARCHAR(64),
+        owner VARCHAR(50),
+        holds_sensitive BOOLEAN,
+        zone_id INTEGER,
+        FOREIGN KEY (zone_id) REFERENCES network_zones (id)
+    )
+    """,
+    """
+    CREATE TABLE network_zones (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL,
+        uid VARCHAR(36),
+        env VARCHAR(10),
+        name VARCHAR(100)
+    )
+    """,
+    """
+    CREATE TABLE infra_links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL,
+        env VARCHAR(10),
+        source_uid VARCHAR(36) NOT NULL,
+        target_uid VARCHAR(36) NOT NULL,
+        label VARCHAR(200)
+    )
+    """,
+    """
+    CREATE TABLE infra_layouts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL,
+        env VARCHAR(10),
+        layout JSON
+    )
+    """,
 ]
 
 
@@ -63,6 +105,18 @@ def legacy_engine(tmp_path):
             text(
                 "INSERT INTO vulnerabilities (component_id, cve_id, severity)"
                 " VALUES (1, 'CVE-2021-3450', 'high')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO network_zones (project_id, uid, env, name)"
+                " VALUES (1, 'zone-legacy-0001', 'prod', 'DMZ')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO infra_assets (project_id, asset_type, name, env, zone_id)"
+                " VALUES (1, 'server', 'E2E 应用服务器', 'prod', 1)"
             )
         )
     return engine
@@ -106,3 +160,22 @@ def test_schema_upgrade_idempotent(legacy_engine):
     init_db(legacy_engine)
     assert ensure_schema_upgrade(legacy_engine)
     assert ensure_schema_upgrade(legacy_engine) == {}
+
+
+def test_topology_tables_dropped_and_data_kept(legacy_engine):
+    """拓扑回退(#164): 三张画布表 DROP, zone_id 列移除, infra_assets 存量数据无损。"""
+    init_db(legacy_engine)
+    added = ensure_schema_upgrade(legacy_engine)
+
+    insp = sa_inspect(legacy_engine)
+    assert not insp.has_table("network_zones")
+    assert not insp.has_table("infra_links")
+    assert not insp.has_table("infra_layouts")
+    assert "zone_id" not in {c["name"] for c in insp.get_columns("infra_assets")}
+    assert set(added["tables"]) == {"network_zones", "infra_links", "infra_layouts"}
+
+    factory = sessionmaker(bind=legacy_engine, autoflush=False, expire_on_commit=False)
+    db = factory()
+    row = db.execute(text("SELECT asset_type, name FROM infra_assets")).one()
+    assert row == ("server", "E2E 应用服务器")
+    db.close()

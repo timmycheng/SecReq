@@ -4,7 +4,7 @@
 import type {
   ApiEndpointRow, AuthConfigRow, ComponentRow, DataAssetRow,
   ExternalSystemRow, FeatureRow, FilingRow, GenerateSummary, GradingQuestion,
-  InfraAssetRow, LabelMap, LoginInfo, MatrixEntryIn,
+  InfraArchImageRow, InfraAssetRow, LabelMap, LoginInfo, MatrixEntryIn,
   PreviewResult, ProjectDetail, ProjectInfo, RequirementDiff, RequirementRow, RoleRow,
   ResourceRow, SurveyAnswer, SystemRow, VulnerabilityRow, VulnDbStatus, VulnDbVerifyResult,
   WizardState,
@@ -290,12 +290,14 @@ export const api = {
     return request<{ total: number; invalid: number; rows: { index: number; name: string; method: string; path: string; auth_required: boolean; public_exposed: boolean; error?: string | null }[] }>(
       `/api/projects/${projectId}/api-endpoints/parse`, { method: 'POST', body })
   },
-  getInfraTopology: (projectId: number, env: string) =>
-    request<{ env: string; zones: { uid: string; name: string }[]; links: { source_uid: string; target_uid: string; label: string | null }[]; layout: { nodes?: Record<string, { x: number; y: number }>; zones?: Record<string, { x: number; y: number }> } }>(
-      `/api/projects/${projectId}/infra-topology?env=${env}`),
-  saveInfraTopology: (projectId: number, payload: { env: string; zones: unknown[]; links: unknown[]; layout: unknown; assets: unknown[] }) =>
-    request<{ zones: number; assets: number; links: number; env: string }>(
-      `/api/projects/${projectId}/infra-topology`, { method: 'POST', body: JSON.stringify(payload) }),
+  listArchImages: (id: number) =>
+    request<InfraArchImageRow[]>(`/api/projects/${id}/arch-images`),
+  saveArchImage: (id: number, env: string, imageDataUrl: string) =>
+    request<InfraArchImageRow>(`/api/projects/${id}/arch-images/${env}`, {
+      method: 'PUT', body: JSON.stringify({ image_data_url: imageDataUrl }),
+    }),
+  deleteArchImage: (id: number, env: string) =>
+    request<{ ok: boolean }>(`/api/projects/${id}/arch-images/${env}`, { method: 'DELETE' }),
   getInfraAssets: (id: number) =>
     request<InfraAssetRow[]>(`/api/projects/${id}/infra-assets`),
   getChangelog: () =>

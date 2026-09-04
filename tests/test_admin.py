@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """系统管理端点(走查整改): 仅安全角色可访问; 知识库/题库写回带校验;
 策略基线可配置; 用户管理与审计留痕。"""
+import base64
 import shutil
 import uuid
 
@@ -519,44 +520,37 @@ def test_api_import_parse_requires_input(sec, api):
     assert resp.status_code == 400
 
 
-def test_infra_topology_roundtrip(api, sec):
-    """拓扑画布一期(#93): 按环境整卷保存 区域/设备/连线/布局, 回读一致且幂等。"""
-    pid = api.post("/api/projects", json={"name": "拓扑项目"}).json()["id"]
-    zone_uid = "zone-uid-12345678"
-    dev_uid = "device-uid-123456"
-    payload = {
-        "env": "prod",
-        "zones": [{"uid": zone_uid, "name": "DMZ 区"}],
-        "links": [{"source_uid": dev_uid, "target_uid": dev_uid, "label": "内网互通"}],
-        "layout": {"nodes": {dev_uid: {"x": 120, "y": 80}},
-                   "zones": {zone_uid: {"x": 0, "y": 0, "w": 400, "h": 300}}},
-        "assets": [
-            {"uid": dev_uid, "asset_type": "server", "name": "E2E 应用服务器",
-             "env": "prod", "zone_uid": zone_uid},
-        ],
-    }
-    resp = sec.post(f"/api/projects/{pid}/infra-topology", json=payload)
+def test_arch_image_roundtrip(api, sec):
+    """架构图(#164): 每环境一张 data URL, PUT 幂等覆盖, 类型/编码/大小校验, 删除幂等。"""
+    pid = api.post("/api/projects", json={"name": "架构图项目"}).json()["id"]
+    assert sec.get(f"/api/projects/{pid}/arch-images").json() == []
+
+    png = "data:image/png;base64," + base64.b64encode(b"png-bytes").decode()
+    resp = sec.put(f"/api/projects/{pid}/arch-images/prod", json={"image_data_url": png})
     assert resp.status_code == 200, resp.text
-    assert resp.json()["assets"] == 1
+    assert resp.json()["env"] == "prod"
 
-    got = sec.get(f"/api/projects/{pid}/infra-topology", params={"env": "prod"}).json()
-    assert got["env"] == "prod"
-    assert got["zones"] == [{"uid": zone_uid, "name": "DMZ 区"}]
-    assert got["links"][0]["label"] == "内网互通"
-    assert got["layout"]["nodes"][dev_uid] == {"x": 120, "y": 80}
-    assets = sec.get(f"/api/projects/{pid}/infra-assets").json()
-    assert assets[0]["name"] == "E2E 应用服务器"
+    # 同环境重复上传 → 覆盖而非新增; 多环境互相独立
+    assert sec.put(f"/api/projects/{pid}/arch-images/prod", json={"image_data_url": png}).status_code == 200
+    webp = "data:image/webp;base64," + base64.b64encode(b"webp-bytes").decode()
+    assert sec.put(f"/api/projects/{pid}/arch-images/test", json={"image_data_url": webp}).status_code == 200
+    rows = sec.get(f"/api/projects/{pid}/arch-images").json()
+    assert {r["env"] for r in rows} == {"prod", "test"}
 
-    # 幂等重存 + 清空设备: 画布删除设备后清单同步为空
-    payload["assets"] = []
-    payload["links"] = []
-    resp = sec.post(f"/api/projects/{pid}/infra-topology", json=payload)
-    assert resp.status_code == 200
-    assert sec.get(f"/api/projects/{pid}/infra-assets").json() == []
+    # 非图片类型 / base64 编码无效 / 超过 2MB
+    bad_type = sec.put(f"/api/projects/{pid}/arch-images/dev",
+                       json={"image_data_url": "data:image/gif;base64,R0lGODlhAQABAAAAADs="})
+    assert bad_type.status_code == 400
+    bad_b64 = sec.put(f"/api/projects/{pid}/arch-images/dev",
+                      json={"image_data_url": "data:image/png;base64,AAAAAAAAAAA"})
+    assert bad_b64.status_code == 400
+    big = "data:image/png;base64," + base64.b64encode(b"x" * (2 * 1024 * 1024 + 1)).decode()
+    assert sec.put(f"/api/projects/{pid}/arch-images/dev", json={"image_data_url": big}).status_code == 413
 
-    # dev 环境独立: prod 的保存不影响 dev
-    assert "env" in (sec.get(f"/api/projects/{pid}/infra-topology", params={"env": "test"}).json())
-
+    # 删除与幂等删除
+    assert sec.delete(f"/api/projects/{pid}/arch-images/prod").json() == {"ok": True}
+    assert sec.delete(f"/api/projects/{pid}/arch-images/prod").json() == {"ok": True}
+    assert {r["env"] for r in sec.get(f"/api/projects/{pid}/arch-images").json()} == {"test"}
 
 def test_kb_create_template_and_duplicate(sec, kb_files):
     """新增模板(#165): POST 落盘可读; 重复 id 与缺必填字段被拦截。"""

@@ -1,19 +1,18 @@
-/* 基础设施步骤(独立步骤): 拓扑画布(测试/生产两套, #93)+设备清单双向联动, 开发环境走纯清单。
-   设备/区域/连线/位置存拓扑端点, 不进规则引擎; 设备清单沿用 uid upsert 契约(#66)。 */
+/* 基础设施步骤(独立步骤): 架构图上传预览(每环境一张, #164)+ 设备清单手填。
+   拓扑画布回退后, 架构关系以架构图表达, 清单沿用 uid upsert 契约(#66)。 */
 import { useEffect, useRef, useState } from 'react'
 import {
-  Button, Checkbox, Form, Input, InputNumber, Modal, Popconfirm, Select, Space,
-  Table, Tabs, Tag, Typography, message,
+  Button, Checkbox, Form, Image, Input, InputNumber, Modal, Popconfirm, Select, Space,
+  Table, Tabs, Tag, Typography, Upload, message,
 } from 'antd'
 import {
   CloudServerOutlined, DatabaseOutlined, DeleteOutlined, DeploymentUnitOutlined,
-  EditOutlined, HddOutlined, PlusOutlined,
+  EditOutlined, HddOutlined, PlusOutlined, UploadOutlined,
 } from '@ant-design/icons'
 
 import { api } from '../../api'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
 import type { InfraAssetRow } from '../../types'
-import InfraTopologyCanvas, { DEVICE_TYPES, type TopoAsset, type TopoLayout, type TopoLink, type TopoZone } from './InfraTopologyCanvas'
 import { useRegisterStepHandle } from './stepContext'
 import type { StepProps } from '../WizardPage'
 
@@ -23,15 +22,11 @@ const EMPTY_ASSET: InfraAssetRow = {
   os: null, quantity: 1, purpose: null,
 }
 
-interface EnvTopo {
-  zones: TopoZone[]
-  links: TopoLink[]
-  positions: { nodes: Record<string, { x: number; y: number }>; zones: Record<string, { x: number; y: number }> }
-}
-
-const EMPTY_TOPO: EnvTopo = { zones: [], links: [], positions: { nodes: {}, zones: {} } }
-const CANVAS_ENVS = ['test', 'prod'] as const
 const ALL_ENVS = ['test', 'prod', 'dev'] as const
+const ENV_LABEL: Record<string, string> = { test: '测试环境', prod: '生产环境', dev: '开发环境' }
+const ENV_ICON: Record<string, React.ReactNode> = {
+  test: <HddOutlined />, prod: <CloudServerOutlined />, dev: <DeploymentUnitOutlined />,
+}
 
 const TYPE_ICON: Record<string, React.ReactNode> = {
   server: <CloudServerOutlined />, database: <DatabaseOutlined />,
@@ -44,51 +39,27 @@ export default function Step7InfraList({ ws, patch }: StepProps) {
   const [editing, setEditing] = useState<InfraAssetRow | null>(null)
   const [editIndex, setEditIndex] = useState(-1)
   const [activeEnv, setActiveEnv] = useState<'test' | 'prod' | 'dev'>('prod')
-  const [topo, setTopo] = useState<Record<string, EnvTopo>>({ test: EMPTY_TOPO, prod: EMPTY_TOPO })
+  const [archImages, setArchImages] = useState<Partial<Record<string, string>>>({})
   const savedRef = useRef(JSON.stringify(assets))
 
   useEffect(() => {
-    // 加载测试/生产两套画布(区域/连线/位置); 失败不阻塞清单编辑
-    for (const env of CANVAS_ENVS) {
-      api.getInfraTopology(ws.project.id, env)
-        .then((t) => setTopo((prev) => ({
-          ...prev,
-          [env]: { zones: t.zones, links: t.links, positions: { nodes: t.layout.nodes ?? {}, zones: t.layout.zones ?? {} } },
-        })))
-        .catch(() => undefined)
-    }
+    // 加载三环境架构图; 失败不阻塞清单编辑
+    api.listArchImages(ws.project.id)
+      .then((rows) => setArchImages(Object.fromEntries(rows.map((r) => [r.env, r.image_data_url]))))
+      .catch(() => undefined)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const assetsOf = (env: string) => assets.filter((a) => (a.env || 'prod') === env)
 
-  const canvasAssets = (env: string): InfraAssetRow[] => assetsOf(env)
-  void canvasAssets
   const save = async (): Promise<boolean> => {
     try {
-      let total = 0
-      for (const env of ALL_ENVS) {
-        const envAssets = assetsOf(env)
-        const t = topo[env] ?? EMPTY_TOPO
-        const res = await api.saveInfraTopology(ws.project.id, {
-          env,
-          zones: env === 'dev' ? [] : t.zones,
-          links: env === 'dev' ? [] : t.links,
-          layout: env === 'dev' ? {} : t.positions,
-          assets: envAssets.map((a) => ({
-            uid: a.uid, asset_type: a.asset_type, name: a.name, ip: a.ip, owner: a.owner,
-            holds_sensitive: a.holds_sensitive, cpu_cores: a.cpu_cores, memory_gb: a.memory_gb,
-            disk_gb: a.disk_gb, os: a.os, quantity: a.quantity, purpose: a.purpose,
-            zone_uid: a.zone_uid ?? null,
-          })),
-        })
-        total = res.assets
-      }
+      await api.saveInfraAssets(ws.project.id, assets)
       const fresh = await api.getInfraAssets(ws.project.id)
       setAssets(fresh)
       patch({ infra_assets: fresh })
       savedRef.current = JSON.stringify(fresh)
-      message.success(`已保存基础设施拓扑与清单(共 ${total} 项设备)`)
+      message.success(`已保存基础设施清单(共 ${fresh.length} 项资产)`)
       return true
     } catch (e) {
       message.error((e as Error).message)
@@ -101,85 +72,68 @@ export default function Step7InfraList({ ws, patch }: StepProps) {
     isDirty: () => JSON.stringify(assets) !== savedRef.current,
   })
 
-  const updateEnvAssets = (env: string, rows: InfraAssetRow[]) => {
-    // 替换该 env 的设备, 其余环境保持不变
-    setAssets((prev) => [...prev.filter((a) => (a.env || 'prod') !== env), ...rows])
-  }
-
   const isServer = (row: InfraAssetRow) => row.asset_type === 'server'
 
-  /** 工具栏加设备: 画布当前位置生成节点 + 清单加一行(uid 前端生成, 保存时落库) */
-  const addDevice = (assetType: string) => {
-    if (activeEnv === 'dev') { message.info('开发环境走下方清单录入, 画布仅测试/生产'); return }
-    const uid = crypto.randomUUID()
-    const env = activeEnv === 'test' ? 'test' : 'prod'
-    setAssets((prev) => [...prev, {
-      ...EMPTY_ASSET, uid, asset_type: assetType, env, name: `${DEVICE_TYPES.find((d) => d.value === assetType)?.label ?? '设备'}`,
-    }])
-    setTopo((prev) => ({
-      ...prev,
-      [env]: {
-        ...prev[env],
-        positions: {
-          ...prev[env].positions,
-          nodes: { ...prev[env].positions.nodes, [uid]: { x: 260 + (prev[env].positions.nodes ? Object.keys(prev[env].positions.nodes).length % 4 : 0) * 30, y: 60 + (prev[env].positions.nodes ? Object.keys(prev[env].positions.nodes).length % 3 : 0) * 40 } },
-        },
-      },
-    }))
+  /** 架构图上传(#164): 前端读为 data URL, 类型/大小由后端校验; 返回 false 阻止 antd 自动上传 */
+  const uploadArch = (env: string, file: File): boolean => {
+    if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) {
+      message.error('仅支持 png/jpg/webp 图片')
+      return false
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      api.saveArchImage(ws.project.id, env, String(reader.result))
+        .then((row) => {
+          setArchImages((prev) => ({ ...prev, [env]: row.image_data_url }))
+          message.success(`已更新${ENV_LABEL[env]}架构图`)
+        })
+        .catch((e: Error) => message.error(e.message))
+    }
+    reader.readAsDataURL(file)
+    return false
   }
 
-  const addZone = () => {
-    if (activeEnv === 'dev') { message.info('开发环境走下方清单录入, 画布仅测试/生产'); return }
-    const uid = crypto.randomUUID()
-    setTopo((prev) => ({
-      ...prev,
-      [activeEnv]: {
-        ...prev[activeEnv],
-        zones: [...prev[activeEnv].zones, { uid, name: `区域${prev[activeEnv].zones.length + 1}` }],
-      },
-    }))
+  const removeArch = (env: string) => {
+    api.deleteArchImage(ws.project.id, env)
+      .then(() => {
+        setArchImages((prev) => ({ ...prev, [env]: undefined }))
+        message.success(`已删除${ENV_LABEL[env]}架构图`)
+      })
+      .catch((e: Error) => message.error(e.message))
   }
 
-  /** 画布变更回写: 设备/区域/连线与位置 */
-  const onCanvasChange = (env: 'test' | 'prod') => (next: { assets?: TopoAsset[]; zones?: TopoZone[]; links?: TopoLink[]; positions?: TopoLayout }) => {
-    if (next.assets !== undefined) {
-      // 画布删除设备 → 用画布资产覆盖该 env 清单(保留表单已有规格字段)
-      updateEnvAssets(env, next.assets.map((a) => {
-        const existing = assets.find((x) => x.uid === a.uid)
-        return existing ?? { ...EMPTY_ASSET, uid: a.uid, env, asset_type: a.asset_type, name: a.name, zone_uid: a.zone_uid ?? null }
-      }))
-    }
-    if (next.zones !== undefined) {
-      const zones = next.zones
-      const links = next.links ?? (topo[env] ?? EMPTY_TOPO).links
-      setTopo((prev) => {
-        const cur = prev[env] ?? EMPTY_TOPO
-        return { ...prev, [env]: { ...cur, zones, links } }
-      })
-    }
-    if (next.links !== undefined) {
-      const links = next.links
-      setTopo((prev) => {
-        const cur = prev[env] ?? EMPTY_TOPO
-        return { ...prev, [env]: { ...cur, links } }
-      })
-    }
-    if (next.positions !== undefined) {
-      const positions = next.positions
-      setTopo((prev) => {
-        const cur = prev[env] ?? EMPTY_TOPO
-        return { ...prev, [env]: { ...cur, positions } }
-      })
-    }
-  }
-
-  const topoFor = (env: 'test' | 'prod') => {
-    const t = topo[env] ?? EMPTY_TOPO
-    const canvasAssets: TopoAsset[] = assetsOf(env).map((a) => ({
-      uid: a.uid ?? '', asset_type: a.asset_type, name: a.name, env: a.env,
-      zone_uid: a.zone_uid ?? null, ip: a.ip, holds_sensitive: a.holds_sensitive,
-    }))
-    return { assets: canvasAssets, zones: t.zones, links: t.links, positions: t.positions }
+  const archCard = (env: string) => {
+    const url = archImages[env]
+    return (
+      <div style={{ marginBottom: 12, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+        {url ? (
+          <Image src={url} width={220} style={{ borderRadius: 4, border: '1px solid #eee' }} />
+        ) : (
+          <div style={{
+            width: 220, height: 124, border: '1px dashed #d9d9d9', borderRadius: 4,
+            display: 'grid', placeItems: 'center', color: '#999', fontSize: 12,
+          }}>
+            暂无{ENV_LABEL[env]}架构图
+          </div>
+        )}
+        <Space direction="vertical" size={6}>
+          <Upload
+            accept=".png,.jpg,.jpeg,.webp" showUploadList={false}
+            beforeUpload={(f) => uploadArch(env, f as unknown as File)}
+          >
+            <Button size="small" icon={<UploadOutlined />}>{url ? '替换架构图' : '上传架构图'}</Button>
+          </Upload>
+          {url && (
+            <Popconfirm title="删除该架构图?" onConfirm={() => removeArch(env)}>
+              <Button size="small" danger icon={<DeleteOutlined />}>删除架构图</Button>
+            </Popconfirm>
+          )}
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            png/jpg/webp, 不超过 2MB; 随项目复制/评估继承自动带走
+          </Typography.Text>
+        </Space>
+      </div>
+    )
   }
 
   const envTable = (env: string) => {
@@ -226,55 +180,33 @@ export default function Step7InfraList({ ws, patch }: StepProps) {
   return (
     <div style={{ maxWidth: 1120, margin: '0 auto' }}>
       <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-        测试与生产各有一套拓扑画布: 从工具栏添加设备与区域, 拖到合适位置, 连线(双击可写说明);
-        画布与下方清单双向联动, 规格等字段在清单里补填。开发环境用清单登记即可。
+        按环境上传架构图并手填资产清单: 架构图表达整体拓扑关系, 规格等明细在清单里登记。
       </Typography.Text>
 
       <Tabs
         activeKey={activeEnv}
         onChange={(k) => setActiveEnv(k as 'test' | 'prod' | 'dev')}
-        items={[
-          ...CANVAS_ENVS.map((env) => ({
-            key: env,
-            label: <span>{TYPE_ICON[env === 'test' ? 'middleware' : 'server'] ?? null} {env === 'test' ? '测试环境' : '生产环境'}</span>,
-            children: (
-              <div>
-                <Space style={{ marginBottom: 8 }} wrap>
-                  {DEVICE_TYPES.map((d) => (
-                    <Button key={d.value} size="small" icon={TYPE_ICON[d.value]}
-                      onClick={() => addDevice(d.value)}>添加{d.label}</Button>
-                  ))}
-                  <Button size="small" icon={<PlusOutlined />} onClick={addZone}>添加区域</Button>
-                  <Typography.Text type="secondary">
-                    {activeEnv === 'test' ? '测试环境' : '生产环境'}画布 · 共 {assetsOf(env).length} 项设备
-                  </Typography.Text>
-                </Space>
-                <InfraTopologyCanvas
-                  assets={topoFor(env).assets}
-                  zones={topoFor(env).zones}
-                  links={topoFor(env).links}
-                  positions={topoFor(env).positions}
-                  onChange={onCanvasChange(env)}
-                />
-                <div style={{ marginTop: 12 }}>{envTable(env)}</div>
-              </div>
-            ),
-          })),
-          {
-            key: 'dev',
-            label: '开发环境(仅清单)',
-            children: (
-              <div>
-                <Space style={{ marginBottom: 8 }}>
-                  <Button size="small" icon={<PlusOutlined />}
-                    onClick={() => { setEditIndex(-1); setEditing({ ...EMPTY_ASSET, env: 'dev' }) }}>新增资产</Button>
-                  <Typography.Text type="secondary">共 {assetsOf('dev').length} 项(允许为空)</Typography.Text>
-                </Space>
-                {envTable('dev')}
-              </div>
-            ),
-          },
-        ]}
+        items={ALL_ENVS.map((env) => ({
+          key: env,
+          label: <span>{ENV_ICON[env] ?? null} {ENV_LABEL[env]}</span>,
+          children: (
+            <div>
+              {archCard(env)}
+              <Space style={{ marginBottom: 8 }}>
+                <Button
+                  size="small" icon={<PlusOutlined />}
+                  onClick={() => { setEditIndex(-1); setEditing({ ...EMPTY_ASSET, env }) }}
+                >
+                  新增资产
+                </Button>
+                <Typography.Text type="secondary">
+                  {ENV_LABEL[env]}共 {assetsOf(env).length} 项资产{env === 'dev' ? '(允许为空)' : ''}
+                </Typography.Text>
+              </Space>
+              {envTable(env)}
+            </div>
+          ),
+        }))}
       />
 
       {editing !== null && (

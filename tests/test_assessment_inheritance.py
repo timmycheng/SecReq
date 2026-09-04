@@ -6,7 +6,7 @@
 """
 from conftest import add_base_project
 from models import (
-    ApiEndpoint, DataAsset, Feature, NetworkZone, PermissionEntry, Project,
+    ApiEndpoint, DataAsset, Feature, InfraArchImage, PermissionEntry, Project,
     SecurityRequirement,
 )
 from rules import RuleEngine, load_knowledge_base
@@ -145,12 +145,13 @@ def test_find_previous_round_ordering(session):
 
 
 def test_copy_remaps_fks_and_cleans_stale_ids(session):
-    """复制重排外键: 权限条目挂新角色/资源, 拓扑区域重映射, 接口旧资产主键置空。"""
+    """复制重排外键: 权限条目挂新角色/资源, 架构图随卷复制, 接口旧资产主键置空。"""
     from models import Resource, Role
 
     project = add_base_project(session)
-    zone = NetworkZone(project_id=project.id, env="prod", name="DMZ")
-    session.add(zone)
+    arch = InfraArchImage(project_id=project.id, env="prod",
+                          image_data_url="data:image/png;base64,QUJD")
+    session.add(arch)
     session.flush()
     asset = DataAsset(project_id=project.id, name="客户信息表", data_type="corporate",
                       classification="3级_C2主要信息")
@@ -176,8 +177,8 @@ def test_copy_remaps_fks_and_cleans_stale_ids(session):
     new_entry = session.query(PermissionEntry).join(
         Role, PermissionEntry.role_id == Role.id
     ).filter(Role.project_id == nxt.id).one()
-    new_zone = session.query(NetworkZone).filter_by(project_id=nxt.id).one()
-    assert new_zone.uid == zone.uid and new_zone.id != zone.id
+    new_arch = session.query(InfraArchImage).filter_by(project_id=nxt.id).one()
+    assert new_arch.image_data_url == "data:image/png;base64,QUJD"
     assert new_entry.role_id != role.id and new_entry.resource_id != resource.id
     assert new_asset.uid == asset.uid and new_asset.id != asset.id
 
