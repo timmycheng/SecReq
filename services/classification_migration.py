@@ -32,7 +32,6 @@ _NEW_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("system_id", "INTEGER"),
     ],
     "infra_assets": [
-        ("zone_id", "INTEGER"),
         ("cpu_cores", "INTEGER"),
         ("memory_gb", "INTEGER"),
         ("disk_gb", "INTEGER"),
@@ -89,6 +88,67 @@ _NEW_COLUMNS: dict[str, list[tuple[str, str]]] = {
 }
 
 
+# 拓扑画布回退(#164)移除的表: 存量数据仅为坐标/区域归属/连线说明, 回退后无保留价值。
+# 幂等: 已不存在的表跳过。
+_DROPPED_TABLES: list[str] = ["network_zones", "infra_links", "infra_layouts"]
+
+# infra_assets.zone_id 列带 FK 约束, SQLite 的 DROP COLUMN 拒绝带 FK 定义的列,
+# 按官方 12 步法整表重建(INSERT..SELECT 保数据, 重建后列清单与 v2.6.0 模型一致)。
+# 前置条件: _NEW_COLUMNS 补列先执行, 下列引用的列在存量库必然存在。
+_INFRA_ASSETS_REBUILD_SQL: list[str] = [
+    """
+    CREATE TABLE infra_assets_rebuilt (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL REFERENCES projects (id),
+        uid VARCHAR(36),
+        asset_type VARCHAR(20) NOT NULL,
+        name VARCHAR(200) NOT NULL,
+        env VARCHAR(10) NOT NULL,
+        ip VARCHAR(64),
+        owner VARCHAR(50),
+        holds_sensitive BOOLEAN,
+        cpu_cores INTEGER,
+        memory_gb INTEGER,
+        disk_gb INTEGER,
+        os VARCHAR(100),
+        quantity INTEGER,
+        purpose VARCHAR(300)
+    )
+    """,
+    """
+    INSERT INTO infra_assets_rebuilt
+        (id, project_id, uid, asset_type, name, env, ip, owner, holds_sensitive,
+         cpu_cores, memory_gb, disk_gb, os, quantity, purpose)
+    SELECT id, project_id, uid, asset_type, name, env, ip, owner, holds_sensitive,
+           cpu_cores, memory_gb, disk_gb, os, quantity, purpose
+    FROM infra_assets
+    """,
+    "DROP TABLE infra_assets",
+    "ALTER TABLE infra_assets_rebuilt RENAME TO infra_assets",
+    "CREATE INDEX ix_infra_assets_project_id ON infra_assets (project_id)",
+    "CREATE INDEX ix_infra_assets_uid ON infra_assets (uid)",
+]
+
+
+def _drop_legacy_topology(conn, inspector) -> dict[str, list[str]]:
+    """回退拓扑画布(#164): DROP 三张画布表, 重建 infra_assets 去掉 zone_id 列(幂等)。
+
+    存量清单数据经 INSERT..SELECT 原样保留; 返回实际执行的清理动作供调用方留痕。
+    """
+    dropped: dict[str, list[str]] = {}
+    for table in _DROPPED_TABLES:
+        if inspector.has_table(table):
+            conn.execute(text(f"DROP TABLE {table}"))
+            dropped.setdefault("tables", []).append(table)
+    if inspector.has_table("infra_assets"):
+        cols = [col["name"] for col in inspector.get_columns("infra_assets")]
+        if "zone_id" in cols:
+            for ddl in _INFRA_ASSETS_REBUILD_SQL:
+                conn.execute(text(ddl))
+            dropped.setdefault("columns", []).append("infra_assets.zone_id")
+    return dropped
+
+
 def ensure_schema_upgrade(engine) -> dict[str, list[str]]:
     """为已存在的表补齐新增列(幂等); 新表由 create_all 负责。"""
     inspector = inspect(engine)
@@ -103,6 +163,7 @@ def ensure_schema_upgrade(engine) -> dict[str, list[str]]:
                     continue
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
                 added.setdefault(table, []).append(name)
+        added.update(_drop_legacy_topology(conn, inspector))
     return added
 
 

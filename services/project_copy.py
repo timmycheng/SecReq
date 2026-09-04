@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from models import (
     ApiEndpoint, DataAsset, ExternalSystem,
-    Feature, InfraAsset, InfraLayout, InfraLink, NetworkZone,
+    Feature, InfraArchImage, InfraAsset,
     PermissionEntry, Project, Resource, Role, SbomComponent, VulnerabilityRecord,
 )
 
@@ -82,21 +82,11 @@ def copy_wizard_data(db: Session, source: Project, target: Project) -> None:
     if source.auth_config:
         db.add(_clone(source.auth_config, project_id=dst))
 
-    # 拓扑: 区域先建(资产 zone_id 需要重映射), 布局与连线按 uid 引用可原样复制
-    zone_id_map: dict[int, int] = {}
-    for zone in db.query(NetworkZone).filter_by(project_id=src).all():
-        db.add(zone_clone := _clone(zone, project_id=dst))
-        db.flush()
-        zone_id_map[zone.id] = zone_clone.id
+    # 基础设施清单与架构图(#164): 拓扑回退后清单整卷复制, 架构图 data URL 随库走
     for asset in db.query(InfraAsset).filter_by(project_id=src).all():
-        db.add(_clone(
-            asset, project_id=dst,
-            zone_id=zone_id_map.get(asset.zone_id) if asset.zone_id else None,
-        ))
-    for link in db.query(InfraLink).filter_by(project_id=src).all():
-        db.add(_clone(link, project_id=dst))
-    for layout in db.query(InfraLayout).filter_by(project_id=src).all():
-        db.add(_clone(layout, project_id=dst))
+        db.add(_clone(asset, project_id=dst))
+    for img in db.query(InfraArchImage).filter_by(project_id=src).all():
+        db.add(_clone(img, project_id=dst))
 
     # 组件与接口(旧资产主键引用置空, 以 uids 为准)。
     # 组件必须清空漏洞查询缓存四件套: 漏洞记录按 component_id 挂表、复制时不带,

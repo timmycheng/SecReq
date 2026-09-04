@@ -266,8 +266,6 @@ export interface InfraAssetRow {
   id?: number
   /** 稳定业务标识(#66): 保存时原样回传, 新增行留空由后端生成 */
   uid?: string
-  /** 所属网络区域 uid(拓扑画布一期, #93) */
-  zone_uid?: string | null
   asset_type: string
   name: string
   env: string
@@ -280,6 +278,11 @@ export interface InfraAssetRow {
   os?: string | null
   quantity?: number | null
   purpose?: string | null
+}
+
+export interface InfraArchImageRow {
+  env: string
+  image_data_url: string
 }
 
 export interface WizardState {

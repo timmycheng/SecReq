@@ -73,3 +73,16 @@ class InfraAssetOut(BaseModel):
     os: str | None = None
     quantity: int | None = None
     purpose: str | None = None
+
+
+class InfraArchImageIn(BaseModel):
+    """架构图上传(#164): data URL 形态(base64), 每环境一张。"""
+
+    image_data_url: str = Field(min_length=32, max_length=2_800_000)
+
+
+class InfraArchImageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    env: str
+    image_data_url: str

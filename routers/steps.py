@@ -4,7 +4,9 @@
 统一语义: POST 为该步骤整卷保存(整体替换)并返回落库后的最新实体;
 GET 读取当前值。枚举选项一律由 /api/meta/constants 提供, 本文件不重复定义。
 """
+import base64
 import logging
+import re
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
@@ -13,7 +15,8 @@ from sqlalchemy.orm import Session
 import shared.constants as C
 from models import (
     ApiEndpoint, AuthConfig, DataAsset, ExternalSystem, Feature, GradingSurvey,
-    InfraAsset, PermissionEntry, PlatformUser, Project, Resource, Role, SbomComponent,
+    InfraArchImage, InfraAsset, PermissionEntry, PlatformUser, Project, Resource, Role,
+    SbomComponent,
 )
 from routers.common import (
     asset_to_out, component_to_out, get_accessible_project, get_db,
@@ -25,7 +28,8 @@ from schemas.component import ComponentsSaveIn, ComponentOut, SbomImportResult
 from schemas.data_dictionary import DataAssetOut
 from schemas.feature import FeatureOut
 from schemas.inventory import (
-    ApiEndpointIn, ApiEndpointOut, InfraAssetListIn, InfraAssetOut,
+    ApiEndpointIn, ApiEndpointOut, InfraArchImageIn, InfraArchImageOut,
+    InfraAssetListIn, InfraAssetOut,
 )
 from schemas.project import ExternalSystemIn, ExternalSystemOut
 from schemas.permission import PermissionMatrixIn, PermissionMatrixOut
@@ -47,6 +51,10 @@ logger = logging.getLogger(__name__)
 # 上传文件体积上限; 按块读取并在累计超限时立刻 413, 避免一次性载入内存
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 _CHUNK_SIZE = 64 * 1024
+# 架构图(#164)原始图片体积上限(base64 后随 JSON 走, 存库不落盘)
+MAX_ARCH_IMAGE_BYTES = 2 * 1024 * 1024
+_ARCH_ENVS = ("test", "prod", "dev")
+_ARCH_DATA_URL_RE = re.compile(r"data:image/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)")
 
 
 async def _read_limited(file: UploadFile, limit: int = MAX_UPLOAD_BYTES) -> bytes:
@@ -482,51 +490,55 @@ def save_infra_assets(payload: InfraAssetListIn,
     return [InfraAssetOut.model_validate(a) for a in rows]
 
 
-class TopologySaveIn(BaseModel):
-    """按环境整卷保存拓扑(#93): 设备 + 区域 + 连线 + 布局。
-
-    dev 仅保存设备清单(无画布, zones/links 恒空)。
-    """
-
-    env: str = Field(pattern=r"^(test|prod|dev)$")
-    zones: list[dict] = Field(default_factory=list)
-    links: list[dict] = Field(default_factory=list)
-    layout: dict = Field(default_factory=dict)
-    assets: list[dict] = Field(default_factory=list)
+# ── 架构图(#164): 拓扑画布回退后, 每环境一张图 + 清单手填 ──
+@router.get("/arch-images", response_model=list[InfraArchImageOut])
+def get_arch_images(project: Project = Depends(get_accessible_project),
+                    db: Session = Depends(get_db)):
+    rows = db.query(InfraArchImage).filter_by(project_id=project.id).all()
+    return [InfraArchImageOut.model_validate(r) for r in rows]
 
 
-@router.post("/infra-topology")
-def save_infra_topology(payload: TopologySaveIn,
-                        project: Project = Depends(get_writable_project),
-                        db: Session = Depends(get_db),
-                        user: PlatformUser = Depends(require_login)):
-    from services.step_store import save_infra_topology
+@router.put("/arch-images/{env}", response_model=InfraArchImageOut)
+def upload_arch_image(env: str, payload: InfraArchImageIn,
+                      project: Project = Depends(get_writable_project),
+                      db: Session = Depends(get_db),
+                      user: PlatformUser = Depends(require_login)):
+    if env not in _ARCH_ENVS:
+        raise HTTPException(status_code=404, detail=f"未知环境: {env}")
+    m = _ARCH_DATA_URL_RE.fullmatch(payload.image_data_url)
+    if not m:
+        raise HTTPException(status_code=400, detail="仅支持 png/jpg/webp 图片的 data URL")
+    try:
+        raw = base64.b64decode(m.group(2), validate=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="图片 base64 编码无效") from exc
+    if len(raw) > MAX_ARCH_IMAGE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"架构图过大, 上限 {MAX_ARCH_IMAGE_BYTES // (1024 * 1024)} MB",
+        )
+    row = db.query(InfraArchImage).filter_by(project_id=project.id, env=env).first()
+    if row is None:
+        row = InfraArchImage(project_id=project.id, env=env, image_data_url=payload.image_data_url)
+        db.add(row)
+    else:
+        row.image_data_url = payload.image_data_url
+    db.commit()
+    _audit_step(db, user, project, f"arch_image_{env}", 1)
+    return InfraArchImageOut.model_validate(row)
 
-    stats = save_infra_topology(
-        db, project.id, payload.env, payload.zones, payload.links,
-        payload.layout, payload.assets,
-    )
-    _audit_step(db, user, project, f"infra_topology_{payload.env}", stats["assets"])
-    return {**stats, "env": payload.env}
 
-
-@router.get("/infra-topology")
-def get_infra_topology(env: str = "prod",
-                       project: Project = Depends(get_accessible_project),
-                       db: Session = Depends(get_db)):
-    from models import InfraLayout, InfraLink, NetworkZone
-
-    zones = [
-        {"uid": z.uid, "name": z.name}
-        for z in db.query(NetworkZone).filter_by(project_id=project.id, env=env).all()
-    ]
-    links = [
-        {"source_uid": lk.source_uid, "target_uid": lk.target_uid, "label": lk.label}
-        for lk in db.query(InfraLink).filter_by(project_id=project.id, env=env).all()
-    ]
-    layout_row = db.query(InfraLayout).filter_by(project_id=project.id, env=env).first()
-    layout = layout_row.layout if layout_row else {}
-    return {"env": env, "zones": zones, "links": links, "layout": layout}
+@router.delete("/arch-images/{env}")
+def delete_arch_image(env: str,
+                      project: Project = Depends(get_writable_project),
+                      db: Session = Depends(get_db),
+                      user: PlatformUser = Depends(require_login)):
+    row = db.query(InfraArchImage).filter_by(project_id=project.id, env=env).first()
+    if row is not None:
+        db.delete(row)
+        db.commit()
+        _audit_step(db, user, project, f"arch_image_{env}_delete", 1)
+    return {"ok": True}
 
 
 @router.get("/infra-assets", response_model=list[InfraAssetOut])
