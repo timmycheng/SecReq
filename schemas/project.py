@@ -29,11 +29,6 @@ class ProjectCreate(BaseModel):
     system_id: int | None = Field(default=None, description="所属系统; 不传=未归属")
     from_project_id: int | None = Field(
         default=None, description="评估继承: 复制该项目的全部向导数据作为新一轮(实体 uid 保持不变)")
-    type: str | None = None
-    types: list[str] = Field(default_factory=list)
-    user_scale: str | None = None
-    is_public: bool = False
-    offshore_vendor: bool = False
     pm_name: str | None = Field(default=None, max_length=50)
     dev_lead_name: str | None = Field(default=None, max_length=50)
     sec_contact_name: str | None = Field(default=None, max_length=50)
@@ -49,16 +44,14 @@ class ProjectCreate(BaseModel):
 
 
 class ProjectUpdate(BaseModel):
-    """更新 Step1(全部可选, 未传字段不覆盖)。code 仅用于拦截修改, 不会落库。"""
+    """更新 Step1(全部可选, 未传字段不覆盖)。code 仅用于拦截修改, 不会落库。
+
+    #194 起 用户规模/类型/公网/境外外包 属系统字段, 在系统台账维护, 不再走本接口。
+    """
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
     code: str | None = Field(default=None, max_length=64, description="仅用于返回400: 编码不允许修改")
     system_id: int | None = Field(default=None, description="所属系统; 传 null 解除归属")
-    type: str | None = None
-    types: list[str] | None = None
-    user_scale: str | None = None
-    is_public: bool | None = None
-    offshore_vendor: bool | None = None
     pm_name: str | None = Field(default=None, max_length=50)
     dev_lead_name: str | None = Field(default=None, max_length=50)
     sec_contact_name: str | None = Field(default=None, max_length=50)
@@ -107,6 +100,11 @@ class ProjectDetail(ProjectOut):
 
 def serialize_project(project) -> ProjectOut:
     out = ProjectOut.model_validate(project)
+    # #194: 用户规模/类型等已上收系统, 展示值按 系统→项目遗留列 解析
+    out.user_scale = project.effective_user_scale()
+    out.types = list(project.effective_types())
+    out.is_public = project.effective_is_public()
+    out.offshore_vendor = project.effective_offshore_vendor()
     # 类型多选: 兼容存量单值数据(types 为空时回退 [type])
     if not out.types and out.type:
         out.types = [out.type]

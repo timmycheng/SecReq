@@ -7,7 +7,7 @@ env 回退 / token 掩码 / 连接测试成败与超时 / 错误归因 / 列表�
 import httpx
 import pytest
 
-from conftest import api_as
+from conftest import api_as, create_system_api
 
 from services.netbox import NetboxApiError, NetboxClient, NetboxUnavailable
 from services.settings_service import get_netbox_config, get_setting, set_setting
@@ -172,7 +172,7 @@ def test_netbox_config_missing_token_is_unconfigured(session, monkeypatch):
 
 @pytest.fixture()
 def sec(api):
-    from conftest import api_as
+    from conftest import api_as, create_system_api
     return api_as(api, "sec_admin")
 
 
@@ -348,8 +348,10 @@ def netbox_ready(api, sec, monkeypatch):
 
 
 def _make_asset(api) -> tuple[int, int]:
-    """建项目并保存一条基础设施资产, 返回 (project_id, asset_id)。"""
-    pid = api.post("/api/projects", json={"name": "NetBox 资产项目"}).json()["id"]
+    """建(挂系统的)项目并保存一条基础设施资产, 返回 (project_id, asset_id)。"""
+    system = create_system_api(api, f"NetBox 资产系统{id(api) % 10000}")
+    pid = api.post("/api/projects", json={
+        "name": "NetBox 资产项目", "system_id": system["id"]}).json()["id"]
     rows = api.post(f"/api/projects/{pid}/infra-assets", json={
         "assets": [{"asset_type": "server", "name": "E2E 应用服务器", "env": "prod",
                     "quantity": 1}],
@@ -452,7 +454,9 @@ def test_push_device_role_and_project_guard(netbox_ready, api, sec):
 
 def test_infra_asset_netbox_ref_persists_via_save(api):
     """整卷保存带回 netbox_ref_*(导入场景): 落库并回读一致。"""
-    pid = api.post("/api/projects", json={"name": "NetBox 导入项目"}).json()["id"]
+    system = create_system_api(api, "NetBox 导入系统")
+    pid = api.post("/api/projects", json={
+        "name": "NetBox 导入项目", "system_id": system["id"]}).json()["id"]
     saved = api.post(f"/api/projects/{pid}/infra-assets", json={
         "assets": [{"asset_type": "server", "name": "db-vm01", "env": "prod",
                     "netbox_ref_type": "virtualization.virtual-machine",

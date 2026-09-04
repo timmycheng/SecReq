@@ -4,7 +4,7 @@
 copy-from = 先清后拷(整卷替换语义): 重复复制不叠加脏数据;
 reset-wizard = 清空全部向导输入回到空白模板, 生成产出不动。
 """
-from conftest import add_base_project, api_as  # noqa: F401 — 服务层用例/夹具复用
+from conftest import add_base_project, api_as, create_system_api  # noqa: F401 — 服务层用例/夹具复用
 import pytest
 
 
@@ -14,8 +14,22 @@ def sec(api):
     return api_as(api, "sec_admin")
 
 
-def _create_project(api, name: str) -> int:
-    return api.post("/api/projects", json={"name": name}).json()["id"]
+def _create_project(api, name: str, system_id: int | None = None) -> int:
+    body = {"name": name}
+    if system_id is not None:
+        body["system_id"] = system_id
+    return api.post("/api/projects", json=body).json()["id"]
+
+
+@pytest.fixture()
+def bound_projects(api):
+    """同一系统下的两个评估(清单挂系统共享, #194)。"""
+    system = create_system_api(api, "重置流程系统")
+    sid = system["id"]
+
+    def make(name: str) -> int:
+        return _create_project(api, name, system_id=sid)
+    return make
 
 
 def _seed_inputs(api, pid: int) -> None:
@@ -32,11 +46,11 @@ def _seed_inputs(api, pid: int) -> None:
     ]).status_code == 200
 
 
-def test_copy_from_replaces_not_appends(api):
+def test_copy_from_replaces_not_appends(api, bound_projects):
     """复制到已落库项目: 先清后拷 —— 重复复制不因 uid 相同叠加成双份。"""
-    src = _create_project(api, "来源评估")
+    src = bound_projects("来源评估")
     _seed_inputs(api, src)
-    dst = _create_project(api, "目标评估")
+    dst = bound_projects("目标评估")
 
     first = api.post(f"/api/projects/{dst}/copy-from", json={"from_project_id": src})
     assert first.status_code == 200, first.text
@@ -57,11 +71,11 @@ def test_copy_from_replaces_not_appends(api):
     assert [e["name"] for e in exts] == ["核心系统"]
 
 
-def test_copy_from_overwrites_existing_inputs(api):
+def test_copy_from_overwrites_existing_inputs(api, bound_projects):
     """目标项目已有输入 → 复制后完全被来源覆盖, 不残留。"""
-    src = _create_project(api, "来源")
+    src = bound_projects("来源")
     _seed_inputs(api, src)
-    dst = _create_project(api, "目标")
+    dst = bound_projects("目标")
     assert api.post(f"/api/projects/{dst}/features", json=[
         {"name": "旧功能"}, {"name": "旧功能2"}, {"name": "旧功能3"},
     ]).status_code == 200
@@ -85,17 +99,18 @@ def test_copy_from_guards(api):
     assert missing_target.status_code == 404
 
 
-def test_reset_wizard_clears_all_inputs(api):
-    """一键清空: 各步骤输入清空; 清空后保存链路正常, 不残留脏数据。"""
-    pid = _create_project(api, "待清空评估")
+def test_reset_wizard_clears_all_inputs(api, bound_projects):
+    """一键清空: 轮次步骤输入清空; 系统清单(#194)不受影响; 保存链路正常。"""
+    pid = bound_projects("待清空评估")
     _seed_inputs(api, pid)
 
     resp = api.post(f"/api/projects/{pid}/reset-wizard")
     assert resp.status_code == 200
 
     assert api.get(f"/api/projects/{pid}/features").json() == []
-    assert api.get(f"/api/projects/{pid}/infra-assets").json() == []
     assert api.get(f"/api/projects/{pid}/external-systems").json() == []
+    # 基础设施挂系统共享: 一键清空不清系统清单
+    assert [a["name"] for a in api.get(f"/api/projects/{pid}/infra-assets").json()] == ["app-01"]
 
     # 清空后保存链路正常: 重新写入功能清单
     saved = api.post(f"/api/projects/{pid}/features", json=[{"name": "新功能"}])
@@ -103,11 +118,11 @@ def test_reset_wizard_clears_all_inputs(api):
     assert [f["name"] for f in api.get(f"/api/projects/{pid}/features").json()] == ["新功能"]
 
 
-def test_copy_and_reset_audited(api, sec):
+def test_copy_and_reset_audited(api, sec, bound_projects):
     """copy-from 与 reset-wizard 都有审计留痕(以安全角色操作)。"""
-    src = _create_project(api, "审计来源")
+    src = bound_projects("审计来源")
     _seed_inputs(api, src)
-    dst = _create_project(api, "审计目标")
+    dst = bound_projects("审计目标")
     assert sec.post(f"/api/projects/{dst}/copy-from", json={"from_project_id": src}).status_code == 200
     assert sec.post(f"/api/projects/{dst}/reset-wizard").status_code == 200
 

@@ -152,7 +152,7 @@ def test_copy_remaps_fks_and_cleans_stale_ids(session):
     from models import Resource, Role
 
     project = add_base_project(session)
-    arch = InfraArchImage(project_id=project.id, env="prod",
+    arch = InfraArchImage(system_id=project.system_id, env="prod",
                           image_data_url="data:image/png;base64,QUJD")
     session.add(arch)
     session.flush()
@@ -180,14 +180,15 @@ def test_copy_remaps_fks_and_cleans_stale_ids(session):
     new_entry = session.query(PermissionEntry).join(
         Role, PermissionEntry.role_id == Role.id
     ).filter(Role.project_id == nxt.id).one()
-    new_arch = session.query(InfraArchImage).filter_by(project_id=nxt.id).one()
-    assert new_arch.image_data_url == "data:image/png;base64,QUJD"
+    # 架构图挂系统(#194): 复制不产生轮次副本, 共享行原样保留
+    archs = session.query(InfraArchImage).filter_by(system_id=project.system_id).all()
+    assert len(archs) == 1 and archs[0].image_data_url == "data:image/png;base64,QUJD"
     assert new_entry.role_id != role.id and new_entry.resource_id != resource.id
     assert new_asset.uid == asset.uid and new_asset.id != asset.id
 
 
-def test_copy_clears_component_vuln_cache(session):
-    """回归(#169): 复制组件必须清空漏洞查询缓存, 否则缓存命中导致新轮次查不到漏洞。"""
+def test_copy_shares_system_components_untouched(session):
+    """#194: 组件挂系统共享, 轮次复制不产生组件副本, 漏洞缓存原样保留。"""
     from datetime import datetime
 
     from models import SbomComponent
@@ -195,7 +196,7 @@ def test_copy_clears_component_vuln_cache(session):
     project = add_base_project(session)
     now = datetime.now()
     session.add(SbomComponent(
-        project_id=project.id, uid="comp-1", layer="runtime", name="log4j",
+        system_id=project.system_id, uid="comp-1", layer="runtime", name="log4j",
         version="2.14.1", license="Apache-2.0",
         last_osv_query_at=now, osv_query_fingerprint="local|v1|log4j|2.14.1|maven|",
         vuln_status="hit", vuln_status_note="命中 2 条",
@@ -203,13 +204,10 @@ def test_copy_clears_component_vuln_cache(session):
     session.commit()
 
     nxt = _new_round(session, project, "R2", 1.0)
-    copied = session.query(SbomComponent).filter_by(project_id=nxt.id).one()
-    assert copied.last_osv_query_at is None
-    assert copied.osv_query_fingerprint is None
-    assert copied.vuln_status is None
-    assert copied.vuln_status_note is None
-    source = session.query(SbomComponent).filter_by(project_id=project.id).one()
-    assert source.osv_query_fingerprint == "local|v1|log4j|2.14.1|maven|"  # 来源不受影响
+    rows = session.query(SbomComponent).filter_by(system_id=project.system_id).all()
+    assert len(rows) == 1
+    assert rows[0].osv_query_fingerprint == "local|v1|log4j|2.14.1|maven|"
+    assert rows[0].vuln_status == "hit"
 
 
 def test_repair_stale_component_cache(session):
@@ -222,12 +220,12 @@ def test_repair_stale_component_cache(session):
     project = add_base_project(session)
     now = datetime.now()
     victim = SbomComponent(
-        project_id=project.id, uid="comp-v", layer="runtime", name="shiro",
+        system_id=project.system_id, uid="comp-v", layer="runtime", name="shiro",
         version="1.5", last_osv_query_at=now, osv_query_fingerprint="fp-v",
         vuln_status="hit",
     )
     healthy = SbomComponent(
-        project_id=project.id, uid="comp-h", layer="runtime", name="commons-io",
+        system_id=project.system_id, uid="comp-h", layer="runtime", name="commons-io",
         version="2.11", last_osv_query_at=now, osv_query_fingerprint="fp-h",
         vuln_status="hit",
     )

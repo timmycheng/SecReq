@@ -2,12 +2,13 @@
 """系统台账: 定级备案(对外备案主体)与被评估系统。
 
 业务层级: 备案(定级事实来源, 少数) → 系统(以备案"子系统"形式存在, 继承备案定级)
-→ 项目(一次评估 = 一个时点快照)。会变化的信息(基础设施/数据字典等)留在项目轮次内,
-系统与备案只承载身份与定级事实, 保证轮次间增量对比与历史报告输入不被就地污染。
+→ 项目(一次评估 = 一个时点快照)。#194 起系统承载稳定事实: 基本信息(规模/形态/公网/
+境外外包)、定级(挂靠备案)、基础设施(资产+架构图)与组件(SBOM); 评估轮次只承载
+评估过程数据(功能/数据/权限/接口/定级复核), 保证轮次间增量对比不被冗余副本干扰。
 """
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models.database import Base
@@ -31,7 +32,7 @@ class Filing(Base):
 
 
 class System(Base):
-    """被评估系统: 实际业务系统以某备案"子系统"形式归属备案; 项目挂系统之下。"""
+    """被评估系统: 稳定事实的单一来源(基本信息/定级/基础设施/组件)。"""
 
     __tablename__ = "systems"
 
@@ -51,7 +52,19 @@ class System(Base):
         Integer, ForeignKey("platform_users.id"), index=True,
         comment="创建人(数据权限: 开发仅见本人系统)",
     )
+    # ── 基本信息(#194 自项目上收; projects 同名列转为已停用的兼容回退) ──
+    user_scale: Mapped[str] = mapped_column(
+        String(32), default="", comment="用户规模, 见 USER_SCALES(引擎 force_2fa 大规模判定)"
+    )
+    types: Mapped[list] = mapped_column(JSON, default=list, comment="系统业务形态多选, 见 PROJECT_TYPES")
+    is_public: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否涉及公网访问")
+    offshore_vendor: Mapped[bool] = mapped_column(
+        Boolean, default=False, comment="是否存在境外外包/境外供应商(触发数据出境报送)"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     filing: Mapped["Filing | None"] = relationship(back_populates="systems")
     projects: Mapped[list["Project"]] = relationship(back_populates="system")  # noqa: F821
+    infra_assets: Mapped[list["InfraAsset"]] = relationship(back_populates="system")  # noqa: F821
+    arch_images: Mapped[list["InfraArchImage"]] = relationship(back_populates="system")  # noqa: F821
+    components: Mapped[list["SbomComponent"]] = relationship(back_populates="system")  # noqa: F821

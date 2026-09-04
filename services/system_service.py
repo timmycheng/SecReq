@@ -124,6 +124,15 @@ def update_system(db: Session, system: System, changes: dict) -> System:
 def delete_system(db: Session, system_id: int) -> None:
     if db.query(Project).filter_by(system_id=system_id).count():
         raise InUseError("系统下仍有关联项目, 请先处理项目归属后再删除")
+    # 清单随系统一并清理(#194): 先删漏洞记录再删组件, 避免孤儿行
+    from models import InfraArchImage, InfraAsset, SbomComponent, VulnerabilityRecord
+    component_ids = db.query(SbomComponent.id).filter_by(system_id=system_id)
+    db.query(VulnerabilityRecord).filter(
+        VulnerabilityRecord.component_id.in_(component_ids)
+    ).delete(synchronize_session=False)
+    db.query(SbomComponent).filter_by(system_id=system_id).delete(synchronize_session=False)
+    db.query(InfraAsset).filter_by(system_id=system_id).delete(synchronize_session=False)
+    db.query(InfraArchImage).filter_by(system_id=system_id).delete(synchronize_session=False)
     db.query(System).filter_by(id=system_id).delete()
     db.commit()
 

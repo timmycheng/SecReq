@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Alert, Button, Card, Checkbox, Col, Collapse, Form, Input, InputNumber, Modal,
-  Popconfirm, Radio, Row, Select, Space, Switch, Table, Tag, Typography, message,
+  Popconfirm, Radio, Row, Select, Space, Table, Tag, Typography, message,
 } from 'antd'
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 
@@ -94,10 +94,6 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
       project: {
         name: state.project.name,
         system_id: state.project.system_id ?? null,
-        types: state.project.types ?? [],
-        user_scale: state.project.user_scale,
-        is_public: state.project.is_public,
-        offshore_vendor: state.project.offshore_vendor ?? false,
         pm_name: state.project.pm_name ?? '',
         dev_lead_name: state.project.dev_lead_name ?? '',
         sec_contact_name: state.project.sec_contact_name ?? '',
@@ -197,10 +193,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
           name: ws.project.name,
           code: ws.project.code,
           system_id: ws.project.system_id ?? undefined,
-          types: ws.project.types ?? (ws.project.type ? [ws.project.type] : []),
-          user_scale: ws.project.user_scale || undefined,
-          is_public: ws.project.is_public,
-          offshore_vendor: ws.project.offshore_vendor ?? false,
+          types: ws.project.types ?? [],
           pm_name: ws.project.pm_name ?? '',
           dev_lead_name: ws.project.dev_lead_name ?? '',
           sec_contact_name: ws.project.sec_contact_name ?? '',
@@ -215,12 +208,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
               <Input placeholder="如: 个人网银系统" />
             </Form.Item>
           </Col>
-          <Col span={6}>
-            <Form.Item name="user_scale" label="用户规模" rules={[{ required: true, message: '请选择' }]}>
-              <Select options={optionsOf(enums, 'user_scales')} placeholder="选择规模" />
-            </Form.Item>
-          </Col>
-          <Col span={6}>
+          <Col span={12}>
             <Form.Item name="code" label="评估编码(自动生成)">
               <Input disabled />
             </Form.Item>
@@ -236,7 +224,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
               <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setSysCreating(true)}>
                 就地新建系统
               </Button>
-              <span>(登记系统并挂靠定级备案)</span>
+              <span>(登记系统并挂靠定级备案; 规模/类型等基本信息在系统台账维护)</span>
               <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setSysImporting(true)}>
                 从 NetBox 导入
               </Button>
@@ -276,10 +264,10 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
           />
         </Form.Item>
         <Form.Item
-          name="types" label="评估类型(可多选)" rules={[{ required: true, message: '请至少选择一种类型' }]}
-          extra="一个系统可能同时包含多种形态, 如 App + 后台管理"
+          name="types" label="评估类型(可多选)"
+          extra="系统业务形态在系统台账维护; 此处展示当前系统的类型(评估不再单独填写)"
         >
-          <Select mode="multiple" options={optionsOf(enums, 'project_types')} placeholder="选择全部适用类型" />
+          <Select mode="multiple" options={optionsOf(enums, 'project_types')} disabled placeholder="在系统台账中维护" />
         </Form.Item>
         <Row gutter={16}>
           <Col span={8}>
@@ -295,21 +283,6 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
           <Col span={8}>
             <Form.Item name="sec_contact_name" label="安全对接人">
               <Input placeholder="选填" />
-            </Form.Item>
-          </Col>
-        </Row>
-        <Row gutter={16}>
-          <Col span={6}>
-            <Form.Item name="is_public" label="是否涉及公网访问" valuePropName="checked">
-              <Switch checkedChildren="是" unCheckedChildren="否" />
-            </Form.Item>
-          </Col>
-          <Col span={6}>
-            <Form.Item
-              name="offshore_vendor" label="存在境外外包/供应商" valuePropName="checked"
-              tooltip="勾选后触发《数据出境安全评估申报》监管报送类需求"
-            >
-              <Switch checkedChildren="是" unCheckedChildren="否" />
             </Form.Item>
           </Col>
         </Row>

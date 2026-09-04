@@ -2,7 +2,7 @@
 """路由公共件: 会话依赖 / 项目装载 / RBAC / ORM→API 模型序列化。"""
 from collections.abc import Callable, Generator
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session
 
 from models import (
@@ -19,6 +19,28 @@ import shared.constants as C
 # 身份经 Authorization: Bearer <token> 携带(登录后签发, 见 routers/auth.py)
 OPEN_API_PREFIXES = ("/api/health", "/api/meta", "/api/auth/login")
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+# 上传文件体积上限; 按块读取并在累计超限时立刻 413, 避免一次性载入内存
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+_CHUNK_SIZE = 64 * 1024
+
+
+async def read_upload_limited(file: UploadFile, limit: int = MAX_UPLOAD_BYTES) -> bytes:
+    """按块读取上传文件; 累计超过 limit 立即抛 413。"""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(_CHUNK_SIZE)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > limit:
+            raise HTTPException(
+                status_code=413,
+                detail=f"上传文件过大, 上限 {limit // (1024 * 1024)} MB",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -255,7 +277,10 @@ def wizard_state(db: Session, project: Project) -> dict:
         "auth_config": _plain_auth_config(
             db.query(AuthConfig).filter_by(project_id=pid).first(), pid),
         "components": [_plain(component_to_out(c))
-                       for c in db.query(SbomComponent).filter_by(project_id=pid).all()],
+                       for c in (
+                           db.query(SbomComponent)
+                           .filter_by(system_id=project.system_id)
+                           .all() if project.system_id is not None else [])],
         "api_endpoints": [
             {"id": e.id, "uid": e.uid, "name": e.name, "path": e.path, "method": e.method,
              "auth_required": e.auth_required, "public_exposed": e.public_exposed,
@@ -266,7 +291,10 @@ def wizard_state(db: Session, project: Project) -> dict:
         "infra_assets": [
             {"id": a.id, "uid": a.uid, "asset_type": a.asset_type, "name": a.name, "env": a.env,
              "ip": a.ip, "owner": a.owner, "holds_sensitive": a.holds_sensitive}
-            for a in db.query(InfraAsset).filter_by(project_id=pid).order_by(InfraAsset.id).all()
+            for a in (
+                db.query(InfraAsset)
+                .filter_by(system_id=project.system_id)
+                .order_by(InfraAsset.id).all() if project.system_id is not None else [])
         ],
     }
 

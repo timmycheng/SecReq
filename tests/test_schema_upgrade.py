@@ -14,8 +14,22 @@ from models import SbomComponent, VulnerabilityRecord
 from models.database import init_db
 from services.classification_migration import ensure_schema_upgrade
 
-# v2.1.3 的真实建表形态(v2.2.0 新增列加入前的列清单)
+# v2.1.3 的真实建表形态(v2.2.0 新增列加入前的列清单); systems/projects 为
+# v2.6.0 时代形态(projects 已带 system_id), 供 #194 清单上收重建走通
 _LEGACY_DDL = [
+    """
+    CREATE TABLE systems (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name VARCHAR(200)
+    )
+    """,
+    """
+    CREATE TABLE projects (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name VARCHAR(200),
+        system_id INTEGER
+    )
+    """,
     """
     CREATE TABLE sbom_components (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,6 +53,14 @@ _LEGACY_DDL = [
         affected_range VARCHAR(200),
         fix_version VARCHAR(50),
         summary VARCHAR(500)
+    )
+    """,
+    """
+    CREATE TABLE infra_arch_images (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL,
+        env VARCHAR(10) NOT NULL,
+        image_data_url TEXT NOT NULL
     )
     """,
     # v2.5.x 拓扑画布(#93)时期的表形态: zone_id 带 FK, 三张画布表
@@ -95,6 +117,8 @@ def legacy_engine(tmp_path):
     with engine.begin() as conn:
         for ddl in _LEGACY_DDL:
             conn.execute(text(ddl))
+        conn.execute(text("INSERT INTO systems (name) VALUES ('遗留系统')"))
+        conn.execute(text("INSERT INTO projects (name, system_id) VALUES ('遗留评估', 1)"))
         conn.execute(
             text(
                 "INSERT INTO sbom_components (project_id, layer, name, version, source_type)"
@@ -119,6 +143,12 @@ def legacy_engine(tmp_path):
                 " VALUES (1, 'server', 'E2E 应用服务器', 'prod', 1)"
             )
         )
+        conn.execute(
+            text(
+                "INSERT INTO infra_arch_images (project_id, env, image_data_url)"
+                " VALUES (1, 'prod', 'data:image/png;base64,QUJD')"
+            )
+        )
     return engine
 
 
@@ -131,6 +161,7 @@ def test_legacy_db_upgrade_columns_added(legacy_engine):
     db = factory()
     comp = db.query(SbomComponent).first()  # 修复前此处即抛 no such column
     assert comp.name == "openssl"
+    assert comp.system_id == 1  # #194: 清单按最新一轮上收到挂靠系统
     assert comp.vuln_status is None  # 老数据的新列值为空
 
     vuln = VulnerabilityRecord(component_id=comp.id, cve_id="CVE-2022-0778", severity="high")
@@ -150,6 +181,8 @@ def test_legacy_db_upgrade_columns_added(legacy_engine):
         "uid", "ecosystem", "distro", "osv_query_fingerprint", "vuln_status",
         "vuln_status_note",
     }
+    # #194: 三张清单表已整表重建挂 system_id, 记录在 tables 动作里
+    assert {"infra_assets", "sbom_components", "infra_arch_images"}         <= set(added.get("tables", []))
     assert set(added["vulnerabilities"]) == {
         "source", "external_ref", "cnnvd_id", "cn_severity",
     }
@@ -172,10 +205,11 @@ def test_topology_tables_dropped_and_data_kept(legacy_engine):
     assert not insp.has_table("infra_links")
     assert not insp.has_table("infra_layouts")
     assert "zone_id" not in {c["name"] for c in insp.get_columns("infra_assets")}
-    assert set(added["tables"]) == {"network_zones", "infra_links", "infra_layouts"}
+    assert {"network_zones", "infra_links", "infra_layouts"} <= set(added["tables"])
+    assert "system_id" in {c["name"] for c in insp.get_columns("infra_assets")}
 
     factory = sessionmaker(bind=legacy_engine, autoflush=False, expire_on_commit=False)
     db = factory()
-    row = db.execute(text("SELECT asset_type, name FROM infra_assets")).one()
-    assert row == ("server", "E2E 应用服务器")
+    row = db.execute(text("SELECT asset_type, name, system_id FROM infra_assets")).one()
+    assert row == ("server", "E2E 应用服务器", 1)
     db.close()

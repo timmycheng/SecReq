@@ -2,7 +2,7 @@
 """API 全流程测试: 向导各步骤保存 → 干跑预览 → 全量生成 → 文档/Excel/SBOM 下载。"""
 import json
 
-from conftest import cleanup_output
+from conftest import cleanup_output, create_system_api
 
 CYCLONE_MIN = {
     "bomFormat": "CycloneDX", "specVersion": "1.5",
@@ -42,11 +42,11 @@ def test_full_wizard_flow_and_generate_offline(api):
     code = "PRJ-E2E-T1"
     cleanup_output(code)
     try:
-        # ── Step1 创建 ──
+        # ── Step1 创建(#194: 规模/公网属系统字段, 项目挂靠系统) ──
+        system = create_system_api(api, "API端到端系统")
         resp = api.post("/api/projects", json={
-            "name": "API端到端测试项目", "code": code, "type": "web",
-            "user_scale": "over_1m",
-            "is_public": True,
+            "name": "API端到端测试项目", "code": code,
+            "system_id": system["id"],
             "compliance_targets": ["djcp_l3", "pipl"],
             "pm_name": "测试经理",
         })

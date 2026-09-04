@@ -39,7 +39,7 @@ def test_seed_inputs_complete(seeded):
     assert session.query(Role).filter_by(project_id=project.id).count() == 5
     assert session.query(Resource).filter_by(project_id=project.id).count() == 8
     assert session.query(ExternalSystem).filter_by(project_id=project.id).count() == 3
-    assert session.query(SbomComponent).filter_by(project_id=project.id).count() == 10
+    assert session.query(SbomComponent).filter_by(system_id=project.system_id).count() == 10
     assert session.query(ApiEndpoint).filter_by(project_id=project.id).count() == 4
     assert session.query(PermissionEntry).join(
         Role, PermissionEntry.role_id == Role.id
@@ -68,7 +68,7 @@ def test_log4j_component_seeded_for_vulnerability_demo(seeded):
     session, project, _ = seeded
     log4j = (
         session.query(SbomComponent)
-        .filter_by(project_id=project.id, name="log4j-core")
+        .filter_by(system_id=project.system_id, name="log4j-core")
         .one()
     )
     assert log4j.version == "2.14.1"  # 故意保留的旧版本, 第二批OSV演示用

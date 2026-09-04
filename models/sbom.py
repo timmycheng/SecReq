@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Step7 SBOM 组件与漏洞记录。"""
+"""SBOM 组件与漏洞记录。#194 起组件挂系统(system_id): 系统的软件事实多轮共享。"""
 from datetime import datetime
 
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models.database import Base, UidMixin
-from models.project import Project
+from models.system import System
 
 
 class SbomComponent(Base, UidMixin):
@@ -15,7 +15,10 @@ class SbomComponent(Base, UidMixin):
     __tablename__ = "sbom_components"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    project_id: Mapped[int] = mapped_column(Integer, ForeignKey("projects.id"), index=True)
+    system_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("systems.id"), index=True,
+        comment="所属系统(#194); 存量迁移外的历史行可为空",
+    )
     layer: Mapped[str] = mapped_column(String(20), comment="层级, 见 SBOM_LAYERS")
     name: Mapped[str] = mapped_column(String(200), comment="组件名")
     version: Mapped[str] = mapped_column(String(50), comment="版本号(必填)")
@@ -46,7 +49,7 @@ class SbomComponent(Base, UidMixin):
         String(300), comment="语义补充说明(如麒麟代理匹配的免责声明)"
     )
 
-    project: Mapped[Project] = relationship(back_populates="components")
+    system: Mapped[System | None] = relationship(back_populates="components")
     vulnerabilities: Mapped[list["VulnerabilityRecord"]] = relationship(
         back_populates="component", cascade="all, delete-orphan"
     )

@@ -226,7 +226,11 @@ def requirements_diff(project: Project = Depends(get_accessible_project),
 @router.get("/vulnerabilities", response_model=list[VulnerabilityOut])
 def list_vulnerabilities(project: Project = Depends(get_accessible_project),
                          db: Session = Depends(get_db)):
-    comp_ids = {c.id: c for c in db.query(SbomComponent).filter_by(project_id=project.id)}
+    comp_ids = {
+        c.id: c
+        for c in (db.query(SbomComponent).filter_by(system_id=project.system_id)
+                  if project.system_id is not None else [])
+    }
     rows = (
         db.query(VulnerabilityRecord)
         .filter(VulnerabilityRecord.component_id.in_(list(comp_ids)))

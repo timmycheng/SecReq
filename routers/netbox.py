@@ -139,9 +139,10 @@ def push_device(payload: NetboxDevicePushIn,
                 db: Session = Depends(get_db)):
     _require_write_roles(user)
     asset = db.get(InfraAsset, payload.asset_id)
-    if asset is None or asset.project_id != payload.project_id:
+    project = db.get(Project, payload.project_id)
+    # #194 资产挂系统: 资产须属于该评估所挂的系统, 访问口径随项目走
+    if asset is None or project is None or asset.system_id != project.system_id:
         raise HTTPException(status_code=404, detail=f"资产不存在: id={payload.asset_id}")
-    project = db.get(Project, asset.project_id)
     ensure_project_access(user, project)
     if asset.netbox_ref_id:
         raise HTTPException(status_code=409,

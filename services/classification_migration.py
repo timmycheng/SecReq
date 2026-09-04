@@ -160,6 +160,130 @@ def _drop_legacy_topology(conn, inspector) -> dict[str, list[str]]:
     return dropped
 
 
+# ── #194 清单上收: infra_assets / sbom_components / infra_arch_images 挂系统 ──
+#
+# 三表的 project_id 列带 NOT NULL, 无法仅 ALTER 补 system_id(新行不再有轮次归属),
+# 按官方 12 步法整表重建。数据上收口径: 每个已归属系统, 取其**最新一轮**(projects.id
+# 最大)的清单行置 system_id; 未归属系统的轮次与历史轮次的清单行不迁移(系统清单以
+# 最新一轮为准, 旧轮副本本就是复制产物)。组件漏洞记录仅保留被上收组件的行。
+# 前置条件: projects.system_id 列已由 _NEW_COLUMNS 补齐、systems 表已建(create_all 先行)。
+_INVENTORY_REBUILDS: dict[str, list[str]] = {
+    "infra_assets": [
+        """CREATE TABLE infra_assets_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            system_id INTEGER REFERENCES systems (id),
+            uid VARCHAR(36),
+            asset_type VARCHAR(20) NOT NULL,
+            name VARCHAR(200) NOT NULL,
+            env VARCHAR(10) NOT NULL,
+            ip VARCHAR(64),
+            owner VARCHAR(50),
+            holds_sensitive BOOLEAN,
+            cpu_cores INTEGER,
+            memory_gb INTEGER,
+            disk_gb INTEGER,
+            os VARCHAR(100),
+            quantity INTEGER,
+            purpose VARCHAR(300),
+            netbox_ref_type VARCHAR(40),
+            netbox_ref_id VARCHAR(32)
+        )""",
+        """INSERT INTO infra_assets_new
+            (id, system_id, uid, asset_type, name, env, ip, owner, holds_sensitive,
+             cpu_cores, memory_gb, disk_gb, os, quantity, purpose,
+             netbox_ref_type, netbox_ref_id)
+        SELECT a.id, p.system_id, a.uid, a.asset_type, a.name, a.env, a.ip, a.owner,
+               a.holds_sensitive, a.cpu_cores, a.memory_gb, a.disk_gb, a.os,
+               a.quantity, a.purpose, a.netbox_ref_type, a.netbox_ref_id
+        FROM infra_assets a
+        JOIN projects p ON a.project_id = p.id
+        WHERE p.system_id IS NOT NULL
+          AND a.project_id = (SELECT MAX(p2.id) FROM projects p2 WHERE p2.system_id = p.system_id)""",
+        "DROP TABLE infra_assets",
+        "ALTER TABLE infra_assets_new RENAME TO infra_assets",
+        "CREATE INDEX ix_infra_assets_system_id ON infra_assets (system_id)",
+        "CREATE INDEX ix_infra_assets_uid ON infra_assets (uid)",
+    ],
+    "sbom_components": [
+        """CREATE TABLE sbom_components_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            system_id INTEGER REFERENCES systems (id),
+            uid VARCHAR(36),
+            layer VARCHAR(20) NOT NULL,
+            name VARCHAR(200) NOT NULL,
+            version VARCHAR(50) NOT NULL,
+            purl VARCHAR(300),
+            license VARCHAR(100),
+            source_type VARCHAR(20) DEFAULT 'manual_input' NOT NULL,
+            ecosystem VARCHAR(20),
+            distro VARCHAR(20),
+            last_osv_query_at DATETIME,
+            osv_query_fingerprint VARCHAR(100),
+            vuln_status VARCHAR(20),
+            vuln_status_note VARCHAR(300)
+        )""",
+        """INSERT INTO sbom_components_new
+            (id, system_id, uid, layer, name, version, purl, license, source_type,
+             ecosystem, distro, last_osv_query_at, osv_query_fingerprint,
+             vuln_status, vuln_status_note)
+        SELECT c.id, p.system_id, c.uid, c.layer, c.name, c.version, c.purl, c.license,
+               c.source_type, c.ecosystem, c.distro, c.last_osv_query_at,
+               c.osv_query_fingerprint, c.vuln_status, c.vuln_status_note
+        FROM sbom_components c
+        JOIN projects p ON c.project_id = p.id
+        WHERE p.system_id IS NOT NULL
+          AND c.project_id = (SELECT MAX(p2.id) FROM projects p2 WHERE p2.system_id = p.system_id)""",
+        "DROP TABLE sbom_components",
+        "ALTER TABLE sbom_components_new RENAME TO sbom_components",
+        "CREATE INDEX ix_sbom_components_system_id ON sbom_components (system_id)",
+        "CREATE INDEX ix_sbom_components_uid ON sbom_components (uid)",
+        # 被上收清单之外的组件(旧轮副本/未归属轮次)的漏洞记录一并清理, 防孤儿行
+        """DELETE FROM vulnerabilities
+        WHERE component_id NOT IN (SELECT id FROM sbom_components)""",
+    ],
+    "infra_arch_images": [
+        """CREATE TABLE infra_arch_images_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            system_id INTEGER REFERENCES systems (id),
+            env VARCHAR(10) NOT NULL,
+            image_data_url TEXT NOT NULL,
+            CONSTRAINT uq_arch_image_system_env UNIQUE (system_id, env)
+        )""",
+        """INSERT INTO infra_arch_images_new (id, system_id, env, image_data_url)
+        SELECT i.id, p.system_id, i.env, i.image_data_url
+        FROM infra_arch_images i
+        JOIN projects p ON i.project_id = p.id
+        WHERE p.system_id IS NOT NULL
+          AND i.project_id = (SELECT MAX(p2.id) FROM projects p2 WHERE p2.system_id = p.system_id)""",
+        "DROP TABLE infra_arch_images",
+        "ALTER TABLE infra_arch_images_new RENAME TO infra_arch_images",
+        "CREATE INDEX ix_infra_arch_images_system_id ON infra_arch_images (system_id)",
+    ],
+}
+
+
+def _rebuild_inventory_tables(conn, inspector) -> dict[str, list[str]]:
+    """#194 清单三表挂系统(幂等): 缺 system_id 列的表按最新一轮口径整表重建上收。"""
+    rebuilt: dict[str, list[str]] = {}
+    if not inspector.has_table("systems"):
+        return rebuilt
+    inspector.clear_cache()  # 前面的 ALTER 补列/重建可能改变了本事务内的表结构
+    project_cols = {col["name"] for col in inspector.get_columns("projects")} \
+        if inspector.has_table("projects") else set()
+    if "system_id" not in project_cols:
+        return rebuilt
+    for table, ddl_list in _INVENTORY_REBUILDS.items():
+        if not inspector.has_table(table):
+            continue
+        cols = {col["name"] for col in inspector.get_columns(table)}
+        if "system_id" in cols:
+            continue
+        for ddl in ddl_list:
+            conn.execute(text(ddl))
+        rebuilt.setdefault("tables", []).append(table)
+    return rebuilt
+
+
 def ensure_schema_upgrade(engine) -> dict[str, list[str]]:
     """为已存在的表补齐新增列(幂等); 新表由 create_all 负责。"""
     inspector = inspect(engine)
@@ -175,6 +299,8 @@ def ensure_schema_upgrade(engine) -> dict[str, list[str]]:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
                 added.setdefault(table, []).append(name)
         added.update(_drop_legacy_topology(conn, inspector))
+        for key, values in _rebuild_inventory_tables(conn, inspector).items():
+            added.setdefault(key, []).extend(values)
     return added
 
 
