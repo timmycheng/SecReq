@@ -185,3 +185,58 @@ def state(project_id: int,
         raise HTTPException(status_code=404, detail=f"评估不存在: id={project_id}")
     ensure_project_access(user, project)
     return review_state(db, project, user)
+
+
+@router.get("/export/review-sheet")
+def export_review_sheet(project_id: int,
+                        request: Request,
+                        user: PlatformUser = Depends(require_login),
+                        db: Session = Depends(get_db)):
+    """《项目安全评审表》Word 下载(#230): 门禁状态+覆盖统计+漏洞概况+留痕+签字栏。"""
+    from urllib.parse import quote
+
+    from fastapi import HTTPException
+    from fastapi.responses import Response
+
+    from services.audit_service import audit
+    from services.review_sheet_export import (
+        DOCX_MEDIA_TYPE, build_review_sheet_docx,
+    )
+
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail=f"评估不存在: id={project_id}")
+    ensure_project_access(user, project)
+    state = review_state(db, project, user)
+    if state["gate"] is None:
+        raise HTTPException(status_code=409, detail="尚未提交评审, 无可导出的评审表")
+
+    # 漏洞概况(未查询时不展示数字)
+    from models import SbomComponent, VulnerabilityRecord
+    vuln_summary = None
+    if project.system_id is not None:
+        comp_ids = [
+            c.id for c in db.query(SbomComponent)
+            .filter_by(system_id=project.system_id).all()]
+        if comp_ids:
+            rows = (
+                db.query(VulnerabilityRecord)
+                .filter(VulnerabilityRecord.component_id.in_(comp_ids)).all())
+            vuln_summary = {
+                "total": len(rows),
+                "critical": sum(1 for v in rows if v.severity == "critical"),
+                "high": sum(1 for v in rows if v.severity == "high"),
+            }
+
+    content = build_review_sheet_docx(
+        project, state["gate"], state["requirement_summary"],
+        state["evidences"], state["chain_valid"], vuln_summary)
+    audit(db, user.username, "export",
+          {"project_id": project.id, "code": project.code, "format": "review_sheet"},
+          client_ip(request))
+    filename = f"{project.code}_项目安全评审表.docx"
+    return Response(
+        content=content,
+        media_type=DOCX_MEDIA_TYPE,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
