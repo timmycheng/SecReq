@@ -5,8 +5,9 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { api } from '../../api'
 
 export interface StepHandle {
-  /** 保存本步; 校验失败或请求出错时返回 false(错误提示由步骤内部负责)。 */
-  save: () => Promise<boolean>
+  /** 保存本步; 校验失败或请求出错时返回 false(错误提示由步骤内部负责)。
+   *  silent=true 为草稿自动保存(#228), 不弹成功提示。 */
+  save: (silent?: boolean) => Promise<boolean>
   /** 本步是否有未保存修改。 */
   isDirty: () => boolean
 }

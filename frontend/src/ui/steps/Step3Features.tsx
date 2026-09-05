@@ -71,16 +71,12 @@ export default function Step3Features({ ws, patch }: StepProps) {
 
   const categoryMap = labelMapOf(enums, 'feature_categories')
 
-  const save = async (): Promise<boolean> => {
-    if (!rows.length) {
-      message.warning('请至少录入一个功能')
-      return false
-    }
+  const save = async (silent = false): Promise<boolean> => {
     try {
       const saved = await api.saveFeatures(ws.project.id, rows)
       patch({ features: saved })
       savedRef.current = JSON.stringify(rows)
-      message.success(`已保存 ${saved.length} 个功能`)
+      if (!silent) message.success(`已保存 ${saved.length} 个功能`)
       return true
     } catch (e) {
       message.error((e as Error).message)
