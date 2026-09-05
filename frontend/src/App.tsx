@@ -11,6 +11,7 @@ import zhCN from 'antd/locale/zh_CN'
 
 import { api, AUTH_EXPIRED_EVENT, clearAuth, getStoredToken, getStoredUser, storeAuth } from './api'
 import type { StoredUser } from './api'
+import { USER_STORAGE_KEY } from './api'
 import { EnumsProvider } from './enums'
 import { useRoute, navigate } from './router'
 import { requestLeave } from './ui/dirtyGuard'
@@ -21,6 +22,7 @@ import SystemsPage from './ui/SystemsPage'
 import SystemDetailPage from './ui/SystemDetailPage'
 import WizardPage from './ui/WizardPage'
 import ResultPage from './ui/ResultPage'
+import ReviewPage from './ui/ReviewPage'
 import AdminPage from './ui/AdminPage'
 import type { LoginInfo } from './types'
 
@@ -42,12 +44,23 @@ function AppBody() {
 
   // 有本地 token 时先验证一次, 失效立即回登录页
   useEffect(() => {
-    if (getStoredToken()) void api.me().catch(() => undefined)
+    // 刷新登录态并为旧版本 localStorage 会话回填 id(#219 评审端点按 id 判定提交人)
+    if (!getStoredToken()) return
+    api.me().then((info) => {
+      if (!info) return
+      const next: StoredUser = {
+        id: info.id, username: info.username, display_name: info.display_name,
+        role: info.role, role_label: info.role_label,
+      }
+      setUser(next)
+      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(next))
+    }).catch(() => undefined)
   }, [])
 
   const onLogin = (info: LoginInfo) => {
     storeAuth(info) // 持久化 token 与用户信息(缺失将导致登录后被守卫弹回登录页)
     setUser({
+      id: info.id,
       username: info.username,
       display_name: info.display_name,
       role: info.role,
@@ -139,6 +152,7 @@ function AppBody() {
             {route.name === 'systemDetail' && <SystemDetailPage key={route.systemId} systemId={route.systemId} />}
             {route.name === 'wizard' && <WizardPage key={route.projectId} projectId={route.projectId} />}
             {route.name === 'result' && <ResultPage key={route.projectId} projectId={route.projectId} />}
+            {route.name === 'review' && <ReviewPage key={route.projectId} projectId={route.projectId} />}
             {route.name === 'admin' && <AdminPage />}
           </Layout.Content>
         </Layout>

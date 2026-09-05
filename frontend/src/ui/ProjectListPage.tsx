@@ -8,6 +8,7 @@ import {
 import { PlusOutlined } from '@ant-design/icons'
 
 import { api, getStoredUser, isFullVisibilityRole } from '../api'
+import { GATE_STATUS_COLOR } from './tokens'
 import { GRADING_LEVEL_COLOR, HEX } from './tokens'
 import { labelOf, useEnums } from '../enums'
 import { navigate } from '../router'
@@ -159,14 +160,23 @@ export default function ProjectListPage() {
                 </Space>
               ),
             },
+            {
+              title: '评审', dataIndex: 'review_gate_status', width: 100,
+              render: (v: string | null) => (v
+                ? <Tag color={GATE_STATUS_COLOR[v] ?? 'default'}>
+                    {{ pending: '待提交', in_review: '评审中', passed: '已通过', rejected: '已否决', rectifying: '整改中' }[v] ?? v}
+                  </Tag>
+                : <Tag>未提交</Tag>),
+            },
             ...(isFullView ? [{ title: '创建人', dataIndex: 'owner_name', width: 100 }] : []),
             { title: '安全需求', dataIndex: ['counts', 'requirements'], width: 90 },
             {
-              title: '操作', width: 260,
+              title: '操作', width: 330,
               render: (_, record) => (
                 <Space>
                   <Button size="small" onClick={() => navigate(`/wizard/${record.id}`)}>填写向导</Button>
                   <Button size="small" onClick={() => navigate(`/result/${record.id}`)}>查看产物</Button>
+                  <Button size="small" onClick={() => navigate(`/project/${record.id}/review`)}>评审中心</Button>
                   <Popconfirm
                     title="删除该评估及其全部数据?"
                     onConfirm={async () => {

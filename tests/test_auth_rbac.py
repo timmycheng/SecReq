@@ -58,6 +58,7 @@ def test_login_success_returns_token_and_role(api):
     body = resp.json()
     assert body["role"] == "pm"
     assert body["role_label"] == "项目管理"
+    assert isinstance(body["id"], int)  # #219 前端按 id 判定提交人
     assert body["token"]
 
 

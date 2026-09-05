@@ -9,7 +9,9 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import shared.constants as C
-from models import Filing, GradingSurvey, PlatformUser, Project, System  # noqa: F401 (类型标注用)
+from models import (
+    Filing, GradingSurvey, PlatformUser, Project, ReviewGate, System,  # noqa: F401 (类型标注用)
+)
 from routers.common import (
     client_ip, get_db, get_project_or_404, require_login,
     require_write_roles, visible_projects_query, wizard_state,
@@ -44,6 +46,10 @@ def _detail(db: Session, project: Project) -> ProjectDetail:
         grading_level=survey.effective_level() if survey else None,
         counts=project_counts(db, project.id),
     )
+    gate = db.query(ReviewGate).filter_by(
+        project_id=project.id, gate_type="requirement").first()
+    if gate is not None:
+        detail.review_gate_status = gate.status
     if project.owner_user_id:
         owner = db.get(PlatformUser, project.owner_user_id)
         detail.owner_name = owner.display_name if owner else None

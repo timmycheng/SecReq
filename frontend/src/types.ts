@@ -29,6 +29,55 @@ export interface ProjectDetail extends ProjectInfo {
   filing_name?: string | null
   filing_level?: string | null
   is_current_baseline?: boolean
+  review_gate_status?: string | null
+}
+
+/* ── 评审闭环(#218/#219) ── */
+
+export interface ReviewEvidenceRow {
+  id: number
+  action: string
+  actor_id: number | null
+  timestamp: string
+  comment: string | null
+  payload: Record<string, unknown>
+  prev_hash: string
+  curr_hash: string
+}
+
+export interface ReviewGateInfo {
+  gate_type: string
+  status: string
+  status_verb: string
+  submitted_at: string | null
+  reviewed_at: string | null
+  submitter_id: number | null
+  reviewer_id: number | null
+  reviewer_conclusion: string | null
+  reviewer_opinion: string | null
+  final_reviewer_id: number | null
+  final_opinion: string | null
+  final_reviewed_at: string | null
+  version_hash: string | null
+}
+
+export interface ReviewState {
+  gate: ReviewGateInfo | null
+  evidences: ReviewEvidenceRow[]
+  chain_valid: boolean
+  requirement_summary: Record<string, number>
+}
+
+export interface RequirementTransitionRow {
+  id: number
+  requirement_id: number
+  action: string
+  from_status: string
+  to_status: string
+  operator_id: number | null
+  operator_name: string
+  opinion: string | null
+  created_at: string
 }
 
 /* ── 系统台账: 定级备案 / 被评估系统 / 评估轮次 ── */
@@ -391,6 +440,8 @@ export interface RequirementRow {
   reg_confirmed?: boolean
   confirmed_by?: string | null
   confirmed_at?: string | null
+  /** 评审生命周期(#217): open/confirmed/reviewed/rectifying */
+  review_status?: string
 }
 
 export interface VulnerabilityRow {
@@ -467,6 +518,7 @@ export interface VulnDbVerifyResult {
 /* ── 平台认证 ───────────────────────────────────── */
 
 export interface LoginInfo {
+  id: number
   username: string
   display_name: string
   employee_id?: string | null

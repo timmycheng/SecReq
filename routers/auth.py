@@ -27,6 +27,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 def _login_out(user: PlatformUser, token: str | None = None) -> LoginOut:
     return LoginOut(
+        id=user.id,
         username=user.username,
         display_name=user.display_name,
         employee_id=user.employee_id,

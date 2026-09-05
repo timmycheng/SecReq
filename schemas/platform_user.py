@@ -9,6 +9,7 @@ class LoginIn(BaseModel):
 
 
 class LoginOut(BaseModel):
+    id: int
     username: str
     display_name: str
     employee_id: str | None
