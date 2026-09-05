@@ -11,7 +11,6 @@ export interface ProjectInfo {
   types: string[]
   user_scale: string
   is_public: boolean
-  offshore_vendor?: boolean
   pm_name?: string | null
   dev_lead_name?: string | null
   sec_contact_name?: string | null
@@ -68,7 +67,6 @@ export interface SystemRow {
   user_scale?: string | null
   types?: string[]
   is_public?: boolean
-  offshore_vendor?: boolean
   created_at?: string | null
   filing_name?: string | null
   filing_level?: string | null

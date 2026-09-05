@@ -67,7 +67,6 @@ class SystemCreate(BaseModel):
     user_scale: str | None = Field(default=None, max_length=32)
     types: list[str] = Field(default_factory=list)
     is_public: bool = False
-    offshore_vendor: bool = False
 
 
 class SystemUpdate(BaseModel):
@@ -78,7 +77,6 @@ class SystemUpdate(BaseModel):
     user_scale: str | None = Field(default=None, max_length=32)
     types: list[str] | None = None
     is_public: bool | None = None
-    offshore_vendor: bool | None = None
 
 
 class SystemOut(BaseModel):
@@ -93,7 +91,6 @@ class SystemOut(BaseModel):
     user_scale: str | None = None
     types: list[str] = Field(default_factory=list)
     is_public: bool = False
-    offshore_vendor: bool = False
     created_at: datetime | None = None
 
 

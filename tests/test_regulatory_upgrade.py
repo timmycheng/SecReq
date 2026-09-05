@@ -234,9 +234,8 @@ def test_regulatory_trigger_extra_cases():
     assert any(r.template_id == "SEC-REG-004" for r in reqs)
     session.close()
 
-    # 境外供应商触发出境申报
-    session, project = _make_session_with_asset()
-    project.system.offshore_vendor = True
+    # 资产跨境传输触发出境申报(#208 起境外外包选项已移除, 出境申报仅由资产驱动)
+    session, project = _make_session_with_asset(cross_border_transfer=True)
     reqs = gen_for(session, project, RuleEngine.load())
     assert any(r.template_id == "SEC-REG-002" for r in reqs)
     session.close()
