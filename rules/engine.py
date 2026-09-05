@@ -565,7 +565,7 @@ class RuleEngine:
 
         rule_key 枚举(7 项, 均已实现):
         - l5_data_exists        存在 5级(重要数据)资产
-        - cross_border_exists   任一资产跨境传输 或 项目存在境外外包/供应商
+        - cross_border_exists   任一资产跨境传输
         - mobile_app_type       项目类型为手机APP/小程序
         - ai_feature            功能清单含 AI 功能
         - final_level_l3        有效定级为三级
@@ -587,15 +587,10 @@ class RuleEngine:
 
         if key == "cross_border_exists":
             assets = [a for a in ctx.data_assets if a.cross_border_transfer]
-            offshore = bool(ctx.project.effective_offshore_vendor())
-            if not assets and not offshore:
+            if not assets:
                 return []
-            detail = []
-            if assets:
-                detail.append(f"跨境数据资产: {('、'.join(a.name for a in assets))}")
-            if offshore:
-                detail.append("项目存在境外外包/境外供应商")
-            return [Match({"cross_border_detail": "; ".join(detail)}, "project", pid)]
+            names = "、".join(a.name for a in assets)
+            return [Match({"cross_border_detail": f"跨境数据资产: {names}"}, "project", pid)]
 
         if key == "mobile_app_type":
             types = project_types(ctx.project)

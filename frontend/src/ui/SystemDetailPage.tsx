@@ -84,11 +84,8 @@ export default function SystemDetailPage({ systemId }: { systemId: number }) {
           <Descriptions.Item label="业务类型">
             {(system.types ?? []).map((t) => typeLabels[t] ?? t).join('、') || '—'}
           </Descriptions.Item>
-          <Descriptions.Item label="公网 / 境外外包">
-            <Space size={6}>
-              {system.is_public ? <Tag color="orange">涉及公网</Tag> : <Tag>无公网</Tag>}
-              {system.offshore_vendor ? <Tag color="red">境外外包</Tag> : <Tag>无境外外包</Tag>}
-            </Space>
+          <Descriptions.Item label="公网访问">
+            {system.is_public ? <Tag color="orange">涉及公网</Tag> : <Tag>无公网</Tag>}
           </Descriptions.Item>
         </Descriptions>
         {system.filing_level && (

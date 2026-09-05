@@ -28,9 +28,6 @@ class Project(Base):
     is_public: Mapped[bool] = mapped_column(
         Boolean, default=False, comment="是否涉及公网访问(已停用, #194 起真相在 systems.is_public)"
     )
-    offshore_vendor: Mapped[bool] = mapped_column(
-        Boolean, default=False, comment="境外外包(已停用, #194 起真相在 systems.offshore_vendor)"
-    )
     pm_name: Mapped[str | None] = mapped_column(String(50), comment="项目经理")
     dev_lead_name: Mapped[str | None] = mapped_column(String(50), comment="开发负责人")
     sec_contact_name: Mapped[str | None] = mapped_column(String(50), comment="安全对接人")
@@ -77,11 +74,6 @@ class Project(Base):
         if self.system is not None:
             return bool(self.system.is_public)
         return bool(self.is_public)
-
-    def effective_offshore_vendor(self) -> bool:
-        if self.system is not None:
-            return bool(self.system.offshore_vendor)
-        return bool(self.offshore_vendor)
 
 
 class GradingSurvey(Base):

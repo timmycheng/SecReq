@@ -6,6 +6,7 @@
 
 - 后端 FastAPI 在仓库根: 入口 `main.py`(FastAPI `version` 字段在此, 仅发版时改), 分层 `routers/`(API)→ `services/`(业务)→ `models/`(ORM)→ `schemas/`、`shared/`(常量)、`rules/`(知识库与规则引擎); 默认库 SQLite `secreq.db`, 可用 `SECREQ_DATABASE_URL` 覆盖。
 - 前端在 `frontend/`: React 19 + TypeScript + Vite + antd 6; **无路由库**, 自研 hash 路由 `frontend/src/router.ts`, 侧边菜单硬编码在 `frontend/src/App.tsx`; API 层是单文件 `frontend/src/api.ts`(`request<T>()` 统一携带 Bearer)。
+- 前端界面代码生成前必读 [docs/frontend-design-spec.md](docs/frontend-design-spec.md)(布局四模式/表格与表单规则/状态与文案 tokens/敏感信息展示/生成自检清单), 状态色与文案不得各页面自造。
 - 系统管理(仅安全角色)是单页 Tabs: 外壳 `frontend/src/ui/AdminPage.tsx`, 各 Tab 组件在 `frontend/src/ui/admin/`(React.lazy 按需加载)。新增一个 Tab = admin/ 下新组件 + AdminPage 注册 + `api.ts` 加方法 + `routers/admin.py` 加端点(挂 `Depends(require_security)`), 前端没有权限注册步骤。
 - 平台鉴权只有二元角色 developer/security, 无权限点/权限表(`models/permission.py` 是项目内"权限矩阵"设计器的产物, 不是平台 RBAC); 全局 auth_guard 挂在 `main.py`, 开放前缀与 `require_login`/`require_write_roles` 在 `routers/common.py`。
 - `CHANGELOG.md` 版本章节格式 `## [X.Y.Z] - YYYY-MM-DD`(无 v 前缀), 与 `main.py` version、`pyproject.toml` version、git tag 四者由 `scripts/check_version.py` 校验一致; 版本章节在打 tag 发版时一并更新(见 dev-workflow「版本与发版」清单)。
