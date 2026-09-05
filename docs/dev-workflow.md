@@ -25,6 +25,8 @@
 ## 分支规范
 
 - 从最新 main 切出(先 `git pull`), 命名 `<type>/<issue号>-<slug>`, type 与提交前缀一致: `feat/`、`fix/`、`docs/`、`chore/`、`ci/`; slug 用小写英文短横线, 如 `fix/18-schema-upgrade`。
+- 存在并行开发(多个 issue/分支同时推进)时, 尽量为每个分支创建独立的 git worktree 开发: `git worktree add ../secreq-wt-<issue号> <分支名>`, 各 worktree 独立切分支、跑测试与构建, 互不干扰, 避免在唯一工作区来回切分支互相踩踏; 零散小改动可不开 worktree。
+- worktree 不共享 gitignore 掉的本地产物: 新 worktree 需各自 `uv sync` 与 `cd frontend && npm install` 才能跑质量门禁; 分支合并删除后, 用 `git worktree remove <路径>` 一并清理对应 worktree。
 - 合并后删除分支; 禁止在 main 上直接提交。
 
 ## 提交信息规范

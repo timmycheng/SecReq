@@ -16,6 +16,8 @@
 
 本仓库所有改动一律走 GitHub 标准流程, **禁止直推 main**(分支保护对管理员同样生效):先开 issue(模板 + `type:`/`priority:` 标签, 版本批次挂对应 milestone)→ 从最新 main 切分支, 命名 `<type>/<issue号>-<slug>`(如 `fix/18-schema-upgrade`)→ 提交与 PR 标题用约定式前缀 + 中文描述(如 `fix(认证): 初始密码环境变量化`)→ PR 正文写 `Closes #N` → 等 CI 必查 job(后端检查 / 前端检查)全绿后 squash 合并。
 
+存在并行开发(多个 issue/分支同时推进)时, 尽量为每个分支创建独立的 git worktree 进行开发(如 `git worktree add ../secreq-wt-<issue号> <分支名>`), 各 worktree 独立切分支、跑测试与构建, 互不干扰; 避免在唯一工作区来回切分支导致进行中的改动互相踩踏。零散小改动可不开 worktree, 直接在主工作区完成。
+
 发版仅由 tag 触发:打 tag 前必须跑 `python scripts/check_version.py vX.Y.Z`, 保证 tag、`main.py` 的 version、`pyproject.toml` 的 version、CHANGELOG 章节四者一致;版本批次以 milestone 管理,milestone 全部关闭才具备发版条件。bump `pyproject.toml` 版本号本身就是改声明:发版 PR 内必须 `uv lock` 连锁文件一起提交(锁文件记录项目自身版本, 漏锁会被 CI 的 `uv lock --check` 拦截)。
 
 **完整细则以 [docs/dev-workflow.md](docs/dev-workflow.md) 为唯一权威来源**(issue/分支/提交/PR/CI/发版/依赖更新的全部规则),执行流程前先读它;CI 红了看日志修复,不绕过门禁。
