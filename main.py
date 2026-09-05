@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from models import init_db, make_engine, make_session_factory
-from routers import admin, auth, filings, generate, meta, netbox, projects, steps, systems
+from routers import admin, auth, filings, generate, review, meta, netbox, projects, steps, systems
 from routers.common import auth_guard
 
 # 统一日志出口: 容器部署时全部走 stdout 便于采集。
@@ -137,6 +137,7 @@ app.include_router(filings.router)
 app.include_router(systems.router)
 app.include_router(steps.router)
 app.include_router(generate.router)
+app.include_router(review.router)
 app.include_router(admin.router)
 app.include_router(netbox.router)
 
