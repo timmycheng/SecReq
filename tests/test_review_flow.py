@@ -49,19 +49,6 @@ def _confirm_all(api, pid, reqs):
     assert resp.json()["confirmed"] == len(ids), resp.text
 
 
-def test_submit_passes_stub_gate_before_220(api, generated):
-    """门禁校验先桩后接(#220 未落地): 无注册检查时未确认需求也放行进评审。"""
-    pid, reqs = generated
-    resp = api.post(f"/api/projects/{pid}/review/submit")
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["status"] == "submitted"  # 门禁校验桩: 无注册检查即放行
-    state = api.get(f"/api/projects/{pid}/review/state").json()
-    assert state["gate"]["status"] == "in_review"
-    assert state["gate"]["version_hash"]
-    assert state["chain_valid"] is True
-    assert state["evidences"][0]["action"] == "submit"
-
-
 def test_pm_cannot_review_own_submission(api, generated):
     """pm 调评审批注/裁定/终审一律 403(#216 角色白名单), 亦即不能自审。"""
     pid, _ = generated
