@@ -130,7 +130,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
     api.getGradingBaseline(ws.project.id).then(setBaseline).catch(() => undefined)
   }
 
-  const save = async (): Promise<boolean> => {
+  const save = async (silent = false): Promise<boolean> => {
     const values = await form.validateFields().catch(() => null)
     if (!values) return false
     try {
@@ -143,16 +143,21 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
         .filter(([, option_id]) => option_id)
         .map(([question_id, option_id]) => ({ question_id, option_id }))
       let level = finalLevel ?? null
-      if (questions && surveyPayload.length > 0 && !answeredAll && !level) {
-        message.warning('定级问卷未答完: 请答完全部题目, 或清空答案后直接指定等级')
-        return false
+      // 校验后置(#228): 问卷未答完不阻断保存, 本次不含定级结论(保持原状), 可稍后补答
+      const surveyIncomplete = questions !== null && surveyPayload.length > 0
+        && !answeredAll && !level
+      const surveyToSave = surveyIncomplete ? null : surveyPayload
+      if (surveyIncomplete) {
+        message.info('定级问卷未答完, 本次保存不含定级结论; 可稍后答完或直接指定等级')
+        level = ws.survey?.effective_level || null
       }
-      if (!surveyPayload.length && !level) {
+      if (!surveyToSave?.length && !level) {
         level = ws.survey?.effective_level || null // 未改动且已有定级 → 保持
       }
       let freshSurvey = ws.survey
-      if (surveyPayload.length || level) {
-        await api.saveSurvey(ws.project.id, surveyPayload, level, note || null)
+      // 空数组按"未作答"处理: 后端对非完整问卷返回 400(校验后置下不能因它失败整卷保存)
+      if ((surveyToSave && surveyToSave.length > 0) || level) {
+        await api.saveSurvey(ws.project.id, surveyToSave ?? [], level, note || null)
         const fresh = await api.loadWizard(ws.project.id)
         freshSurvey = fresh.survey
       }
@@ -164,7 +169,8 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
         auth_config: savedCfg,
       })
       savedRef.current = JSON.stringify(snapshotOf({ ...ws, survey: freshSurvey }, cfg))
-      message.success('评估信息与定级已保存')
+      setFormDirty(false)
+      if (!silent) message.success('评估信息与定级已保存')
       reloadBaseline()
       return true
     } catch (e) {
@@ -173,7 +179,13 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
     }
   }
 
-  useRegisterStepHandle({ save, isDirty: () => JSON.stringify(snapshotOf(ws, cfg)) !== savedRef.current })
+  // 草稿自动保存(#228): 表单即时编辑不入 state, onValuesChange 打脏标记
+  // (同时修复离开拦截此前对 Step1 表单编辑不生效的盲区)
+  const [formDirty, setFormDirty] = useState(false)
+  useRegisterStepHandle({
+    save,
+    isDirty: () => formDirty || JSON.stringify(snapshotOf(ws, cfg)) !== savedRef.current,
+  })
 
   const effectiveLevel = ws.survey?.effective_level || ''
   const pwd = baseline?.pwd_defaults
@@ -185,6 +197,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
       <Form
         form={form}
         layout="vertical"
+        onValuesChange={() => setFormDirty(true)}
         initialValues={{
           name: ws.project.name,
           code: ws.project.code,

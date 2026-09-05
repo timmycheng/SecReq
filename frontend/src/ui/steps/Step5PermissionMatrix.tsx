@@ -102,11 +102,7 @@ export default function Step5PermissionMatrix({ ws, patch }: StepProps) {
     return [...new Set(list)]
   }, [grants, roles, resources, actionsMap, highRisk])
 
-  const save = async (): Promise<boolean> => {
-    if (!roles.length || !resources.length) {
-      message.warning('请至少维护一个角色和一个资源')
-      return false
-    }
+  const save = async (silent = false): Promise<boolean> => {
     const entries: MatrixEntryIn[] = []
     for (const [riStr, row] of Object.entries(grants)) {
       for (const [ciStr, cell] of Object.entries(row)) {
@@ -123,7 +119,9 @@ export default function Step5PermissionMatrix({ ws, patch }: StepProps) {
         permission_entries: saved.entries as never,
       })
       savedRef.current = JSON.stringify({ roles, resources, grants })
-      message.success(`矩阵已保存: ${saved.saved.roles} 角色 × ${saved.saved.resources} 资源, ${saved.saved.entries} 条授权`)
+      if (!silent) {
+        message.success(`矩阵已保存: ${saved.saved.roles} 角色 × ${saved.saved.resources} 资源, ${saved.saved.entries} 条授权`)
+      }
       return true
     } catch (e) {
       message.error((e as Error).message)

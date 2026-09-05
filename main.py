@@ -144,3 +144,12 @@ app.include_router(netbox.router)
 _dist = ROOT_DIR / "frontend" / "dist"
 if _dist.exists():  # 生产构建托管: npm run build 后可直接单进程启动
     app.mount("/", StaticFiles(directory=str(_dist), html=True), name="frontend")
+
+    @app.middleware("http")
+    async def _html_no_cache(request, call_next):
+        """index.html 禁缓存(#228): 版本升级后浏览器必须拿到新 bundle,
+        否则缓存的旧 index.html 引用已删除的旧 hash 资源, 表现为页面打不开。"""
+        response = await call_next(request)
+        if "text/html" in response.headers.get("content-type", ""):
+            response.headers["Cache-Control"] = "no-cache"
+        return response

@@ -64,7 +64,12 @@ export default function WizardPage({ projectId }: { projectId: number }) {
   const [introHidden, setIntroHidden] = useState(
     () => localStorage.getItem(INTRO_DISMISSED_KEY) === '1',
   )
+  // 草稿恢复提示(#228): 打开向导时已有填报数据则提示一次
+  const [resumeNotice] = useState(() => ({ done: false }))
   const handleRef = useRef<StepHandle | null>(null)
+  // 草稿自动保存(#228): 30s 间隔静默保存脏步骤; 记录最近一次自动保存时间
+  const [autosavedAt, setAutosavedAt] = useState<string | null>(null)
+  const autosaveTimer = useRef<ReturnType<typeof setInterval> | null>(null)
   // 窄屏(<992px)把步骤条折叠为「下拉跳转 + 进度条」; 首帧未测得时按宽屏渲染避免闪烁
   const screens = Grid.useBreakpoint()
   const compact = screens.lg === false
@@ -76,7 +81,18 @@ export default function WizardPage({ projectId }: { projectId: number }) {
 
   useEffect(() => {
     api.loadWizard(projectId)
-      .then(setWs)
+      .then((state) => {
+        if (!resumeNotice.done) {
+          resumeNotice.done = true
+          const has = (v: unknown[] | undefined | null) => Array.isArray(v) && v.length > 0
+          const hasDraft = has(state.features) || has(state.data_assets) || has(state.external_systems)
+            || has(state.api_endpoints) || has(state.roles) || state.survey != null
+          if (hasDraft && state.project.status === 'draft') {
+            message.info('已恢复上次填报草稿(数据实时保存在服务端), 可从任意步骤继续填写', 4)
+          }
+        }
+        setWs(state)
+      })
       .catch((e: Error) => setError(e.message))
   }, [projectId])
 
@@ -149,6 +165,18 @@ export default function WizardPage({ projectId }: { projectId: number }) {
 
   // 切步后回到页面顶部
   useEffect(() => { window.scrollTo(0, 0) }, [current])
+
+  // 草稿自动保存(#228): 30s 间隔, 当前步骤有未保存修改时静默保存
+  useEffect(() => {
+    autosaveTimer.current = setInterval(() => {
+      const h = handleRef.current
+      if (!h?.isDirty()) return
+      void h.save(true)
+        .then((ok) => { if (ok) setAutosavedAt(new Date().toLocaleTimeString()) })
+        .catch(() => undefined)
+    }, 30_000)
+    return () => { if (autosaveTimer.current) clearInterval(autosaveTimer.current) }
+  }, [])
 
   const saveAndNext = async () => {
     const h = handleRef.current
@@ -305,6 +333,11 @@ export default function WizardPage({ projectId }: { projectId: number }) {
               上一步
             </Button>
             <Space size={12}>
+              {autosavedAt && (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  草稿已自动保存 {autosavedAt}
+                </Typography.Text>
+              )}
               <Button danger disabled={resetting} onClick={() => { setResetCode(''); setResetOpen(true) }}>
                 一键清空
               </Button>

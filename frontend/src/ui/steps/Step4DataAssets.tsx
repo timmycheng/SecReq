@@ -37,16 +37,12 @@ export default function Step4DataAssets({ ws, patch }: StepProps) {
   const openAdd = () => { setEditIndex(-1); setEditing({ ...EMPTY_ASSET }) }
   const openEdit = (index: number) => { setEditIndex(index); setEditing(JSON.parse(JSON.stringify(rows[index]))) }
 
-  const save = async (): Promise<boolean> => {
-    if (!rows.length) {
-      message.warning('请至少录入一个数据资产')
-      return false
-    }
+  const save = async (silent = false): Promise<boolean> => {
     try {
       const saved = await api.saveDataAssets(ws.project.id, rows)
       patch({ data_assets: saved })
       savedRef.current = JSON.stringify(rows)
-      message.success(`已保存 ${saved.length} 个数据资产`)
+      if (!silent) message.success(`已保存 ${saved.length} 个数据资产`)
       return true
     } catch (e) {
       message.error((e as Error).message)

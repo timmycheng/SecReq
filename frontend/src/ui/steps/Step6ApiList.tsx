@@ -35,12 +35,12 @@ export default function Step6ApiList({ ws, patch }: StepProps) {
   // 关联按资产 uid 取值(#66), 跨整卷保存稳定
   const assetNameByUid = new Map(ws.data_assets.map((a) => [a.uid as string, a.name]))
 
-  const save = async (): Promise<boolean> => {
+  const save = async (silent = false): Promise<boolean> => {
     try {
       const saved = await api.saveApiEndpoints(ws.project.id, endpoints)
       patch({ api_endpoints: saved })
       savedRef.current = JSON.stringify(endpoints)
-      message.success(`已保存 ${saved.length} 个接口`)
+      if (!silent) message.success(`已保存 ${saved.length} 个接口`)
       return true
     } catch (e) {
       message.error((e as Error).message)
