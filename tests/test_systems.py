@@ -26,9 +26,9 @@ def _create_filing(client, name="网银核心备案", level="三级", code="BA-0
     return resp.json()
 
 
-def _create_system(client, name="手机银行系统", filing_id=None, code=None) -> dict:
+def _create_system(client, name="手机银行系统", filing_id=None, code=None, **extra) -> dict:
     resp = client.post("/api/systems", json={
-        "name": name, "filing_id": filing_id, "code": code, "owner_name": "张三",
+        "name": name, "filing_id": filing_id, "code": code, "owner_name": "张三", **extra,
     })
     assert resp.status_code == 201, resp.text
     return resp.json()
@@ -112,6 +112,22 @@ def test_system_crud_and_detail_timeline(dev, sec):
         assert target["is_current_baseline"] is True
     finally:
         cleanup_output(code)
+
+
+def test_system_detail_basic_info_fields(dev):
+    """#214 详情接口返回基本信息三件套(user_scale/types/is_public), 不再回落默认值。"""
+    system = _create_system(
+        dev, name="网银系统", code="SYS-DET",
+        user_scale="1万-10万", types=["个人网银", "企业网银"], is_public=True,
+    )
+    detail = dev.get(f"/api/systems/{system['id']}").json()
+    assert detail["user_scale"] == "1万-10万"
+    assert detail["types"] == ["个人网银", "企业网银"]
+    assert detail["is_public"] is True
+    # 台账接口保持原口径, 不受详情补字段影响
+    ledger = dev.get("/api/systems/ledger").json()
+    target = next(s for s in ledger if s["id"] == system["id"])
+    assert target["name"] == "网银系统"
 
 
 def test_system_unique_conflict_409(dev):
