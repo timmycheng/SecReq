@@ -8,7 +8,7 @@
 
 行为(与 main.py lifespan 自动升级共用 services/classification_migration):
 1. 为存量表补齐新增列(data_assets.legacy_classification/c3_tag、
-   projects.offshore_vendor、security_requirements.regulatory_ref/owner/reg_confirmed
+   security_requirements.regulatory_ref/owner/reg_confirmed
    /confirmed_by/confirmed_at), 新表(评审门禁/用户)由 create_all 创建;
 2. 分级映射: 公开→1级_公开数据、内部→2级_C1次要信息、敏感→3级_C2主要信息、
    机密→4级_C3鉴别信息; 机密且生物识别类且敏感PII → 附加 C3 标签;

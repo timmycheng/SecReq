@@ -2,8 +2,8 @@
 """系统台账: 定级备案(对外备案主体)与被评估系统。
 
 业务层级: 备案(定级事实来源, 少数) → 系统(以备案"子系统"形式存在, 继承备案定级)
-→ 项目(一次评估 = 一个时点快照)。#194 起系统承载稳定事实: 基本信息(规模/形态/公网/
-境外外包)、定级(挂靠备案)、基础设施(资产+架构图)与组件(SBOM); 评估轮次只承载
+→ 项目(一次评估 = 一个时点快照)。#194 起系统承载稳定事实: 基本信息(规模/形态/公网)、
+定级(挂靠备案)、基础设施(资产+架构图)与组件(SBOM); 评估轮次只承载
 评估过程数据(功能/数据/权限/接口/定级复核), 保证轮次间增量对比不被冗余副本干扰。
 """
 from datetime import datetime
@@ -58,9 +58,6 @@ class System(Base):
     )
     types: Mapped[list] = mapped_column(JSON, default=list, comment="系统业务形态多选, 见 PROJECT_TYPES")
     is_public: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否涉及公网访问")
-    offshore_vendor: Mapped[bool] = mapped_column(
-        Boolean, default=False, comment="是否存在境外外包/境外供应商(触发数据出境报送)"
-    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     filing: Mapped["Filing | None"] = relationship(back_populates="systems")

@@ -46,7 +46,7 @@ class ProjectCreate(BaseModel):
 class ProjectUpdate(BaseModel):
     """更新 Step1(全部可选, 未传字段不覆盖)。code 仅用于拦截修改, 不会落库。
 
-    #194 起 用户规模/类型/公网/境外外包 属系统字段, 在系统台账维护, 不再走本接口。
+    #194 起 用户规模/类型/公网 属系统字段, 在系统台账维护, 不再走本接口。
     """
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
@@ -74,7 +74,6 @@ class ProjectOut(BaseModel):
         return v if isinstance(v, list) else []
     user_scale: str
     is_public: bool
-    offshore_vendor: bool = False
     pm_name: str | None
     dev_lead_name: str | None
     sec_contact_name: str | None
@@ -104,7 +103,6 @@ def serialize_project(project) -> ProjectOut:
     out.user_scale = project.effective_user_scale()
     out.types = list(project.effective_types())
     out.is_public = project.effective_is_public()
-    out.offshore_vendor = project.effective_offshore_vendor()
     # 类型多选: 兼容存量单值数据(types 为空时回退 [type])
     if not out.types and out.type:
         out.types = [out.type]

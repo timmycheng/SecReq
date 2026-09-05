@@ -205,7 +205,7 @@ function SystemsTab() {
       <Space style={{ marginBottom: 12 }}>
         <Button
           icon={<PlusOutlined />} type="primary"
-          onClick={() => setEditing({ user_scale: '1k_to_100k', types: [], is_public: false, offshore_vendor: false })}
+          onClick={() => setEditing({ user_scale: '1k_to_100k', types: [], is_public: false })}
         >
           新建系统
         </Button>
@@ -246,7 +246,7 @@ function SystemsTab() {
   )
 }
 
-/** 系统新建/编辑表单(#194): 身份 + 挂靠备案 + 基本信息(规模/类型/公网/境外外包)。 */
+/** 系统新建/编辑表单(#194): 身份 + 挂靠备案 + 基本信息(规模/类型/公网)。 */
 function SystemFormModal({ value, filings, enums, onSaved, onClose }: {
   value: Partial<SystemRow>
   filings: FilingRow[]
@@ -304,17 +304,9 @@ function SystemFormModal({ value, filings, enums, onSaved, onClose }: {
         >
           <Select mode="multiple" options={optionsOf(enums, 'project_types')} placeholder="选择全部适用类型" />
         </Form.Item>
-        <Space size={32}>
-          <Form.Item name="is_public" label="是否涉及公网访问" valuePropName="checked">
-            <Switch checkedChildren="是" unCheckedChildren="否" />
-          </Form.Item>
-          <Form.Item
-            name="offshore_vendor" label="存在境外外包/供应商" valuePropName="checked"
-            tooltip="勾选后触发《数据出境安全评估申报》监管报送类需求"
-          >
-            <Switch checkedChildren="是" unCheckedChildren="否" />
-          </Form.Item>
-        </Space>
+        <Form.Item name="is_public" label="是否涉及公网访问" valuePropName="checked">
+          <Switch checkedChildren="是" unCheckedChildren="否" />
+        </Form.Item>
       </Form>
     </Modal>
   )
