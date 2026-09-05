@@ -51,5 +51,5 @@ def test_report_aggregates_median_p90(api):
 
 
 def test_report_requires_security_role(api):
-    pid = _mk_project(api)
+    _mk_project(api)
     assert api.get("/api/admin/step-metrics").status_code == 403
