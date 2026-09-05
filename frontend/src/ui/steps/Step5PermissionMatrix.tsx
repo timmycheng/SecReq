@@ -15,7 +15,7 @@ import type { MatrixEntryIn } from '../../types'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
 import type { RoleRow, ResourceRow } from '../../types'
 import GlossaryTip from '../GlossaryTip'
-import { useRegisterStepHandle } from './stepContext'
+import { useRegisterStepHandle, useStepDwell } from './stepContext'
 import type { StepProps } from '../WizardPage'
 
 /** cell[roleIndex][resourceIndex] = { 动作code → 是否需审批 }(键为下标的字符串形态) */
@@ -25,6 +25,7 @@ const EMPTY_ROLE: RoleRow = { name: '', role_type: 'normal' }
 const EMPTY_RESOURCE: ResourceRow = { name: '', resource_type: 'data_record', criticality: 'medium' }
 
 export default function Step5PermissionMatrix({ ws, patch }: StepProps) {
+  const dwell = useStepDwell()
   const enums = useEnums()
   // 新项目首次进入本步时预置三个可编辑角色(可改名/改类型/增删; 引擎按 super_admin 枚举扫描, 文案可自由调整)(#90)
   const [roles, setRoles] = useState<RoleRow[]>(
@@ -112,7 +113,7 @@ export default function Step5PermissionMatrix({ ws, patch }: StepProps) {
       }
     }
     try {
-      const saved = await api.saveMatrix(ws.project.id, roles, resources, entries)
+      const saved = await api.saveMatrix(ws.project.id, roles, resources, entries, dwell.elapsed())
       patch({
         roles: saved.roles,
         resources: saved.resources,

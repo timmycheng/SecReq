@@ -17,7 +17,7 @@ import type {
 } from '../../types'
 import GlossaryTip from '../GlossaryTip'
 import NetboxSystemImportModal from '../NetboxSystemImportModal'
-import { useRegisterStepHandle } from './stepContext'
+import { useRegisterStepHandle, useStepDwell } from './stepContext'
 import type { StepProps } from '../WizardPage'
 
 const LEVEL_OPTIONS = ['一级', '二级', '三级']
@@ -134,7 +134,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
     const values = await form.validateFields().catch(() => null)
     if (!values) return false
     try {
-      const detail = await api.patchProject(ws.project.id, values)
+      const detail = await api.patchProject(ws.project.id, values, dwell.elapsed())
       const ext = await api.saveExternalSystems(ws.project.id, extRows)
       // 定级: 已答完问卷则走打分; 未答完但显式选了等级则直接指定; 两者皆无则跳过
       // 旧形态 answers_json 可能缺 option_id(存量数据), 过滤避免整卷提交被 422 拦下(#98)
@@ -181,6 +181,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
 
   // 草稿自动保存(#228): 表单即时编辑不入 state, onValuesChange 打脏标记
   // (同时修复离开拦截此前对 Step1 表单编辑不生效的盲区)
+  const dwell = useStepDwell()
   const [formDirty, setFormDirty] = useState(false)
   useRegisterStepHandle({
     save,

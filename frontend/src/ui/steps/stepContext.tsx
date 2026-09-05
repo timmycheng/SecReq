@@ -1,6 +1,6 @@
 /* 步骤句柄上下文: 各步骤把 save/isDirty 注册给向导容器,
    容器的吸底导航与离开拦截通过句柄调用, 步骤自身不再渲染保存按钮。 */
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 
 import { api } from '../../api'
 
@@ -40,4 +40,12 @@ export function useBaselineUidIndex(
     return () => { alive = false }
   }, [systemId])
   return index
+}
+
+
+/** 步骤停留计时(#229): 挂载到保存成功的时长, 供「保存并下一步」上报。 */
+export function useStepDwell(): { elapsed: () => number } {
+  const mountedAt = useRef(Date.now())
+  useEffect(() => { mountedAt.current = Date.now() }, [])
+  return { elapsed: () => Math.round((Date.now() - mountedAt.current) / 1000) }
 }

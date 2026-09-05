@@ -6,7 +6,7 @@ GET 读取当前值。枚举选项一律由 /api/meta/constants 提供, 本文�
 """
 import logging
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -51,6 +51,18 @@ _ARCH_ENVS = ("test", "prod", "dev")
 
 # 上传读取统一走 common.read_upload_limited(默认 5MB 上限)
 _read_limited = read_upload_limited
+
+
+def _record_duration(db: Session, user: PlatformUser, project: Project,
+                     step: str, duration_seconds: float | None) -> None:
+    """步骤耗时埋点(#229): 前端上报 duration_seconds 时落库, 失败不影响保存。"""
+    if duration_seconds is None:
+        return
+    try:
+        from services.step_metrics import record_step_duration
+        record_step_duration(db, project, step, duration_seconds, user.display_name)
+    except Exception:  # noqa: BLE001 — 埋点尽力而为
+        db.rollback()
 
 
 def _audit_step(db: Session, user: PlatformUser, project: Project,
@@ -126,13 +138,15 @@ def get_survey(project: Project = Depends(get_accessible_project), db: Session =
 def save_external_systems(payload: list[ExternalSystemIn],
                           project: Project = Depends(get_writable_project),
                           db: Session = Depends(get_db),
-                          user: PlatformUser = Depends(require_login)):
+                          user: PlatformUser = Depends(require_login),
+                          duration_seconds: float | None = Query(default=None, description='本步停留秒数(#229 埋点)')):
     try:
         replace_external_systems(db, project.id, payload)
     except UidContinuityError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     rows = db.query(ExternalSystem).filter_by(project_id=project.id).order_by(ExternalSystem.id).all()
     _audit_step(db, user, project, "external_systems", len(rows))
+    _record_duration(db, user, project, "external_systems", duration_seconds)
     return [ExternalSystemOut.model_validate(r) for r in rows]
 
 
@@ -181,7 +195,8 @@ def grading_baseline(project: Project = Depends(get_accessible_project),
 @router.post("/features", response_model=list[FeatureOut])
 def save_features(payload: list[dict], project: Project = Depends(get_writable_project),
                   db: Session = Depends(get_db),
-                  user: PlatformUser = Depends(require_login)):
+                  user: PlatformUser = Depends(require_login),
+                          duration_seconds: float | None = Query(default=None, description='本步停留秒数(#229 埋点)')):
     from schemas.feature import FeatureIn
     items = [FeatureIn(**row) for row in payload]
     try:
@@ -190,6 +205,7 @@ def save_features(payload: list[dict], project: Project = Depends(get_writable_p
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     rows = db.query(Feature).filter_by(project_id=project.id).order_by(Feature.id).all()
     _audit_step(db, user, project, "features", len(rows))
+    _record_duration(db, user, project, "features", duration_seconds)
     return [FeatureOut.model_validate(f) for f in rows]
 
 
@@ -219,7 +235,8 @@ def extract_feature_candidates(payload: FeatureExtractIn,
 @router.post("/data-assets", response_model=list[DataAssetOut])
 def save_data_assets(payload: list[dict], project: Project = Depends(get_writable_project),
                      db: Session = Depends(get_db),
-                     user: PlatformUser = Depends(require_login)):
+                     user: PlatformUser = Depends(require_login),
+                          duration_seconds: float | None = Query(default=None, description='本步停留秒数(#229 埋点)')):
     from schemas.data_dictionary import DataAssetIn
     items = [DataAssetIn(**row) for row in payload]
     try:
@@ -228,6 +245,7 @@ def save_data_assets(payload: list[dict], project: Project = Depends(get_writabl
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     assets = db.query(DataAsset).filter_by(project_id=project.id).order_by(DataAsset.id).all()
     _audit_step(db, user, project, "data_assets", len(assets))
+    _record_duration(db, user, project, "data_assets", duration_seconds)
     return [asset_to_out(a) for a in assets]
 
 
@@ -293,7 +311,8 @@ async def import_dictionary_file(project: Project = Depends(get_writable_project
 @router.post("/matrix")
 def save_matrix(payload: PermissionMatrixIn, project: Project = Depends(get_writable_project),
                 db: Session = Depends(get_db),
-                user: PlatformUser = Depends(require_login)):
+                user: PlatformUser = Depends(require_login),
+                          duration_seconds: float | None = Query(default=None, description='本步停留秒数(#229 埋点)')):
     try:
         stats = replace_permission_matrix(db, project.id, payload)
     except MatrixIndexError as exc:
@@ -301,6 +320,7 @@ def save_matrix(payload: PermissionMatrixIn, project: Project = Depends(get_writ
     except UidContinuityError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     _audit_step(db, user, project, "permission_matrix", stats.get("entries", 0))
+    _record_duration(db, user, project, "permission_matrix", duration_seconds)
     return _matrix_out(db, project.id, extra=stats)
 
 
@@ -454,13 +474,15 @@ async def parse_api_endpoints(project: Project = Depends(get_writable_project),
 def save_api_endpoints(payload: list[ApiEndpointIn],
                        project: Project = Depends(get_writable_project),
                        db: Session = Depends(get_db),
-                       user: PlatformUser = Depends(require_login)):
+                       user: PlatformUser = Depends(require_login),
+                          duration_seconds: float | None = Query(default=None, description='本步停留秒数(#229 埋点)')):
     try:
         replace_api_endpoints(db, project.id, payload)
     except UidContinuityError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     rows = db.query(ApiEndpoint).filter_by(project_id=project.id).order_by(ApiEndpoint.id).all()
     _audit_step(db, user, project, "api_endpoints", len(rows))
+    _record_duration(db, user, project, "api_endpoints", duration_seconds)
     return [ApiEndpointOut.model_validate(e) for e in rows]
 
 
