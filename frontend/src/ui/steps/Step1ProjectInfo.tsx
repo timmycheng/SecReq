@@ -53,7 +53,10 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
   const [cfg, setCfg] = useState<AuthConfigRow>(ws.auth_config ?? DEFAULT_CFG)
   const [baseline, setBaseline] = useState<GradingBaseline | null>(null)
 
-  // ── 所属系统(台账): 挂备案的系统继承备案定级 ──
+  // ── 所属系统(台账): 绑定在「发起新评估」时确定(#203), 向导内锁定只读(#209/#210);
+  //    未归属的存量评估仍可在此绑定(就地新建/NetBox 导入救援), 绑定保存后同样锁定。
+  //    已绑定时数据动作默认走「复制上一轮」, 与创建弹窗"按上一轮复制"口径一致(#186)。
+  const systemBound = Boolean(ws.project.system_id)
   const [systems, setSystems] = useState<SystemRow[]>([])
   const [filings, setFilings] = useState<FilingRow[]>([])
   const [sysCreating, setSysCreating] = useState(false)
@@ -77,16 +80,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
     }
   }
 
-  /** 一键清空(#172): 清空全部向导输入回到空白模板; 生成产出不动 */
-  const doResetWizard = async () => {
-    try {
-      await api.resetProjectWizard(ws.project.id)
-      message.success('已清空全部向导数据, 页面将刷新')
-      window.location.reload()
-    } catch (e) {
-      message.error((e as Error).message)
-    }
-  }
+  /** 一键清空(#172→#210): 已上收到向导吸底导航(WizardPage), 需输入评估编码二次确认 */
 
   const savedRef = useRef(JSON.stringify(snapshotOf(ws, cfg)))
 
@@ -121,7 +115,8 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** 选择系统后: 若尚无任何定级, 用备案定级预填"直接指定等级"。 */
+  /** 选择系统后: 若尚无任何定级, 用备案定级预填"直接指定等级"。
+      仅未归属的存量评估会走到这里(已绑定的 Select 锁定只读, 不可更换)。 */
   const onSystemChange = (systemId: number | undefined) => {
     const target = systems.find((s) => s.id === systemId) ?? null
     if (target?.filing_level && !finalLevel && !ws.survey?.effective_level
@@ -129,22 +124,6 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
       setFinalLevel(target.filing_level)
       message.info(`已按备案「${target.filing_name}」预填定级: 等保${target.filing_level}, 可调整`)
     }
-  }
-
-  /** 绑定系统(#195): 创建时已必选; 此处支持更换(二次确认), 不可清空。 */
-  const handleSystemChange = (systemId: number | undefined) => {
-    if (systemId === undefined || systemId === ws.project.system_id) return
-    if (!ws.project.system_id) {
-      onSystemChange(systemId)
-      return
-    }
-    Modal.confirm({
-      title: '更换所属系统?',
-      content: '定级预填与系统清单将随新系统重新核对; 更换后原系统的时间线不再包含本评估。',
-      okText: '更换', cancelText: '取消',
-      onOk: () => onSystemChange(systemId),
-      onCancel: () => form.setFieldValue('system_id', ws.project.system_id),
-    })
   }
 
   const reloadBaseline = () => {
@@ -237,15 +216,23 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
           tooltip="归属系统后, 同一系统多次评估在系统台账下形成时间线, 最新一轮即当前基线"
           extra={(
             <Space size={4} wrap>
-              <span>找不到?</span>
-              <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setSysCreating(true)}>
-                就地新建系统
-              </Button>
-              <span>(登记系统并挂靠定级备案; 规模/类型等基本信息在系统台账维护)</span>
-              {isSecurity && (
-                <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setSysImporting(true)}>
-                  从 NetBox 导入
-                </Button>
+              {systemBound ? (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  所属系统在发起新评估时绑定, 向导内不可更换
+                </Typography.Text>
+              ) : (
+                <>
+                  <span>找不到?</span>
+                  <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setSysCreating(true)}>
+                    就地新建系统
+                  </Button>
+                  <span>(登记系统并挂靠定级备案; 规模/类型等基本信息在系统台账维护)</span>
+                  {isSecurity && (
+                    <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setSysImporting(true)}>
+                      从 NetBox 导入
+                    </Button>
+                  )}
+                </>
               )}
               {selectedSystem && (
                 latestRound ? (
@@ -259,27 +246,19 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
                   </Typography.Text>
                 )
               )}
-              <Popconfirm
-                title="清空当前项目的全部向导数据?"
-                description="各步骤输入将回到空白模板(生成产出不受影响), 不可恢复"
-                onConfirm={() => void doResetWizard()}
-              >
-                <Button type="link" size="small" style={{ padding: 0 }} danger>
-                  一键清空
-                </Button>
-              </Popconfirm>
             </Space>
           )}
         >
           <Select
             showSearch
+            disabled={systemBound}
             placeholder="选择该评估所属的系统"
             optionFilterProp="label"
             options={systems.map((s) => ({
               value: s.id,
               label: s.filing_name ? `${s.name}(备案: ${s.filing_name})` : s.name,
             }))}
-            onChange={handleSystemChange}
+            onChange={onSystemChange}
           />
         </Form.Item>
         <Form.Item

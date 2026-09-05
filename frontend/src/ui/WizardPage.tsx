@@ -6,7 +6,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import {
-  Alert, App, Breadcrumb, Button, Card, Grid, Progress, Select, Space, Spin, Steps, Typography,
+  Alert, App, Breadcrumb, Button, Card, Grid, Input, Modal, Progress, Select, Space, Spin, Steps,
+  Typography,
 } from 'antd'
 import { ArrowLeftOutlined, ArrowRightOutlined, QuestionCircleOutlined } from '@ant-design/icons'
 
@@ -46,7 +47,7 @@ export interface StepProps {
 }
 
 export default function WizardPage({ projectId }: { projectId: number }) {
-  const { modal } = App.useApp()
+  const { modal, message } = App.useApp()
   const [ws, setWs] = useState<WizardState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [current, setCurrent] = useState(() => {
@@ -54,6 +55,12 @@ export default function WizardPage({ projectId }: { projectId: number }) {
     return Number.isInteger(saved) && saved >= 0 && saved <= LAST ? saved : 0
   })
   const [advancing, setAdvancing] = useState(false)
+  // 一键清空(#210): 向导容器级动作, 吸底导航各步可用; 输入评估编码二次确认防误触
+  const [resetOpen, setResetOpen] = useState(false)
+  const [resetCode, setResetCode] = useState('')
+  const [resetting, setResetting] = useState(false)
+  // 清空后整卷换新, 递增 key 强制各步骤组件重挂载(避免表单残留旧值)
+  const [resetEpoch, setResetEpoch] = useState(0)
   const [introHidden, setIntroHidden] = useState(
     () => localStorage.getItem(INTRO_DISMISSED_KEY) === '1',
   )
@@ -152,6 +159,24 @@ export default function WizardPage({ projectId }: { projectId: number }) {
       if (ok) switchTo(current + 1)
     } finally {
       setAdvancing(false)
+    }
+  }
+
+  /** 一键清空(#172→#210): 清空全部向导输入回到空白模板; 生成产出与系统绑定不动。 */
+  const doResetWizard = async () => {
+    setResetting(true)
+    try {
+      await api.resetProjectWizard(projectId)
+      setWs(await api.loadWizard(projectId))
+      setResetEpoch((n) => n + 1)
+      switchTo(0)
+      setResetOpen(false)
+      setResetCode('')
+      message.success('已清空全部向导数据')
+    } catch (e) {
+      message.error((e as Error).message)
+    } finally {
+      setResetting(false)
     }
   }
 
@@ -268,7 +293,7 @@ export default function WizardPage({ projectId }: { projectId: number }) {
               }))}
             />
           )}
-          <div style={{ marginTop: 24, minHeight: 240 }}>
+          <div key={resetEpoch} style={{ marginTop: 24, minHeight: 240 }}>
             {renderers[current]({ ws, patch, goto: (idx) => guardLeave(() => switchTo(idx)) })}
           </div>
           <div style={footerStyle}>
@@ -279,16 +304,49 @@ export default function WizardPage({ projectId }: { projectId: number }) {
             >
               上一步
             </Button>
-            {current < LAST ? (
-              <Button type="primary" loading={advancing} onClick={saveAndNext}>
-                保存并下一步 <ArrowRightOutlined />
+            <Space size={12}>
+              <Button danger disabled={resetting} onClick={() => { setResetCode(''); setResetOpen(true) }}>
+                一键清空
               </Button>
-            ) : (
-              <Typography.Text type="secondary">确认无误后, 点击本页下方「生成安全基线」按钮</Typography.Text>
-            )}
+              {current < LAST ? (
+                <Button type="primary" loading={advancing} onClick={saveAndNext}>
+                  保存并下一步 <ArrowRightOutlined />
+                </Button>
+              ) : (
+                <Typography.Text type="secondary">确认无误后, 点击本页下方「生成安全基线」按钮</Typography.Text>
+              )}
+            </Space>
           </div>
         </StepHandleContext.Provider>
       </Card>
+
+      <Modal
+        title="一键清空全部向导数据?" open={resetOpen}
+        onCancel={() => setResetOpen(false)}
+        okText="确认清空" cancelText="取消"
+        okButtonProps={{ danger: true, disabled: resetCode.trim() !== ws.project.code }}
+        confirmLoading={resetting}
+        onOk={() => void doResetWizard()}
+      >
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Alert
+            type="warning" showIcon
+            message="不可恢复"
+            description="各步骤输入将回到空白模板(系统绑定与已生成的安全需求/SBOM 等产出不受影响)。"
+          />
+          <div>
+            <Typography.Paragraph style={{ marginBottom: 8 }}>
+              防误触确认: 请输入本评估编码 <Typography.Text code>{ws.project.code}</Typography.Text> 后再点「确认清空」。
+            </Typography.Paragraph>
+            <Input
+              value={resetCode}
+              placeholder={ws.project.code}
+              onChange={(e) => setResetCode(e.target.value)}
+              onPressEnter={() => { if (resetCode.trim() === ws.project.code && !resetting) void doResetWizard() }}
+            />
+          </div>
+        </Space>
+      </Modal>
     </div>
   )
 }
