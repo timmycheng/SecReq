@@ -45,6 +45,7 @@ class NetboxClient:
         self._timeout = timeout
         self._client = httpx.Client(
             base_url=base_url.rstrip("/"), timeout=timeout, transport=transport,
+            follow_redirects=True,  # NetBox 对无尾斜杠路径(如 /api/status)返回 301
             headers={
                 "Authorization": f"Token {token}",
                 "Accept": "application/json",
@@ -148,7 +149,7 @@ class NetboxClient:
                 for s in self._results(data)]
 
     def list_device_roles(self, limit: int = 100) -> list[dict]:
-        data = self._list("/api/dcim/roles/", None, limit, 0)
+        data = self._list("/api/dcim/device-roles/", None, limit, offset=0)
         return [_trim(r, ("id", None), ("name", None), ("slug", None))
                 for r in self._results(data)]
 

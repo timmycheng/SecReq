@@ -45,9 +45,9 @@ SECREQ_TOKEN=$(curl -sS -X POST -H "Content-Type: application/json" \
   "$SECREQ_URL/api/auth/login" | py -c 'import sys,json; print(json.load(sys.stdin)["token"])')
 echo "    ok"
 
-echo "[2] 回填 NetBox 配置(系统管理口径, token 只写不回显)"
+echo "[2] 回填 NetBox 配置(系统管理口径, token 只写不回显; owner 映射 owner_name 适配 NetBox 4.5+)"
 sec_api PUT /api/admin/netbox-config \
-  "{\"base_url\":\"$NETBOX_URL\",\"token\":\"$NETBOX_TOKEN\",\"system_slug\":\"$NETBOX_SYSTEM_SLUG\"}" >/dev/null
+  "{\"base_url\":\"$NETBOX_URL\",\"token\":\"$NETBOX_TOKEN\",\"system_slug\":\"$NETBOX_SYSTEM_SLUG\",\"field_map\":{\"name\":\"name\",\"code\":\"code\",\"owner\":\"owner_name\"}}" >/dev/null
 echo "    ok"
 
 echo "[3] 状态探测 /api/netbox/status"
@@ -60,10 +60,11 @@ echo "[5] 设备代理 /api/netbox/devices"
 sec_api GET "/api/netbox/devices?limit=1" | py -c 'import sys,json; d=json.load(sys.stdin); print("    设备数:", d.get("count"))'
 
 echo "[6] 台账系统推送写回(创建 -> 推送 -> 校验 netbox_object_id 回填)"
-UNIQ="SMOKE-$(date +%s)"
-SYS_ID=$(sec_api POST /api/systems "{\"name\":\"冒烟系统 $UNIQ\",\"owner_name\":\"smoke\"}" \
+# 用例名全 ASCII: Windows 宿主 shell(Git Bash)发中文 payload 会被按本地码页编码, 稳妥起见避免
+UNIQ="smoke-sys-$(date +%s)"
+SYS_ID=$(sec_api POST /api/systems "{\"name\":\"$UNIQ\",\"owner_name\":\"smoke\"}" \
   | py -c 'import sys,json; print(json.load(sys.stdin)["id"])')
-PUSH=$(sec_api POST /api/netbox/systems "{\"system_id\":$SYS_ID,\"name\":\"冒烟系统 $UNIQ\"}")
+PUSH=$(sec_api POST /api/netbox/systems "{\"system_id\":$SYS_ID,\"name\":\"$UNIQ\"}")
 echo "$PUSH" | py -c 'import sys,json; d=json.load(sys.stdin); assert d.get("netbox_object_id"), d; print("    回填 netbox_object_id =", d["netbox_object_id"])'
 
 echo
