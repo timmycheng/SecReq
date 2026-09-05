@@ -150,6 +150,17 @@ export const api = {
     request<{ status: string; gate_status: string }>(
       `/api/projects/${projectId}/review/finalize`,
       { method: 'POST', body: JSON.stringify({ comment: comment || null }) }),
+  downloadReviewSheet: (projectId: number) =>
+    fetch(`/api/projects/${projectId}/review/export/review-sheet`, {
+      headers: { Authorization: `Bearer ${getStoredToken() ?? ''}` },
+    }).then(async (resp) => {
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({ detail: resp.statusText }))
+        throw new Error((body as { detail?: string }).detail ?? '导出失败')
+      }
+      const blob = await resp.blob()
+      return URL.createObjectURL(blob)
+    }),
   confirmBaselineLevel: (systemId: number, decision: 'adopt_suggested' | 'keep_filing', note?: string) =>
     request<{ status: string; summary: string }>(
       `/api/systems/${systemId}/baseline/confirm-level`,

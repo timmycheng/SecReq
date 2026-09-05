@@ -6,7 +6,7 @@ import {
   Alert, App, Button, Card, Descriptions, Empty, Input, Modal, Popconfirm,
   Radio, Space, Spin, Table, Tag, Timeline, Typography,
 } from 'antd'
-import { ArrowLeftOutlined, CheckCircleOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, CheckCircleOutlined, DownloadOutlined } from '@ant-design/icons'
 import type { RequirementRow, RequirementTransitionRow, ReviewState } from '../types'
 import { api, type StoredUser } from '../api'
 import { getStoredUser } from '../api'
@@ -151,7 +151,26 @@ export default function ReviewPage({ projectId }: { projectId: number }) {
           </Tag>
         </Space>
 
-        <Card size="small" title="门禁状态" style={{ marginBottom: 16 }}>
+        <Card
+          size="small" title="门禁状态" style={{ marginBottom: 16 }}
+          extra={gate ? (
+            <Button size="small" icon={<DownloadOutlined />}
+              onClick={async () => {
+                try {
+                  const url = await api.downloadReviewSheet(projectId)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = ''
+                  a.click()
+                  URL.revokeObjectURL(url)
+                } catch (e) {
+                  message.error((e as Error).message)
+                }
+              }}>
+              下载评审表
+            </Button>
+          ) : undefined}
+        >
           {gate ? (
             <Descriptions size="small" column={2}>
               <Descriptions.Item label="门禁类型">需求门禁</Descriptions.Item>

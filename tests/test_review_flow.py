@@ -374,3 +374,36 @@ def test_inherited_baseline_prefills_new_round_after_writeback(api, generated, r
     second = api.post("/api/projects", json={"name": "继承轮", "system_id": system_id}).json()
     ws = api.get(f"/api/projects/{second['id']}/wizard-state").json()
     assert [a["name"] for a in ws["data_assets"]] == ["客户信息"]
+
+
+def test_review_sheet_export(api, generated, reviewers):
+    """#230 评审表: 门禁推进后导出 Word, 含门禁状态与签字栏; 未提交 409。"""
+    sec = api_as(api, "sec_admin")
+    pid, reqs = generated
+    # 未提交 → 409
+    assert api.get(f"/api/projects/{pid}/review/export/review-sheet").status_code == 409
+
+    _confirm_all(api, pid, reqs)
+    assert api.post(f"/api/projects/{pid}/review/submit").json()["status"] == "submitted"
+    reviewer = _client(api, "reviewer_u")
+    lead = _client(api, "lead_u")
+    for r in reqs:
+        reviewer.post(f"/api/projects/{pid}/review/requirements/{r['req_id']}/annotate",
+                      json={"disposition": "approve"})
+    reviewer.post(f"/api/projects/{pid}/review/decide", json={"conclusion": "approve"})
+    lead.post(f"/api/projects/{pid}/review/finalize", json={"comment": "评审通过"})
+
+    resp = api.get(f"/api/projects/{pid}/review/export/review-sheet")
+    assert resp.status_code == 200, resp.text
+    assert resp.content[:2] == b"PK"  # docx = zip
+    # docx 内正文含关键字段
+    import io
+    import zipfile
+    from lxml import etree  # noqa: F401  (确保依赖在场, 与 doc_export 同源)
+    with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert "项目安全评审表" in xml
+    assert "终审通过" in xml
+    assert "评审动作留痕" in xml
+    assert "评审意见与签字栏" in xml
+    assert "项目经理" in xml and "安全负责人" in xml
