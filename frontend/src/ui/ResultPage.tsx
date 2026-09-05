@@ -6,7 +6,7 @@ import {
   Alert, Breadcrumb, Button, Card, Descriptions, Modal, Progress, Select, Space,
   Spin, Table, Tabs, Tag, Tooltip, Typography, message,
 } from 'antd'
-import { CopyOutlined, DiffOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
+import { AuditOutlined, CopyOutlined, DiffOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
 
 import { api, downloadFile } from '../api'
 import { labelMapOf, useEnums } from '../enums'
@@ -259,6 +259,7 @@ export default function ResultPage({ projectId }: { projectId: number }) {
       <Space style={{ margin: '12px 0 16px' }} wrap>
         <Button icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
         <Button onClick={() => navigate(`/wizard/${projectId}`)}>返回向导修改</Button>
+        <Button icon={<AuditOutlined />} onClick={() => navigate(`/project/${projectId}/review`)}>评审中心</Button>
         <Button
           type="primary" ghost icon={<DownloadOutlined />}
           onClick={() => void downloadFile(`/api/projects/${projectId}/export/docx`,

@@ -49,6 +49,17 @@ def _confirm_all(api, pid, reqs):
     assert resp.json()["confirmed"] == len(ids), resp.text
 
 
+def test_project_list_carries_review_gate_status(api, generated):
+    """评审队列数据源: 项目列表带需求门禁状态(#219)。"""
+    pid, reqs = generated
+    rows = {r["id"]: r for r in api.get("/api/projects").json()}
+    assert rows[pid]["review_gate_status"] is None  # 未提交
+    _confirm_all(api, pid, reqs)
+    api.post(f"/api/projects/{pid}/review/submit")
+    rows = {r["id"]: r for r in api.get("/api/projects").json()}
+    assert rows[pid]["review_gate_status"] == "in_review"
+
+
 def test_pm_cannot_review_own_submission(api, generated):
     """pm 调评审批注/裁定/终审一律 403(#216 角色白名单), 亦即不能自审。"""
     pid, _ = generated

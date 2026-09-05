@@ -95,6 +95,7 @@ class ProjectDetail(ProjectOut):
     filing_name: str | None = None
     filing_level: str | None = None
     is_current_baseline: bool = False
+    review_gate_status: str | None = None
 
 
 def serialize_project(project) -> ProjectOut:

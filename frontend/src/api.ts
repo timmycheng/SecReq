@@ -5,6 +5,7 @@ import type {
   ApiEndpointRow, AuthConfigRow, ComponentRow, DataAssetRow,
   ExternalSystemRow, FeatureRow, FilingRow, GenerateSummary, GradingQuestion,
   InfraArchImageRow, InfraAssetRow, LabelMap, LoginInfo, MatrixEntryIn,
+  RequirementTransitionRow, ReviewState,
   NetboxAssetRow, NetboxSystemRow,
   PreviewResult, ProjectDetail, ProjectInfo, RequirementDiff, RequirementRow, RoleRow,
   ResourceRow, SurveyAnswer, SystemRow, VulnerabilityRow, VulnDbStatus, VulnDbVerifyResult,
@@ -20,6 +21,7 @@ export const USER_STORAGE_KEY = 'secreq.auth.info'
 export const AUTH_EXPIRED_EVENT = 'secreq:auth-expired'
 
 export interface StoredUser {
+  id: number
   username: string
   display_name: string
   role: string
@@ -49,6 +51,7 @@ export function getStoredUser(): StoredUser | null {
 
 export function storeAuth(info: LoginInfo) {
   localStorage.setItem(USER_STORAGE_KEY, JSON.stringify({
+    id: info.id,
     username: info.username,
     display_name: info.display_name,
     role: info.role,
@@ -125,6 +128,26 @@ export const api = {
     }),
   logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
   me: () => request<LoginInfo | null>('/api/auth/me'),
+  reviewState: (projectId: number) =>
+    request<ReviewState>(`/api/projects/${projectId}/review/state`),
+  reviewSubmit: (projectId: number) =>
+    request<{ status: string; missing?: string[]; gate_status?: string; version_hash?: string }>(
+      `/api/projects/${projectId}/review/submit`, { method: 'POST', body: JSON.stringify({}) }),
+  reviewAnnotate: (projectId: number, reqId: string, disposition: string, comment?: string) =>
+    request<{ status: string; req_id: string; review_status: string }>(
+      `/api/projects/${projectId}/review/requirements/${reqId}/annotate`,
+      { method: 'POST', body: JSON.stringify({ disposition, comment: comment || null }) }),
+  reviewDecide: (projectId: number, conclusion: string, comment?: string) =>
+    request<{ status: string; gate_status: string }>(
+      `/api/projects/${projectId}/review/decide`,
+      { method: 'POST', body: JSON.stringify({ conclusion, comment: comment || null }) }),
+  reviewFinalize: (projectId: number, comment?: string) =>
+    request<{ status: string; gate_status: string }>(
+      `/api/projects/${projectId}/review/finalize`,
+      { method: 'POST', body: JSON.stringify({ comment: comment || null }) }),
+  requirementTransitions: (projectId: number, reqId: string) =>
+    request<RequirementTransitionRow[]>(
+      `/api/projects/${projectId}/requirements/${reqId}/transitions`),
   changePassword: (oldPassword: string, newPassword: string) =>
     request<{ message: string }>('/api/auth/change-password', {
       method: 'POST',

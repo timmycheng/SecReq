@@ -1,5 +1,5 @@
 /* 极简 hash 路由: #/ 评估列表, #/systems 系统台账, #/system/:id 系统详情,
-   #/wizard/:id 向导, #/result/:id 产物页, #/admin 系统管理。 */
+   #/wizard/:id 向导, #/result/:id 产物页, #/project/:id/review 评审中心, #/admin 系统管理。 */
 import { useEffect, useState } from 'react'
 
 export type Route =
@@ -8,6 +8,7 @@ export type Route =
   | { name: 'systemDetail'; systemId: number }
   | { name: 'wizard'; projectId: number }
   | { name: 'result'; projectId: number }
+  | { name: 'review'; projectId: number }
   | { name: 'admin' }
 
 export function parseHash(hash: string): Route {
@@ -15,6 +16,7 @@ export function parseHash(hash: string): Route {
   const parts = path.split('/').filter(Boolean)
   if (parts[0] === 'wizard' && parts[1]) return { name: 'wizard', projectId: Number(parts[1]) }
   if (parts[0] === 'result' && parts[1]) return { name: 'result', projectId: Number(parts[1]) }
+  if (parts[0] === 'project' && parts[1] && parts[2] === 'review') return { name: 'review', projectId: Number(parts[1]) }
   if (parts[0] === 'system' && parts[1]) return { name: 'systemDetail', systemId: Number(parts[1]) }
   if (parts[0] === 'systems') return { name: 'systems' }
   if (parts[0] === 'admin') return { name: 'admin' }
