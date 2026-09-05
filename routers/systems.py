@@ -171,11 +171,13 @@ async def import_sbom(system_id: int, request: Request,
                       db: Session = Depends(get_db),
                       file: UploadFile = File(...),
                       user: PlatformUser = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES))):
-    """上传 CycloneDX/SPDX 格式 SBOM 文件批量导入(挂系统清单)。"""
+    """上传 CycloneDX/SPDX 或构建文件(pom.xml/package.json/requirements.txt)批量导入。"""
     system = _writable_system(system_id, db, user)
     if not file.filename or not file.filename.lower().endswith(
-            (".json", ".spdx", ".cdx.json")):
-        raise HTTPException(status_code=400, detail="请上传 .json(CycloneDX/SPDX JSON) 或 .spdx 文件")
+            (".json", ".spdx", ".cdx.json",
+             ".xml", ".txt")):  # #226 构建文件: pom.xml / requirements.txt
+        raise HTTPException(status_code=400,
+                            detail="请上传 .json(CycloneDX/SPDX) / .spdx 或构建文件(.xml/.txt)")
     payload = await read_upload_limited(file)
     try:
         result = import_sbom_file(db, system.id, file.filename, payload)

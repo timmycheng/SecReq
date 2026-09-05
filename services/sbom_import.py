@@ -145,10 +145,107 @@ def parse_spdx_tagvalue(text: str) -> list[dict]:
     return rows
 
 
+# ── 构建文件解析(#226): Maven pom.xml / npm package.json / Python requirements.txt ──
+
+def parse_maven_pom(text: str) -> list[dict]:
+    """Maven pom.xml: 只统计 <dependency> 的 groupId/artifactId/version, 不触网。
+
+    version 缺省(交给父 POM/依赖管理)的条目按无版本入库, version 留空。
+    使用 xml.etree 标准库, 不引入新依赖。
+    """
+    import xml.etree.ElementTree as ET
+
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as exc:
+        raise SbomParseError(f"pom.xml 解析失败: {exc}") from exc
+    m = re.match(r"\{(.*)\}", root.tag)
+    ns = {"m": m.group(1)} if m else {}
+
+    def findtext(node, path):
+        got = node.findtext(path, default="", namespaces=ns) if ns else node.findtext(path, default="")
+        return (got or "").strip()
+
+    rows = []
+    deps = root.findall(".//m:dependency", ns) if ns else root.findall(".//dependency")
+    for dep in deps:
+        group = findtext(dep, "m:groupId" if ns else "groupId")
+        artifact = findtext(dep, "m:artifactId" if ns else "artifactId")
+        version = findtext(dep, "m:version" if ns else "version")
+        if not group and not artifact:
+            continue
+        # pom 变量占位(${xxx})无法离线解析, 置空交人工补录
+        if "${" in version:
+            version = ""
+        purl = f"pkg:maven/{group}/{artifact}@{version}" if version else f"pkg:maven/{group}/{artifact}"
+        rows.append(_component_row(
+            name=f"{group}:{artifact}", version=version or None,
+            purl=purl, layer="backend"))
+    return [row for row in rows if row]
+
+
+def parse_package_json(text: str) -> list[dict]:
+    """npm package.json: dependencies + devDependencies, 来源层记前端。"""
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise SbomParseError(f"package.json 解析失败: {exc}") from exc
+    if not isinstance(data, dict):
+        raise SbomParseError("package.json 结构异常: 顶层不是对象")
+    rows = []
+    for section in ("dependencies", "devDependencies"):
+        deps = data.get(section) or {}
+        if not isinstance(deps, dict):
+            continue
+        for name, spec in deps.items():
+            # ^/~/>= 等范围前缀保留语义版本主干, * 与空按无版本处理
+            version = str(spec or "").strip()
+            if version in {"*", "latest", ""}:
+                version = ""
+            else:
+                version = version.lstrip("^~> ")
+            purl = f"pkg:npm/{name}@{version}" if version else f"pkg:npm/{name}"
+            rows.append(_component_row(
+                name=name, version=version or None, purl=purl, layer="frontend"))
+    return [row for row in rows if row]
+
+
+def parse_requirements_txt(text: str) -> list[dict]:
+    """Python requirements.txt: 忽略注释/空行/-开头的 pip 指令, 版本取 == 约束。"""
+    rows = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith(("#", "-")):
+            continue
+        # 去掉行尾注释与环境标记(x; python_version<"3.10")
+        line = line.split(";", 1)[0].split("#", 1)[0].strip()
+        if not line:
+            continue
+        name, _, version = line.partition("==")
+        name = name.split("[", 1)[0].strip()  # 去掉 extras 方括号, 如 uvicorn[standard]
+        if not name:
+            continue
+        version = version.strip() or None
+        if version and any(op in version for op in (">", "<", "!", "~")):
+            version = None  # 范围约束无法离线定版, 置空交人工补录
+        purl = f"pkg:pypi/{name}@{version}" if version else f"pkg:pypi/{name}"
+        rows.append(_component_row(
+            name=name, version=version, purl=purl, layer="backend"))
+    return [row for row in rows if row]
+
+
 def detect_format(filename: str, payload: bytes) -> tuple[str, list[dict]]:
     """识别格式并解析。返回 (格式名, 统一行列表)。"""
     text = payload.decode("utf-8-sig", errors="replace")
     stripped = text.lstrip()
+    # 构建文件按文件名识别(#226), 优先于 JSON/SPDX 探测
+    lower = (filename or "").lower()
+    if lower.endswith("pom.xml") or lower == "pom.xml":
+        return "maven_pom", parse_maven_pom(text)
+    if lower.endswith("package.json"):
+        return "npm_package", parse_package_json(text)
+    if lower.endswith(("requirements.txt", "requirements-dev.txt", "requirements_prod.txt")):
+        return "requirements", parse_requirements_txt(text)
     if stripped.startswith("{") or stripped.startswith("["):
         try:
             data = json.loads(stripped)

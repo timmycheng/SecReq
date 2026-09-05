@@ -398,11 +398,13 @@ async def import_sbom_file_route(project: Project = Depends(get_writable_project
                                  db: Session = Depends(get_db),
                                  file: UploadFile = File(...),
                                  user: PlatformUser = Depends(require_login)):
-    """上传 CycloneDX/SPDX 格式 SBOM 文件批量导入(source_type=sbom_file)。"""
+    """上传 CycloneDX/SPDX 或构建文件(pom.xml/package.json/requirements.txt)批量导入。"""
     system = _writable_system_or_409(project)
     if not file.filename or not file.filename.lower().endswith(
-            (".json", ".spdx", ".cdx.json")):
-        raise HTTPException(status_code=400, detail="请上传 .json(CycloneDX/SPDX JSON) 或 .spdx 文件")
+            (".json", ".spdx", ".cdx.json",
+             ".xml", ".txt")):  # #226 构建文件: pom.xml / requirements.txt
+        raise HTTPException(status_code=400,
+                            detail="请上传 .json(CycloneDX/SPDX) / .spdx 或构建文件(.xml/.txt)")
     payload = await _read_limited(file)
     try:
         result = import_sbom_file(db, system.id, file.filename, payload)
