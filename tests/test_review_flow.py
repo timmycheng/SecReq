@@ -378,7 +378,6 @@ def test_inherited_baseline_prefills_new_round_after_writeback(api, generated, r
 
 def test_review_sheet_export(api, generated, reviewers):
     """#230 评审表: 门禁推进后导出 Word, 含门禁状态与签字栏; 未提交 409。"""
-    sec = api_as(api, "sec_admin")
     pid, reqs = generated
     # 未提交 → 409
     assert api.get(f"/api/projects/{pid}/review/export/review-sheet").status_code == 409
