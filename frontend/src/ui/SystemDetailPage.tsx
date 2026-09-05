@@ -99,6 +99,56 @@ export default function SystemDetailPage({ systemId }: { systemId: number }) {
         )}
       </Card>
 
+      <Card title="安全基线(D 区)" style={{ marginTop: 16 }} variant="borderless">
+        {system.baseline ? (
+          <Descriptions size="small" column={3}>
+            <Descriptions.Item label="数据资产">{system.baseline.summary?.data_assets ?? 0}</Descriptions.Item>
+            <Descriptions.Item label="数据字典表">{system.baseline.summary?.data_tables ?? 0}</Descriptions.Item>
+            <Descriptions.Item label="API 清单">{system.baseline.summary?.api_endpoints ?? 0}</Descriptions.Item>
+            <Descriptions.Item label="权限矩阵">
+              角色 {system.baseline.summary?.roles ?? 0} · 资源 {system.baseline.summary?.resources ?? 0} ·
+              授权 {system.baseline.summary?.permission_entries ?? 0}
+            </Descriptions.Item>
+            <Descriptions.Item label="来源轮次">
+              {system.baseline.source_project_id
+                ? <Button type="link" size="small" style={{ padding: 0 }}
+                    onClick={() => navigate(`/result/${system.baseline!.source_project_id}`)}>
+                    第 {system.baseline!.source_project_id} 轮评估
+                  </Button>
+                : '—'}
+            </Descriptions.Item>
+            <Descriptions.Item label="写回时间">
+              {system.baseline.updated_at?.slice(0, 19).replace('T', ' ') ?? '—'}
+              {system.baseline.updated_by ? ` · ${system.baseline.updated_by}` : ''}
+            </Descriptions.Item>
+          </Descriptions>
+        ) : (
+          <Typography.Text type="secondary">
+            暂无安全基线。评估轮次终审通过后, 本轮资产/字典/权限/接口快照将写回为系统基线(v3.0 #225)。
+          </Typography.Text>
+        )}
+        {(system.baseline_histories?.length ?? 0) > 0 && (
+          <>
+            <Typography.Paragraph strong style={{ margin: '12px 0 4px' }}>基线变更履历</Typography.Paragraph>
+            <Timeline
+              style={{ marginTop: 8 }}
+              items={(system.baseline_histories ?? []).map((h) => ({
+                children: (
+                  <div>
+                    <Typography.Text>{h.summary}</Typography.Text>
+                    <Typography.Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
+                      {h.created_at?.slice(0, 19).replace('T', ' ') ?? ''}
+                      {h.operator_name ? ` · ${h.operator_name}` : ''}
+                      {h.project_id ? ` · 依据第 ${h.project_id} 轮评审` : ''}
+                    </Typography.Text>
+                  </div>
+                ),
+              }))}
+            />
+          </>
+        )}
+      </Card>
+
       <Card title="评估时间线" style={{ marginTop: 16 }} variant="borderless">
         {rounds.length === 0 ? (
           <Typography.Text type="secondary">

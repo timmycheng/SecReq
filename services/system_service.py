@@ -9,7 +9,10 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 import shared.constants as C
-from models import Filing, GradingSurvey, Project, SecurityRequirement, System
+from models import (
+    Filing, GradingSurvey, Project, SecurityRequirement, System,
+    SystemBaseline, SystemBaselineHistory,
+)
 
 
 class NameConflictError(Exception):
@@ -209,6 +212,43 @@ def systems_ledger(db: Session, user) -> list[dict]:
     return items
 
 
+def baseline_summary(baseline: SystemBaseline | None) -> dict | None:
+    """D 区基线概要计数(#223): 各基线分区的条目数。"""
+    if baseline is None:
+        return None
+    data = baseline.baseline_json or {}
+    assets = data.get("data_assets") or []
+    return {
+        "data_assets": len(assets),
+        "data_tables": sum(len(a.get("tables") or []) for a in assets),
+        "roles": len(data.get("roles") or []),
+        "resources": len(data.get("resources") or []),
+        "permission_entries": len(data.get("permission_entries") or []),
+        "api_endpoints": len(data.get("api_endpoints") or []),
+    }
+
+
+def baseline_histories_of(db: Session, system_id: int) -> list[dict]:
+    """基线变更履历(时间倒序): 谁/何时/依据哪次评审/变更摘要。"""
+    rows = (
+        db.query(SystemBaselineHistory)
+        .filter_by(system_id=system_id)
+        .order_by(SystemBaselineHistory.id.desc())
+        .all()
+    )
+    return [
+        {
+            "id": h.id,
+            "project_id": h.project_id,
+            "gate_id": h.gate_id,
+            "summary": h.summary,
+            "operator_name": h.operator_name,
+            "created_at": format_created_at(h.created_at),
+        }
+        for h in rows
+    ]
+
+
 def system_detail(db: Session, user, system: System) -> dict:
     """系统详情 + 评估时间线(轮次按创建倒序, 未生成的草稿轮也列出便于续填)。"""
     filing = db.get(Filing, system.filing_id) if system.filing_id else None
@@ -233,7 +273,23 @@ def system_detail(db: Session, user, system: System) -> dict:
         "filing_level": filing.level if filing else None,
         "created_at": format_created_at(system.created_at),
         "current_baseline_project_id": current_baseline_id(db, system.id),
+        "baseline": _baseline_out(db, system),
+        "baseline_histories": baseline_histories_of(db, system.id),
         "rounds": rounds,
+    }
+
+
+def _baseline_out(db: Session, system: System) -> dict | None:
+    baseline = db.query(SystemBaseline).filter_by(system_id=system.id).first()
+    if baseline is None:
+        return None
+    return {
+        "summary": baseline_summary(baseline),
+        "source_project_id": baseline.source_project_id,
+        "source_gate_id": baseline.source_gate_id,
+        "summary_text": baseline.summary,
+        "updated_by": baseline.updated_by,
+        "updated_at": format_created_at(baseline.updated_at),
     }
 
 

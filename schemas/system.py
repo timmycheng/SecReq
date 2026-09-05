@@ -95,9 +95,11 @@ class SystemOut(BaseModel):
 
 
 class SystemDetail(SystemOut):
-    """系统详情: 备案定级事实 + 评估时间线。"""
+    """系统详情: 备案定级事实 + 评估时间线 + 安全基线 D 区(#223)。"""
 
     filing_name: str | None = None
     filing_level: str | None = None
     current_baseline_project_id: int | None = None
+    baseline: dict | None = None
+    baseline_histories: list[dict] = []
     rounds: list[dict] = []
