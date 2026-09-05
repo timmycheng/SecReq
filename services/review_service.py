@@ -20,6 +20,7 @@ from routers.common import ensure_project_access
 from services.requirement_lifecycle import (
     RequirementTransitionError, transition_requirement,
 )
+from services.review_gates import requirement_gate_checks
 
 GENESIS_HASH = "0" * 64
 
@@ -32,11 +33,10 @@ class ReviewForbidden(PermissionError):
     """评审动作越权(提交人自审等, 路由层转 403)。"""
 
 
-# ── 门禁校验注册表(#220/#222 挂接点) ────────────────────
+# ── 门禁校验注册表(#220 需求门禁已挂; #222 设计门禁待接) ──
 # checker(db, project) -> list[str]: 返回缺项描述列表, 空列表=通过。
-# 本期(requirement/design 门禁)先桩后接: 注册表为空即视为通过。
 GATE_CHECKS: dict[str, list] = {
-    "requirement": [],
+    "requirement": [requirement_gate_checks],
     "design": [],
 }
 
