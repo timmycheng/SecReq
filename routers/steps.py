@@ -429,7 +429,8 @@ async def parse_api_endpoints(project: Project = Depends(get_writable_project),
                               text: str | None = Form(None)):
     """批量导入第一段: 解析预览, 不落库(#92)。
 
-    统一 multipart: file(xlsx/csv/txt)或 text 字段(粘贴文本)二选一;
+    统一 multipart: file(xlsx/csv/txt 或 OpenAPI/Swagger 的 json/yaml, #227)
+    或 text 字段(粘贴文本)二选一;
     返回逐行数组, 非法行标 error 不阻塞合法行; 确认导入由前端合并后走既有整体保存。
     """
     from services.api_import import parse_text, parse_upload
@@ -441,7 +442,9 @@ async def parse_api_endpoints(project: Project = Depends(get_writable_project),
     elif text and text.strip():
         rows = parse_text(text)
     else:
-        raise HTTPException(status_code=400, detail="请上传 xlsx/csv 文件或提供粘贴文本")
+        raise HTTPException(
+            status_code=400,
+            detail="请上传 xlsx/csv 或 OpenAPI/Swagger 规范文件(json/yaml), 或提供粘贴文本")
     invalid = sum(1 for r in rows if r.get("error"))
     _audit_step(db, user, project, "api_import", len(rows))
     return {"total": len(rows), "invalid": invalid, "rows": rows}

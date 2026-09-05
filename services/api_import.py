@@ -8,6 +8,7 @@ POST /api/projects/{id}/api-endpoints 整体保存 —— 解析与持久化解�
 """
 import csv
 import io
+import json
 
 import shared.constants as C
 
@@ -129,9 +130,68 @@ def parse_csv(content: bytes) -> list[dict]:
     return parse_text(text)
 
 
+def parse_openapi(text: str) -> list[dict]:
+    """OpenAPI 3 / Swagger 2 规范文件解析(#227), JSON 与 YAML 均可。
+
+    接口行取 paths 的 名称(summary/operationId)/方法/路径; 需要认证按
+    security 定义推断默认值 —— 操作级 security 覆盖全局, 全局 security
+    为空列表视为无需认证, 其余(含未声明)默认需要认证。
+    """
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        try:
+            import yaml
+        except ImportError as exc:  # pragma: no cover
+            raise ValueError("YAML 解析依赖 pyyaml 未安装") from exc
+        try:
+            data = yaml.safe_load(text)
+        except yaml.YAMLError as exc:
+            raise ValueError(f"YAML 解析失败: {exc}") from exc
+    if not isinstance(data, dict) or ("paths" not in data):
+        raise ValueError("文件不是 OpenAPI/Swagger 规范(缺少 paths 定义)")
+
+    def security_requires_auth(op: dict) -> bool:
+        sec = op.get("security", data.get("security"))
+        if sec is None:
+            return True
+        return len(sec) > 0  # 显式空列表 = 匿名可访问
+
+    rows: list[dict] = []
+    for path, methods in (data.get("paths") or {}).items():
+        if not isinstance(methods, dict):
+            continue
+        for method, op in methods.items():
+            up = str(method).upper()
+            if up not in C.HTTP_METHODS:
+                continue  # parameters/get 之外的键(如 parameters/servers)跳过
+            if not isinstance(op, dict):
+                op = {}
+            name = str(op.get("summary") or op.get("operationId") or f"{up} {path}")
+            rows.append({
+                "index": len(rows) + 1,
+                "name": name[:200],
+                "method": up,
+                "path": str(path),
+                "auth_required": security_requires_auth(op),
+                "public_exposed": False,
+                "error": None,
+            })
+    return rows
+
+
 def parse_upload(filename: str, content: bytes) -> list[dict]:
-    """按扩展名分派: xlsx → parse_xlsx; csv/txt → parse_csv。"""
+    """按扩展名分派: xlsx → parse_xlsx; json/yaml → OpenAPI/Swagger(#227); csv/txt → parse_csv。"""
     lowered = (filename or "").lower()
     if lowered.endswith(".xlsx") or lowered.endswith(".xls"):
         return parse_xlsx(content)
+    if lowered.endswith((".json", ".yaml", ".yml")):
+        text = content.decode("utf-8-sig", errors="replace")
+        try:
+            return parse_openapi(text)
+        except ValueError as exc:
+            # 非规范文件给出可读报错行(不抛出, 与逐行错误同形态)
+            return [{"index": 1, "name": "", "method": "GET", "path": "",
+                     "auth_required": True, "public_exposed": False,
+                     "error": str(exc)}]
     return parse_csv(content)
