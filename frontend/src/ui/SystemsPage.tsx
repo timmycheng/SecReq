@@ -138,6 +138,8 @@ function SystemsTab() {
 
   const columns = [
     { title: '系统名称', dataIndex: 'name',
+      // 最小宽度防竖排(#235 走查): 名称列过窄时中文逐字换行不可读
+      onCell: () => ({ style: { whiteSpace: 'nowrap' as const } }),
       render: (v: string, record: SystemRow) => {
         const link = nbBaseUrl && record.netbox_object_id
           ? `${nbBaseUrl}/api/plugins/custom-objects/object-types/system/objects/${record.netbox_object_id}`
@@ -221,8 +223,13 @@ function SystemsTab() {
         rowKey="id"
         loading={loading}
         dataSource={rows}
-        pagination={{ pageSize: 15 }}
-        locale={{ emptyText: <Empty description="还没有系统登记" /> }}
+        pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
+        scroll={{ x: 900 }}
+        locale={{ emptyText: (
+          <Empty description="还没有系统登记">
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ user_scale: '1k_to_100k', types: [], is_public: false })}>新建系统</Button>
+          </Empty>
+) }}
         columns={columns}
       />
       {isSecurity && (
@@ -348,7 +355,13 @@ function FilingsTab() {
         loading={loading}
         dataSource={rows}
         pagination={false}
-        locale={{ emptyText: <Empty description="还没有备案登记" /> }}
+        locale={{ emptyText: (
+          <Empty description="还没有备案登记">
+            {isSecurity && (
+              <Button type="primary" onClick={() => setEditing(null)}>新建备案</Button>
+            )}
+          </Empty>
+) }}
         columns={[
           { title: '备案名称', dataIndex: 'name' },
           { title: '备案编号', dataIndex: 'code', width: 160, render: (v: string | null) => v || '—' },

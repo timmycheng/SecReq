@@ -91,7 +91,7 @@ export default function KbTab() {
         rowKey="id"
         loading={loading}
         dataSource={rows}
-        pagination={{ pageSize: 15, showSizeChanger: false }}
+        pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
         size="small"
         columns={[
           { title: '编号', dataIndex: 'id', width: 160 },

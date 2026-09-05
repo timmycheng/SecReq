@@ -369,9 +369,9 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                   dataSource={filtered}
                   size="small"
                   pagination={{
-                    defaultPageSize: 10,
+                    defaultPageSize: 20,
                     showSizeChanger: true,
-                    pageSizeOptions: [10, 20, 50, 100],
+                    pageSizeOptions: [10, 20, 50],
                   }}
                   rowSelection={{
                     selectedRowKeys: selectedKeys,
