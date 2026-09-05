@@ -9,7 +9,7 @@ from models.permission import PermissionEntry, Resource, Role
 from models.auth import AuthConfig
 from models.sbom import SbomComponent, VulnerabilityRecord
 from models.inventory import ApiEndpoint, InfraArchImage, InfraAsset
-from models.requirement import SecurityRequirement
+from models.requirement import RequirementTransition, SecurityRequirement
 from models.review import GENESIS_HASH, PlatformUser, ReviewEvidence, ReviewGate
 from models.session import UserSession
 from models.setting import SystemSetting
@@ -38,6 +38,7 @@ __all__ = [
     "ApiEndpoint",
     "InfraAsset",
     "InfraArchImage",
+    "RequirementTransition",
     "SecurityRequirement",
     "PlatformUser",
     "ReviewGate",

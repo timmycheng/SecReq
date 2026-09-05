@@ -10,7 +10,6 @@
 - GET  /export/xlsx   需求跟踪表下载(Jira 可导入)
 """
 import logging
-from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -20,14 +19,21 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 import shared.constants as C
-from models import PlatformUser, Project, SbomComponent, SecurityRequirement, VulnerabilityRecord
+from models import (
+    PlatformUser, Project, RequirementTransition, SbomComponent, SecurityRequirement,
+    VulnerabilityRecord,
+)
+from services.requirement_lifecycle import (
+    RequirementTransitionError, can_transition, transition_requirement,
+)
 from routers.common import (
     get_accessible_project, get_db, get_writable_project, require_login,
 )
 from services.audit_service import audit
 from services.errors import server_error
 from schemas.requirement import (
-    CategoryCount, GenerateSummary, PreviewResult, RequirementOut, VulnerabilityOut,
+    CategoryCount, GenerateSummary, PreviewResult, RequirementOut, RequirementTransitionOut,
+    VulnerabilityOut,
 )
 from services.pipeline import (
     _load_vulnerabilities, project_output_dir, run_full_pipeline,  # noqa: F401 (run_full_pipeline 保留给脚本)
@@ -151,32 +157,55 @@ def batch_confirm(payload: BatchConfirmIn,
         SecurityRequirement.project_id == project.id,
         SecurityRequirement.req_id.in_(payload.req_ids),
     ).all()
-    now = datetime.now()
-    for req in rows:
-        req.reg_confirmed = True
-        req.confirmed_by = user.display_name
-        req.confirmed_at = now
+    confirmed = 0
+    skipped: list[str] = []
+    for req in sorted(rows, key=lambda r: r.req_id):
+        action = "reconfirm" if req.review_status == "rectifying" else "confirm"
+        if not can_transition(req, action):
+            skipped.append(req.req_id)  # reviewed 终态等非法确认
+            continue
+        transition_requirement(db, req, action, user)
+        confirmed += 1
     db.commit()
-    audit(db, user.username, "confirm_batch", {"project_id": project.id, "count": len(rows)})
-    return {"confirmed": len(rows), "missing": sorted(set(payload.req_ids) - {r.req_id for r in rows})}
+    audit(db, user.username, "confirm_batch", {"project_id": project.id, "count": confirmed})
+    return {"confirmed": confirmed,
+            "skipped": sorted(skipped),
+            "missing": sorted(set(payload.req_ids) - {r.req_id for r in rows})}
 
 
 @router.post("/requirements/{req_id}/confirm", response_model=RequirementOut)
 def confirm_regulatory(req_id: str, project: Project = Depends(get_writable_project),
                        db: Session = Depends(get_db),
                        user: PlatformUser = Depends(require_login)):
-    """确认一条安全需求(含监管报送类; 走查整改: 所有需求统一确认动作)。"""
+    """确认一条安全需求(#217 状态机: open/rectifying → confirmed, 幂等, reviewed 拒绝)。"""
     req = db.query(SecurityRequirement).filter_by(
         project_id=project.id, req_id=req_id,
     ).first()
     if req is None:
         raise HTTPException(status_code=404, detail=f"需求不存在: {req_id}")
-    req.reg_confirmed = True
-    req.confirmed_by = user.display_name
-    req.confirmed_at = datetime.now()
+    action = "reconfirm" if req.review_status == "rectifying" else "confirm"
+    try:
+        transition_requirement(db, req, action, user)
+    except RequirementTransitionError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     db.commit()
     audit(db, user.username, "confirm", {"project_id": project.id, "req_id": req_id})
     return RequirementOut.model_validate(req)
+
+
+@router.get("/requirements/{req_id}/transitions", response_model=list[RequirementTransitionOut])
+def list_requirement_transitions(req_id: str,
+                                 project: Project = Depends(get_accessible_project),
+                                 db: Session = Depends(get_db)):
+    """需求流转记录(#217): 按时间正序返回该条需求的全部生命周期留痕。"""
+    req = db.query(SecurityRequirement).filter_by(
+        project_id=project.id, req_id=req_id,
+    ).first()
+    if req is None:
+        raise HTTPException(status_code=404, detail=f"需求不存在: {req_id}")
+    return db.query(RequirementTransition).filter_by(
+        requirement_id=req.id).order_by(RequirementTransition.id).all()
 
 
 def _sorted_requirements(db: Session, pid: int) -> list:

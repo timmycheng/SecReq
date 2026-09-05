@@ -129,6 +129,8 @@ def api(tmp_path):
 
     main.app.dependency_overrides[get_db] = _override_get_db
     client = login_as(TestClient(main.app), "dev_admin")
+    # 同库会话工厂暴露给用例: 端点联测中直接注入/调整库内状态(如需求置为已评审)
+    client.session_factory = TestingSession  # type: ignore[attr-defined]
     yield client
     main.app.dependency_overrides.clear()
 
