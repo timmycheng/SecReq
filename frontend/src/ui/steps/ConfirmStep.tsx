@@ -12,11 +12,8 @@ import { navigate } from '../../router'
 import type { PreviewResult } from '../../types'
 import GlossaryTip from '../GlossaryTip'
 import { useRegisterStepHandle } from './stepContext'
+import { HEX, PRIORITY_COLOR } from '../tokens'
 import type { StepProps } from '../WizardPage'
-
-const PRIORITY_COLOR: Record<string, string> = {
-  critical: 'red', high: 'volcano', medium: 'gold', low: 'default',
-}
 
 export default function ConfirmStep({ ws, goto }: StepProps) {
   const { message } = App.useApp()
@@ -71,9 +68,9 @@ export default function ConfirmStep({ ws, goto }: StepProps) {
   /** 每个汇总项: 内容 + (为空时的)提醒与跳转链接。 */
   const withFix = (step: number, text: string, empty: boolean) => (
     <Space size={8} wrap>
-      <span style={{ color: empty ? '#cf1322' : undefined }}>{text}</span>
+      <span style={{ color: empty ? HEX.danger : undefined }}>{text}</span>
       {empty
-        ? <a onClick={() => goto(step)} style={{ color: '#cf1322' }}>去补录</a>
+        ? <a onClick={() => goto(step)} style={{ color: HEX.danger }}>去补录</a>
         : <a onClick={() => goto(step)}>去修改</a>}
     </Space>
   )
@@ -87,7 +84,7 @@ export default function ConfirmStep({ ws, goto }: StepProps) {
   // 组件与基础设施已上收系统(#194): 汇总展示条数, 维护入口跳系统详情页
   const systemLink = ws.project.system_id
     ? <a onClick={() => navigate(`/system/${ws.project.system_id}`)}>去系统维护</a>
-    : <span style={{ color: '#cf1322' }}>未归属系统</span>
+    : <span style={{ color: HEX.danger }}>未归属系统</span>
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>

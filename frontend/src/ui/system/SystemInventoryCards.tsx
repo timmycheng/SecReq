@@ -15,6 +15,7 @@ import {
 import { api } from '../../api'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
 import type { ComponentRow, InfraAssetRow } from '../../types'
+import { RISK_TEXT_COLOR } from '../tokens'
 
 const ALL_ENVS = ['test', 'prod', 'dev'] as const
 const ENV_LABEL: Record<string, string> = { test: '测试环境', prod: '生产环境', dev: '开发环境' }
@@ -584,7 +585,7 @@ function ComponentModal({ value, onOk, onCancel }: {
                           }}
                         >
                           {comp.name}
-                          {info && <span style={{ color: info.risk === 'high' ? '#cf1322' : info.risk === 'medium' ? '#d46b08' : '#52c41a' }}> · {info.label}</span>}
+                          {info && <span style={{ color: RISK_TEXT_COLOR[info.risk] }}> · {info.label}</span>}
                         </Tag.CheckableTag>
                       )
                     })}

@@ -13,6 +13,7 @@ import {
 import { api } from '../../api'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
 import { useRegisterStepHandle } from './stepContext'
+import { DATA_LEVEL_COLOR } from '../tokens'
 import type { StepProps } from '../WizardPage'
 import type { DataAssetRow, DataFieldRow, DataTableRow } from '../../types'
 
@@ -53,10 +54,6 @@ export default function Step4DataAssets({ ws, patch }: StepProps) {
 
   useRegisterStepHandle({ save, isDirty: () => JSON.stringify(rows) !== savedRef.current })
 
-  const classificationColors: Record<string, string> = {
-    '5级_重要数据': 'red', '4级_C3鉴别信息': 'volcano', '3级_C2主要信息': 'orange',
-    '2级_C1次要信息': 'blue', '1级_公开数据': 'green',
-  }
   const levelLabels = labelMapOf(enums, 'data_level_labels')
   const assetTypeMap = labelMapOf(enums, 'data_asset_types')
   const storageMap = labelMapOf(enums, 'storage_envs')
@@ -87,7 +84,7 @@ export default function Step4DataAssets({ ws, patch }: StepProps) {
             title: '分级(JR/T 0197)', dataIndex: 'classification',
             render: (v: string, r) => (
               <Space size={4} wrap>
-                <Tag color={classificationColors[v] ?? 'default'}>{levelLabels[v] ?? v}</Tag>
+                <Tag color={DATA_LEVEL_COLOR[v] ?? 'default'}>{levelLabels[v] ?? v}</Tag>
                 {r.c3_tag && <Tag color="magenta">C3</Tag>}
               </Space>
             ),

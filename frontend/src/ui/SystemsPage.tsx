@@ -9,15 +9,14 @@ import { PlusOutlined } from '@ant-design/icons'
 
 import { api, getStoredUser, isSecuritySideRole } from '../api'
 import { optionsOf, useEnums } from '../enums'
+import { GRADING_LEVEL_COLOR } from './tokens'
 import { navigate } from '../router'
 import NetboxSystemImportModal from './NetboxSystemImportModal'
 import type { FilingRow, NetboxSystemRow, RoundSummary, SystemRow } from '../types'
 
-const LEVEL_COLORS: Record<string, string> = { 一级: 'blue', 二级: 'gold', 三级: 'red' }
-
 function LevelTag({ level }: { level?: string | null }) {
   if (!level) return <Tag>未备案</Tag>
-  return <Tag color={LEVEL_COLORS[level] ?? 'default'}>等保{level}</Tag>
+  return <Tag color={GRADING_LEVEL_COLOR[level] ?? 'default'}>等保{level}</Tag>
 }
 
 function RoundCell({ round }: { round?: RoundSummary | null }) {
@@ -30,7 +29,7 @@ function RoundCell({ round }: { round?: RoundSummary | null }) {
       {round.status === 'generated'
         ? <Tag color="green">已生成</Tag>
         : <Tag color="orange">草稿</Tag>}
-      {round.grading_level && <Tag color="blue">{round.grading_level}</Tag>}
+      {round.grading_level && <Tag color={GRADING_LEVEL_COLOR[round.grading_level] ?? 'default'}>{round.grading_level}</Tag>}
       <Typography.Text type="secondary">
         需求 {round.requirements_total} 条 / 未闭环 {round.requirements_open}
       </Typography.Text>

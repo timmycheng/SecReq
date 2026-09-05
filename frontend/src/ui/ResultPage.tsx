@@ -19,13 +19,7 @@ import GlossaryTip from './GlossaryTip'
 import {
   copyRichHtml, docShell, executiveSummarySection, requirementsSection, vulnsSection,
 } from './wordExport'
-
-const PRIORITY_COLOR: Record<string, string> = {
-  critical: 'red', high: 'volcano', medium: 'gold', low: 'default',
-}
-const SEVERITY_COLOR: Record<string, string> = {
-  critical: 'red', high: 'volcano', medium: 'gold', low: 'default',
-}
+import { HEX, PRIORITY_COLOR, SEVERITY_COLOR } from './tokens'
 
 /** 旧载荷无 field_values 时的字段名中文兜底(#176); 正常路径标签由后端 field_values 下发 */
 const DIFF_FIELD_FALLBACK_LABELS: Record<string, string> = {
@@ -411,7 +405,7 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                       render: (t, r) => (
                         <Typography.Text
                           strong={r.priority === 'critical'}
-                          style={{ color: r.priority === 'critical' ? '#c00000' : undefined, fontSize: 13 }}
+                          style={{ color: r.priority === 'critical' ? HEX.danger : undefined, fontSize: 13 }}
                           ellipsis={{ tooltip: t }}
                         >
                           {t}
@@ -440,7 +434,7 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                     {
                       title: '确认', dataIndex: 'reg_confirmed', width: 110,
                       render: (v: boolean, r) => (v
-                        ? <Tag color="success">已确认{r.confirmed_by ? `·${r.confirmed_by}` : ''}</Tag>
+                        ? <Tag color="blue">已确认{r.confirmed_by ? `·${r.confirmed_by}` : ''}</Tag>
                         : <Button size="small" type="link" onClick={() => void doConfirmOne(r)}>确认</Button>),
                     },
                   ]}

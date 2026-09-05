@@ -2,8 +2,15 @@
 * { box-sizing: border-box; }
 body { margin: 0; font-family: -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif; }
 
+/* 行状态色(#234): CSS 内无法引 TS tokens, 集中为变量, 语义与 ui/tokens.ts 对应 */
+:root {
+  --row-critical-bg: #fff1f0;   /* antd red-1, 同 PRIORITY critical */
+  --row-obsolete-color: #999;
+  --row-obsolete-bg: #fafafa;
+}
+
 /* 严重级需求行高亮 */
-.row-critical > td { background: #fff1f0 !important; }
+.row-critical > td { background: var(--row-critical-bg) !important; }
 
 /* 本轮未命中(obsolete): 输入已变更/风险已消除, 保留追溯但置灰区分(#66) */
-.row-obsolete > td { color: #999 !important; background: #fafafa !important; }
+.row-obsolete > td { color: var(--row-obsolete-color) !important; background: var(--row-obsolete-bg) !important; }
