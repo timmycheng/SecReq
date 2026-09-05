@@ -37,18 +37,20 @@ def _initial_seed_password() -> str:
 SEED_DEFAULT_PASSWORD = _initial_seed_password()
 _PBKDF2_ITERATIONS = 120_000
 
-# 种子账号: 开发/安全各一名管理员, 账号语义清晰不残留演示痕迹(#63)
+# 种子账号: 项目/安全各一名管理员, 账号语义清晰不残留演示痕迹(#63)
 SEED_USERS = [
-    {"username": "dev_admin", "display_name": "开发管理员", "employee_id": "E1001", "role": "developer"},
-    {"username": "sec_admin", "display_name": "安全管理员", "employee_id": "E2001", "role": "security"},
+    {"username": "dev_admin", "display_name": "开发管理员", "employee_id": "E1001", "role": "pm"},
+    {"username": "sec_admin", "display_name": "安全管理员", "employee_id": "E2001", "role": "security_lead"},
 ]
 
-# 存量库旧角色 → 新角色(不走映射的旧角色账号直接停用)
+# 存量库旧角色 → 新角色(#216 四角色恢复; 不走映射的旧角色账号直接停用)
 _LEGACY_ROLE_MAP = {
-    "pm": "developer",
-    "developer": "developer",
-    "security_reviewer": "security",
-    "security_lead": "security",
+    "pm": "pm",
+    "developer": "pm",
+    "security": "security_lead",
+    "security_reviewer": "security_reviewer",
+    "security_lead": "security_lead",
+    "auditor": "auditor",
 }
 
 # 历史演示账号(旧版本种子创建): ensure_seed_users 幂等停用并转出其名下项目,
@@ -128,7 +130,7 @@ def _reassign_owned_projects(session: Session, owner_user_id: int) -> None:
     target = (
         session.query(PlatformUser)
         .filter(
-            PlatformUser.role == "developer",
+            PlatformUser.role == "pm",
             PlatformUser.active.is_(True),
             PlatformUser.id != owner_user_id,
         )

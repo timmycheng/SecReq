@@ -8,6 +8,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
+import shared.constants as C
 from models import Filing, GradingSurvey, Project, SecurityRequirement, System
 
 
@@ -140,7 +141,7 @@ def delete_system(db: Session, system_id: int) -> None:
 def visible_systems_query(db: Session, user):
     """数据权限与项目一致: 开发仅见本人创建的系统, 安全全量。"""
     query = db.query(System)
-    if user.role != "security":
+    if user.role not in C.FULL_VISIBILITY_ROLES:
         query = query.filter(System.owner_user_id == user.id)
     return query.order_by(System.created_at.desc(), System.id.desc())
 
@@ -212,7 +213,7 @@ def system_detail(db: Session, user, system: System) -> dict:
     """系统详情 + 评估时间线(轮次按创建倒序, 未生成的草稿轮也列出便于续填)。"""
     filing = db.get(Filing, system.filing_id) if system.filing_id else None
     query = db.query(Project).filter_by(system_id=system.id)
-    if user.role != "security":  # 数据权限与项目一致: 开发仅见本人项目
+    if user.role not in C.FULL_VISIBILITY_ROLES:  # 数据权限与项目一致: 开发仅见本人项目
         query = query.filter(Project.owner_user_id == user.id)
     rounds = [
         round_summary(db, project)

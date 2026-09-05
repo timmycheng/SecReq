@@ -131,12 +131,12 @@ def test_policy_baselines_effect_on_grading_baseline(sec, api):
 def test_user_management_and_audit(api, sec):
     # 创建
     resp = sec.post("/api/admin/users", json={
-        "username": "dev_new", "display_name": "新开发", "role": "developer"})
+        "username": "dev_new", "display_name": "新开发", "role": "pm"})
     assert resp.status_code == 201
     assert resp.json()["initial_password"] == SEED_DEFAULT_PASSWORD
     # 重复创建 409
     assert sec.post("/api/admin/users", json={
-        "username": "dev_new", "display_name": "重复", "role": "developer"}).status_code == 409
+        "username": "dev_new", "display_name": "重复", "role": "pm"}).status_code == 409
     # 停用/启用
     toggle = sec.post("/api/admin/users/dev_new/toggle-active")
     assert toggle.status_code == 200 and toggle.json()["active"] is False
@@ -173,18 +173,18 @@ def test_llm_config_roundtrip_masks_key(sec):
 def test_user_update_and_guards(sec):
     """用户编辑(#63): 资料可改, username 不可改, 角色变更留审计。"""
     sec.post("/api/admin/users", json={
-        "username": "dev_edit", "display_name": "待编辑", "role": "developer"})
+        "username": "dev_edit", "display_name": "待编辑", "role": "pm"})
 
     resp = sec.put("/api/admin/users/dev_edit", json={
-        "display_name": "已编辑", "employee_id": "E9001", "role": "security"})
+        "display_name": "已编辑", "employee_id": "E9001", "role": "security_lead"})
     assert resp.status_code == 200, resp.text
     rows = {r["username"]: r for r in sec.get("/api/admin/users").json()}
     assert rows["dev_edit"]["display_name"] == "已编辑"
     assert rows["dev_edit"]["employee_id"] == "E9001"
-    assert rows["dev_edit"]["role"] == "security"
+    assert rows["dev_edit"]["role"] == "security_lead"
 
     # 不能修改自己的角色(防止最后一个安全账号自降锁死系统管理)
-    resp = sec.put("/api/admin/users/sec_admin", json={"role": "developer"})
+    resp = sec.put("/api/admin/users/sec_admin", json={"role": "pm"})
     assert resp.status_code == 400
     # 未知角色拒绝
     resp = sec.put("/api/admin/users/dev_edit", json={"role": "admin"})

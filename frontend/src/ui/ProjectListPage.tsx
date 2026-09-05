@@ -7,7 +7,7 @@ import {
 } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 
-import { api, getStoredUser } from '../api'
+import { api, getStoredUser, isFullVisibilityRole } from '../api'
 import { labelOf, useEnums } from '../enums'
 import { navigate } from '../router'
 import type { ProjectDetail, RoundSummary, SystemRow } from '../types'
@@ -23,7 +23,7 @@ export default function ProjectListPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [createMode, setCreateMode] = useState<'blank' | 'copy'>('copy')
   const [createSystemId, setCreateSystemId] = useState<number | undefined>()
-  const isSecurity = getStoredUser()?.role === 'security'
+  const isFullView = isFullVisibilityRole(getStoredUser()?.role)
 
   const reload = useCallback(() => {
     setLoading(true)
@@ -81,7 +81,7 @@ export default function ProjectListPage() {
   return (
     <div style={{ padding: 24 }}>
       <Card
-        title={isSecurity ? '评估列表(全部评估)' : '我的评估'}
+        title={isFullView ? '评估列表(全部评估)' : '我的评估'}
         extra={(
           <Space>
             <Select
@@ -158,7 +158,7 @@ export default function ProjectListPage() {
                 </Space>
               ),
             },
-            ...(isSecurity ? [{ title: '创建人', dataIndex: 'owner_name', width: 100 }] : []),
+            ...(isFullView ? [{ title: '创建人', dataIndex: 'owner_name', width: 100 }] : []),
             { title: '安全需求', dataIndex: ['counts', 'requirements'], width: 90 },
             {
               title: '操作', width: 260,

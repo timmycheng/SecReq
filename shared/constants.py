@@ -525,15 +525,22 @@ TRIGGER_CATEGORY_LABELS = {
 }
 
 # ── 平台角色与数据权限 ─────────────────────────────────
-# 走查整改: 角色精简为 开发/安全 两类(不再区分审计/风管/评审员/负责人)。
+# v3.0 评审闭环(#216): 恢复四类角色 —— pm 填报/确认/提交/整改, security_reviewer 逐条
+# 批注/裁定, security_lead 终审会签并继承安全侧管理权限, auditor 只读全量。
 PLATFORM_ROLES = {
-    "developer": "开发",
-    "security": "安全",
+    "pm": "项目管理",
+    "security_reviewer": "安全评审员",
+    "security_lead": "安全负责人",
+    "auditor": "审计员",
 }
 
-# 数据权限口径: 开发只能看到/操作自己创建的项目, 安全可以看到/操作全部。
+# 数据权限口径: 全量可见角色(评审队列/审计视图)可以看到/操作全部项目, pm 只见本人创建。
 ALL_PLATFORM_ROLES = list(PLATFORM_ROLES.keys())
-WRITE_WIZARD_ROLES = ["developer", "security"]
+FULL_VISIBILITY_ROLES = ["security_reviewer", "security_lead", "auditor"]
+# 安全侧角色(系统管理/NetBox 互通等管理端点仅此两类可用)。
+SECURITY_SIDE_ROLES = ["security_reviewer", "security_lead"]
+# 一般业务写操作白名单(auditor 只读不在此列; 评审动作端点另有更细的角色白名单)。
+WRITE_WIZARD_ROLES = ["pm", "security_reviewer", "security_lead"]
 
 
 def label(mapping: dict, code, default="") -> str:

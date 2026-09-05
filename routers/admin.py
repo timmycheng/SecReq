@@ -38,7 +38,7 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 def require_security(user: PlatformUser = Depends(require_login)) -> PlatformUser:
     """系统管理仅安全角色可用。"""
-    if user.role != "security":
+    if user.role not in C.SECURITY_SIDE_ROLES:
         raise HTTPException(status_code=403, detail="仅安全角色可访问系统管理")
     return user
 
