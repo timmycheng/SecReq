@@ -16,7 +16,8 @@ test('建系统 → 建项目 → 6步向导 → 生成 → 批量确认 → 导
 
   // ── 先建系统(#194: 评估挂靠系统, 基本信息/清单都在系统上) ──
   await page.getByText('系统台账', { exact: true }).first().click()
-  await page.getByRole('button', { name: '新建系统' }).click()
+  // 限定顶部工具栏(#235 空态引导也含同名按钮, 需消歧)
+  await page.getByRole('button', { name: '新建系统' }).first().click()
   const sysModal = page.locator('.ant-modal').filter({ hasText: '系统名称' })
   await sysModal.getByPlaceholder('如: 个人网银系统').fill('E2E 主链路系统')
   await sysModal.locator('.ant-form-item', { hasText: '用户规模' }).locator('.ant-select').click()
