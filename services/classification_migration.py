@@ -71,6 +71,8 @@ _NEW_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("osv_query_fingerprint", "VARCHAR(100)"),
         ("vuln_status", "VARCHAR(20)"),
         ("vuln_status_note", "VARCHAR(300)"),
+        # SBOM 双轨(#224): 入库时间, 晚于评估轮创建时间即本轮增量
+        ("created_at", "DATETIME"),
     ],
     # v2.3.0 实体稳定 uid(#66): 其余整表替换实体与接口资产关联。
     # 列补齐后由 services/entity_uid_migration.migrate_entity_uids 回填与重映射

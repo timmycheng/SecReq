@@ -12,7 +12,7 @@ import {
 
 import { api } from '../../api'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
-import { useRegisterStepHandle } from './stepContext'
+import { useBaselineUidIndex, useRegisterStepHandle } from './stepContext'
 import { DATA_LEVEL_COLOR } from '../tokens'
 import type { StepProps } from '../WizardPage'
 import type { DataAssetRow, DataFieldRow, DataTableRow } from '../../types'
@@ -26,6 +26,8 @@ const EMPTY_ASSET: DataAssetRow = {
 
 export default function Step4DataAssets({ ws, patch }: StepProps) {
   const enums = useEnums()
+  const baselineIndex = useBaselineUidIndex(ws.project.system_id)
+  const inheritedAssets = new Set(baselineIndex?.data_assets ?? [])
   const [rows, setRows] = useState<DataAssetRow[]>(ws.data_assets)
   const [editing, setEditing] = useState<DataAssetRow | null>(null)
   const [editIndex, setEditIndex] = useState(-1)
@@ -79,6 +81,14 @@ export default function Step4DataAssets({ ws, patch }: StepProps) {
         size="small"
         columns={[
           { title: '资产名称', dataIndex: 'name' },
+          ...(baselineIndex ? [{
+            title: '来源', width: 90,
+            render: (_v: unknown, r: DataAssetRow) => (r.uid
+              ? (inheritedAssets.has(r.uid)
+                ? <Tag color="blue">基线继承</Tag>
+                : <Tag>本轮新增</Tag>)
+              : null),
+          }] : []),
           { title: '分类', dataIndex: 'data_type', render: (v: string) => assetTypeMap[v] ?? v },
           {
             title: '分级(JR/T 0197)', dataIndex: 'classification',

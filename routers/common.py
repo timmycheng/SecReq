@@ -276,11 +276,17 @@ def wizard_state(db: Session, project: Project) -> dict:
         ],
         "auth_config": _plain_auth_config(
             db.query(AuthConfig).filter_by(project_id=pid).first(), pid),
-        "components": [_plain(component_to_out(c))
-                       for c in (
-                           db.query(SbomComponent)
-                           .filter_by(system_id=project.system_id)
-                           .all() if project.system_id is not None else [])],
+        "components": [
+            {**_plain(component_to_out(c)),
+             # SBOM 双轨(#224): 晚于本轮创建时间入库的组件即本轮增量
+             "is_round_increment": bool(
+                 c.created_at is not None and project.created_at is not None
+                 and c.created_at > project.created_at)}
+            for c in (
+                db.query(SbomComponent)
+                .filter_by(system_id=project.system_id)
+                .all() if project.system_id is not None else [])
+        ],
         "api_endpoints": [
             {"id": e.id, "uid": e.uid, "name": e.name, "path": e.path, "method": e.method,
              "auth_required": e.auth_required, "public_exposed": e.public_exposed,

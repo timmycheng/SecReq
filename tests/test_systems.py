@@ -143,8 +143,20 @@ def test_system_baseline_zone_and_histories(dev, session=None):
     try:
         bl = SystemBaseline(
             system_id=system["id"],
-            baseline_json={"data_assets": [{"tables": [1, 2]}], "roles": [1],
-                           "resources": [1, 2], "permission_entries": [1], "api_endpoints": []},
+            baseline_json={
+                "data_assets": [{"uid": "asset-1", "name": "客户信息", "data_type": "database",
+                                 "classification": "3级_C2主要信息", "is_pii": True,
+                                 "is_sensitive_pii": False, "storage_envs": ["db"],
+                                 "cross_border_transfer": False,
+                                 "tables": [{"table_name": "customers", "fields": [
+                                     {"field_name": "id_card", "field_type": "string",
+                                      "need_encrypt": True, "need_mask": True, "mask_rule": None}]}]}],
+                "roles": [{"uid": "role-1", "name": "柜员", "role_type": "internal"}],
+                "resources": [{"uid": "res-1", "name": "账户接口", "resource_type": "api"}],
+                "permission_entries": [{"role_uid": "role-1", "resource_uid": "res-1",
+                                        "action": "read", "requires_approval": False}],
+                "api_endpoints": [],  # 计数为 0 的分区同样展示
+            },
             source_project_id=7, updated_by="评审员甲", summary="首轮基线写回")
         db.add(bl)
         db.flush()
@@ -157,7 +169,7 @@ def test_system_baseline_zone_and_histories(dev, session=None):
 
     detail = dev.get(f"/api/systems/{system['id']}").json()
     assert detail["baseline"]["summary"] == {
-        "data_assets": 1, "data_tables": 2, "roles": 1, "resources": 2,
+        "data_assets": 1, "data_tables": 1, "roles": 1, "resources": 1,
         "permission_entries": 1, "api_endpoints": 0}
     assert detail["baseline"]["source_project_id"] == 7
     assert detail["baseline"]["updated_by"] == "评审员甲"
@@ -249,3 +261,73 @@ def test_schema_upgrade_adds_system_id(tmp_path, monkeypatch):
     columns = {col["name"] for col in inspect(engine).get_columns("projects")}
     assert "system_id" in columns
     assert ensure_schema_upgrade(engine) == {}  # 二次执行幂等
+
+
+def test_baseline_inheritance_prefill_on_second_round(dev):
+    """#224: 无基线首轮保持空白建档; 写入基线后新建轮次自动预填并可标记来源。"""
+    from models import SystemBaseline
+
+    system = _create_system(dev, name="继承系统", code="SYS-INH")
+    # 首轮: 系统无基线 → 空白(行为不变)
+    first = dev.post("/api/projects", json={"name": "首轮评估", "system_id": system["id"]}).json()
+    ws1 = dev.get(f"/api/projects/{first['id']}/wizard-state").json()
+    assert ws1["data_assets"] == [] and ws1["roles"] == [] and ws1["api_endpoints"] == []
+
+    # 模拟 #225 写回结果: 系统持有评审通过的基线快照
+    baseline_json = {
+        "data_assets": [{
+            "uid": "asset-inh-1", "name": "客户信息", "data_type": "database",
+            "classification": "3级_C2主要信息", "is_pii": True, "is_sensitive_pii": False,
+            "storage_envs": ["db"], "cross_border_transfer": False,
+            "tables": [{"table_name": "customers", "fields": [
+                {"field_name": "phone", "field_type": "string",
+                 "need_encrypt": False, "need_mask": True, "mask_rule": None}]}],
+        }],
+        "roles": [{"uid": "role-inh-1", "name": "柜员", "role_type": "internal"}],
+        "resources": [{"uid": "res-inh-1", "name": "账户服务", "resource_type": "api"}],
+        "permission_entries": [{"role_uid": "role-inh-1", "resource_uid": "res-inh-1",
+                                "action": "read", "requires_approval": False}],
+        "api_endpoints": [{"uid": "api-inh-1", "name": "查询账户", "path": "/api/accounts",
+                           "method": "GET", "auth_required": True, "public_exposed": False,
+                           "sensitive_asset_uids": ["asset-inh-1"], "rate_limit": None}],
+    }
+    db = dev.session_factory()
+    try:
+        db.add(SystemBaseline(system_id=system["id"], baseline_json=baseline_json,
+                              source_project_id=first["id"], updated_by="测试"))
+        db.commit()
+    finally:
+        db.close()
+
+    # 第二轮: 自动按基线预填(uid 原样保留 → 可标「基线继承」)
+    second = dev.post("/api/projects", json={"name": "第二轮评估", "system_id": system["id"]}).json()
+    ws2 = dev.get(f"/api/projects/{second['id']}/wizard-state").json()
+    assert [a["uid"] for a in ws2["data_assets"]] == ["asset-inh-1"]
+    assert ws2["data_assets"][0]["tables"][0]["fields"][0]["field_name"] == "phone"
+    assert [r["uid"] for r in ws2["roles"]] == ["role-inh-1"]
+    assert [(e["action"]) for e in ws2["permission_entries"]] == ["read"]
+    assert [(e["uid"], e["sensitive_asset_uids"]) for e in ws2["api_endpoints"]] == [
+        ("api-inh-1", ["asset-inh-1"])]
+
+    # 前端来源标记的数据源: 系统详情基线带 uid 索引
+    detail = dev.get(f"/api/systems/{system['id']}").json()
+    assert detail["baseline"]["uid_index"]["data_assets"] == ["asset-inh-1"]
+    assert detail["baseline"]["uid_index"]["api_endpoints"] == ["api-inh-1"]
+
+
+def test_sbom_round_increment_marker(dev, sec):
+    """#224 SBOM 双轨: 轮次创建后入库的组件标记为本轮增量。"""
+    system = _create_system(dev, name="双轨系统", code="SYS-DUAL")
+    comp_in = {"components": [{"uid": "comp-old", "layer": "library", "name": "old-lib", "version": "1.0"}]}
+    resp = dev.post(f"/api/systems/{system['id']}/components", json=comp_in)
+    assert resp.status_code == 200, resp.text
+    project = dev.post("/api/projects", json={
+        "name": "双轨评估", "system_id": system["id"]}).json()
+    # 轮次创建后再入库的组件 = 本轮增量(端点为整卷 upsert, 须带全量清单)
+    resp = dev.post(f"/api/systems/{system['id']}/components", json={"components": [
+        {"uid": "comp-old", "layer": "library", "name": "old-lib", "version": "1.0"},
+        {"layer": "library", "name": "new-lib", "version": "2.0"}]})
+    assert resp.status_code == 200, resp.text
+    ws = dev.get(f"/api/projects/{project['id']}/wizard-state").json()
+    flags = {c["name"]: c["is_round_increment"] for c in ws["components"]}
+    assert flags == {"old-lib": False, "new-lib": True}

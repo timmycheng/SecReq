@@ -11,7 +11,7 @@ import { api } from '../../api'
 import { useEnums } from '../../enums'
 import type { ApiEndpointRow } from '../../types'
 import GlossaryTip from '../GlossaryTip'
-import { useRegisterStepHandle } from './stepContext'
+import { useBaselineUidIndex, useRegisterStepHandle } from './stepContext'
 import type { StepProps } from '../WizardPage'
 
 const EMPTY_EP: ApiEndpointRow = {
@@ -24,6 +24,8 @@ const METHOD_COLOR: Record<string, string> = {
 }
 
 export default function Step6ApiList({ ws, patch }: StepProps) {
+  const baselineIndex = useBaselineUidIndex(ws.project.system_id)
+  const inheritedApis = new Set(baselineIndex?.api_endpoints ?? [])
   const [endpoints, setEndpoints] = useState<ApiEndpointRow[]>(ws.api_endpoints)
   const [editing, setEditing] = useState<ApiEndpointRow | null>(null)
   const [editIndex, setEditIndex] = useState(-1)
@@ -74,6 +76,14 @@ export default function Step6ApiList({ ws, patch }: StepProps) {
         size="small"
         columns={[
           { title: '接口名', dataIndex: 'name' },
+          ...(baselineIndex ? [{
+            title: '来源', width: 90,
+            render: (_v: unknown, r: ApiEndpointRow) => (r.uid
+              ? (inheritedApis.has(r.uid)
+                ? <Tag color="blue">基线继承</Tag>
+                : <Tag>本轮新增</Tag>)
+              : null),
+          }] : []),
           { title: '路径', dataIndex: 'path', render: (v) => <code>{v}</code> },
           { title: '方法', dataIndex: 'method', width: 80, render: (m) => <Tag color={METHOD_COLOR[m] ?? 'default'}>{m}</Tag> },
           { title: '需认证', dataIndex: 'auth_required', width: 90,
