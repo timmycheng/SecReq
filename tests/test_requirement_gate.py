@@ -21,9 +21,15 @@ def generated(api):
     assert resp.status_code == 200, resp.text
     gen = api.post(f"/api/projects/{pid}/generate", json={"skip_osv": True})
     assert gen.status_code == 200, gen.text
+    from conftest import satisfy_design_gate
+    satisfy_design_gate(api, sid, pid)
     reqs = api.get(f"/api/projects/{pid}/requirements").json()
     assert reqs
     return pid, reqs
+
+
+def _system_id_of(api, pid: int) -> int:
+    return api.get(f"/api/projects/{pid}").json()["system_id"]
 
 
 def _submit(api, pid):
@@ -100,6 +106,8 @@ def test_submit_blocked_on_broken_traceability(api, generated):
 def test_obsolete_requirements_excluded_from_gate(api, generated):
     """obsolete 行(输入已变更)不参与门禁校验。"""
     pid, reqs = generated
+    from conftest import satisfy_design_gate
+    satisfy_design_gate(api, _system_id_of(api, pid), pid)
     _patch_req(api, pid, reqs[0]["req_id"], priority="critical", status="obsolete")
     # 其余需求全部确认后应放行(obsolete 的 critical 不再拦截)
     others = [r["req_id"] for r in reqs if r["req_id"] != reqs[0]["req_id"]]
@@ -118,6 +126,8 @@ def test_submit_passes_after_confirm(api, generated):
     assert first["status"] == "blocked"
 
     # 补齐(确认全部需求)后复提交 → 通过, 门禁进入 in_review
+    from conftest import satisfy_design_gate
+    satisfy_design_gate(api, _system_id_of(api, pid), pid)
     ids = [r["req_id"] for r in reqs]
     resp = api.post(f"/api/projects/{pid}/requirements/batch-confirm",
                     json={"req_ids": ids})

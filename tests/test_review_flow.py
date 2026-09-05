@@ -21,6 +21,8 @@ def generated(api):
     assert resp.status_code == 200, resp.text
     gen = api.post(f"/api/projects/{pid}/generate", json={"skip_osv": True})
     assert gen.status_code == 200, gen.text
+    from conftest import satisfy_design_gate
+    satisfy_design_gate(api, sid, pid)
     reqs = api.get(f"/api/projects/{pid}/requirements").json()
     assert reqs
     return pid, reqs
