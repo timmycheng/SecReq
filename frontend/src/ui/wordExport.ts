@@ -1,6 +1,8 @@
 /* 复制到 Word: 前端把产物渲染为带内联样式的 HTML 写入剪贴板,
    粘贴到 Word/WPS 即保留标题层级、表格与标红等格式(走查整改: 不再生成 .docx 文件)。 */
 
+import { HEX } from './tokens'
+
 export function escapeHtml(text: string | null | undefined): string {
   return String(text ?? '')
     .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
@@ -94,7 +96,7 @@ export function requirementsSection(reqs: RequirementLike[], priorityLabels: Rec
     const refs = (r.regulatory_ref ?? []).map((ref) => `《${escapeHtml(ref.file)}》${escapeHtml(ref.clause ?? '')}`)
       .filter(Boolean).join('<br/>') || '—'
     const confirmed = r.reg_confirmed ? '✓ 已确认' : '□ 未确认'
-    const priorityStyle = r.priority === 'critical' ? 'color:#c00000;font-weight:bold' : ''
+    const priorityStyle = r.priority === 'critical' ? `color:${HEX.danger};font-weight:bold` : ''
     return `<tr>
       <td ${td('text-align:center')}>${i + 1}</td>
       <td ${td()}><b>[${escapeHtml(r.req_id)}]</b> ${escapeHtml(r.title)}<br/>
@@ -124,7 +126,7 @@ export function vulnsSection(vulns: VulnLike[]): string {
   const rows = vulns.map((v) => {
     const sev = SEVERITY_TEXT[v.severity] ?? v.severity
     const sevStyle = v.severity === 'critical' || v.severity === 'high'
-      ? 'color:#c00000;font-weight:bold' : ''
+      ? `color:${HEX.danger};font-weight:bold` : ''
     return `<tr><td ${td(sevStyle)}>${escapeHtml(sev)}</td>
       <td ${td(sevStyle)}>${escapeHtml(v.cve_id)}</td>
       <td ${td()}>${escapeHtml(v.component_name)}@${escapeHtml(v.component_version)}</td>
@@ -177,7 +179,7 @@ export function executiveSummarySection(input: SummaryInput): string {
   if (crit || critV) {
     text = `不建议直接通过: 存在 ${crit} 条关键需求与 ${critV} 个严重漏洞`
     detail = '关键项为硬性安全要求, 建议整改闭环后复评; 优先处理下表 Top 风险。'
-    color = '#c00000'
+    color = HEX.danger
   } else if (high || highV) {
     text = `有条件通过: 无关键(critical)项, 有 ${high} 条高优先级需求与 ${highV} 个高危漏洞`
     detail = '建议按 Top 风险排期整改, 其余需求按建议阶段落实。'
@@ -193,9 +195,9 @@ export function executiveSummarySection(input: SummaryInput): string {
     .sort((a, b) => (a.priority === 'critical' ? -1 : 1) - (b.priority === 'critical' ? -1 : 1))
     .slice(0, 5)
   const topRows = top.map((r) => `<tr>
-      <td ${td(r.priority === 'critical' ? 'color:#c00000;font-weight:bold' : '')}>${escapeHtml(r.req_id)}</td>
+      <td ${td(r.priority === 'critical' ? `color:${HEX.danger};font-weight:bold` : '')}>${escapeHtml(r.req_id)}</td>
       <td ${td()}>${escapeHtml(r.title)}</td>
-      <td ${td(r.priority === 'critical' ? 'color:#c00000' : '')}>${escapeHtml(r.priority === 'critical' ? '紧急' : '高')}</td>
+      <td ${td(r.priority === 'critical' ? `color:${HEX.danger}` : '')}>${escapeHtml(r.priority === 'critical' ? '紧急' : '高')}</td>
       <td ${td('font-size:9.5pt')}>${escapeHtml(r.source_label ?? '—')}</td>
     </tr>`).join('')
 
@@ -220,9 +222,9 @@ export function executiveSummarySection(input: SummaryInput): string {
       <th ${td('background:#eee;font-weight:bold')}>严重漏洞</th>
       <th ${td('background:#eee;font-weight:bold')}>高危漏洞</th>
     </tr>
-    <tr><td ${td()}><b>${requirements.length}</b></td><td ${td('color:#c00000')}>${crit}</td>
+    <tr><td ${td()}><b>${requirements.length}</b></td><td ${td(`color:${HEX.danger}`)}>${crit}</td>
       <td ${td()}>${high}</td><td ${td()}>${confirmed}</td>
-      <td ${td('color:#c00000')}>${critV}</td><td ${td()}>${highV}</td></tr>
+      <td ${td(`color:${HEX.danger}`)}>${critV}</td><td ${td()}>${highV}</td></tr>
   </table><br/>
   ${top.length ? `<p style="margin:6pt 0;font-weight:bold;font-size:11pt">Top 风险</p>
   <table ${REQ_TABLE}>

@@ -14,7 +14,7 @@ import {
 import { api, type KbTemplateRow } from '../../api'
 import { labelMapOf, useEnums } from '../../enums'
 import TriggerEditor, { type Trigger } from './TriggerEditor'
-import { PRIORITY_COLOR } from './shared'
+import { PRIORITY_COLOR } from '../tokens'
 
 const ID_PATTERN = /^SEC-[A-Z0-9]+-\d{3}$/
 

@@ -8,6 +8,7 @@ import {
 import { PlusOutlined } from '@ant-design/icons'
 
 import { api, getStoredUser, isFullVisibilityRole } from '../api'
+import { GRADING_LEVEL_COLOR, HEX } from './tokens'
 import { labelOf, useEnums } from '../enums'
 import { navigate } from '../router'
 import type { ProjectDetail, RoundSummary, SystemRow } from '../types'
@@ -145,7 +146,7 @@ export default function ProjectListPage() {
             },
             {
               title: '定级', dataIndex: 'grading_level', width: 90,
-              render: (v: string | null) => (v ? <Tag color="blue">{v}</Tag> : <Tag>未定级</Tag>),
+              render: (v: string | null) => (v ? <Tag color={GRADING_LEVEL_COLOR[v] ?? 'default'}>{v}</Tag> : <Tag>未定级</Tag>),
             },
             {
               title: '状态', dataIndex: 'status', width: 150,
@@ -204,7 +205,7 @@ export default function ProjectListPage() {
         ]}
       >
         <Typography.Text style={{ display: 'block', marginBottom: 8 }}>
-          选择所属系统<span style={{ color: '#cf1322' }}>(必选)</span>
+          选择所属系统<span style={{ color: HEX.danger }}>(必选)</span>
         </Typography.Text>
         <Select
           showSearch style={{ width: '100%' }} placeholder="选择所属系统"
