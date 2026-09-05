@@ -145,6 +145,10 @@ export const api = {
     request<{ status: string; gate_status: string }>(
       `/api/projects/${projectId}/review/finalize`,
       { method: 'POST', body: JSON.stringify({ comment: comment || null }) }),
+  confirmBaselineLevel: (systemId: number, decision: 'adopt_suggested' | 'keep_filing', note?: string) =>
+    request<{ status: string; summary: string }>(
+      `/api/systems/${systemId}/baseline/confirm-level`,
+      { method: 'POST', body: JSON.stringify({ decision, note: note || null }) }),
   requirementTransitions: (projectId: number, reqId: string) =>
     request<RequirementTransitionRow[]>(
       `/api/projects/${projectId}/requirements/${reqId}/transitions`),

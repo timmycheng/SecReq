@@ -6,6 +6,7 @@
 import pytest
 
 from conftest import api_as, create_system_api, demo_features, login_as
+from models import Project
 from services.review_service import verify_chain
 
 
@@ -237,3 +238,137 @@ def test_unknown_disposition_rejected(api, generated, reviewers):
         f"/api/projects/{pid}/review/requirements/{reqs[0]['req_id']}/annotate",
         json={"disposition": "nonsense"})
     assert resp.status_code == 409, resp.text
+
+
+# ── 基线写回(#225) ────────────────────────────────────
+
+
+def test_finalize_writes_back_baseline_with_level_confirmation(api, generated, reviewers):
+    """终审通过 → 基线写回 + 履历; 备案级与评估级不一致 → 挂级别变更确认待办。"""
+    sec = api_as(api, "sec_admin")
+    pid, reqs = generated
+    _confirm_all(api, pid, reqs)
+    assert api.post(f"/api/projects/{pid}/review/submit").json()["status"] == "submitted"
+    # 给项目挂定级问卷(评估建议级=二级), 系统备案级=三级 → 不一致
+    from conftest import create_system_api  # noqa: F401
+    db = api.session_factory()
+    try:
+        from models import GradingSurvey, System
+        project = db.query(Project).get(pid) if hasattr(Project, "query") else db.get(Project, pid)
+        system = db.get(System, project.system_id)
+        system.filing_id = _mk_filing(db)
+        db.add(GradingSurvey(project_id=pid, suggested_level="二级", final_level="二级"))
+        db.commit()
+        system_id = system.id
+    finally:
+        db.close()
+
+    reviewer = _client(api, "reviewer_u")
+    lead = _client(api, "lead_u")
+    for r in reqs:
+        reviewer.post(f"/api/projects/{pid}/review/requirements/{r['req_id']}/annotate",
+                      json={"disposition": "approve"})
+    reviewer.post(f"/api/projects/{pid}/review/decide", json={"conclusion": "approve"})
+    resp = lead.post(f"/api/projects/{pid}/review/finalize", json={"comment": "通过"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["baseline_written"] is True
+
+    # 系统详情: 基线写回 + 待办挂起
+    detail = sec.get(f"/api/systems/{system_id}").json()
+    baseline = detail["baseline"]
+    assert baseline is not None and baseline["source_project_id"] == pid
+    assert baseline["summary"]["data_assets"] >= 0
+    assert baseline["pending_level_confirmation"] == {
+        "suggested_level": "二级", "filing_level": "三级", "project_id": pid}
+    assert any("终审通过写回基线" in h["summary"] for h in detail["baseline_histories"])
+
+    # 级别确认: 采纳评估建议 → 备案级被覆盖, 待办清除, 履历留痕
+    resp = sec.post(f"/api/systems/{system_id}/baseline/confirm-level",
+                    json={"decision": "adopt_suggested"})
+    assert resp.status_code == 200, resp.text
+    detail = sec.get(f"/api/systems/{system_id}").json()
+    assert detail["baseline"]["pending_level_confirmation"] is None
+    assert detail["filing_level"] == "二级"
+    assert any("级别变更" in h["summary"] for h in detail["baseline_histories"])
+
+
+def _mk_filing(db):
+    from models import Filing
+    filing = Filing(name=f"写回备案{db.query(Filing).count() + 1}", code=f"BA-WB-{db.query(Filing).count() + 1}", level="三级")
+    db.add(filing)
+    db.flush()
+    return filing.id
+
+
+def test_keep_filing_decision_leaves_trace(api, generated, reviewers):
+    """维持备案级留痕: 待办清除、备案级不变、履历记录。"""
+    sec = api_as(api, "sec_admin")
+    pid, reqs = generated
+    _confirm_all(api, pid, reqs)
+    assert api.post(f"/api/projects/{pid}/review/submit").json()["status"] == "submitted"
+    db = api.session_factory()
+    try:
+        from models import Filing, GradingSurvey, System
+        project = db.get(Project, pid)
+        system = db.get(System, project.system_id)
+        filing = Filing(name="维持备案", code="BA-KEEP", level="三级")
+        db.add(filing)
+        db.flush()
+        system.filing_id = filing.id
+        db.add(GradingSurvey(project_id=pid, suggested_level="一级", final_level="一级"))
+        db.commit()
+        system_id = system.id
+    finally:
+        db.close()
+
+    reviewer = _client(api, "reviewer_u")
+    lead = _client(api, "lead_u")
+    for r in reqs:
+        reviewer.post(f"/api/projects/{pid}/review/requirements/{r['req_id']}/annotate",
+                      json={"disposition": "approve"})
+    reviewer.post(f"/api/projects/{pid}/review/decide", json={"conclusion": "approve"})
+    lead.post(f"/api/projects/{pid}/review/finalize", json={})
+
+    resp = sec.post(f"/api/systems/{system_id}/baseline/confirm-level",
+                    json={"decision": "keep_filing", "note": "备案数据暂不动"})
+    assert resp.status_code == 200, resp.text
+    detail = sec.get(f"/api/systems/{system_id}").json()
+    assert detail["baseline"]["pending_level_confirmation"] is None
+    assert detail["filing_level"] == "三级"
+    assert any("维持备案定级" in h["summary"] for h in detail["baseline_histories"])
+
+
+def test_inherited_baseline_prefills_new_round_after_writeback(api, generated, reviewers):
+    """#224+225 闭环: 终审写回基线后, 新建轮次自动预填基线数据。"""
+    pid, reqs = generated
+    _confirm_all(api, pid, reqs)
+    assert api.post(f"/api/projects/{pid}/review/submit").json()["status"] == "submitted"
+    db = api.session_factory()
+    try:
+        from models import DataTable, DataAsset  # noqa: F401
+        from models import System as SystemModel
+        project = db.get(Project, pid)
+        system = db.get(SystemModel, project.system_id)
+        system_id = system.id
+    finally:
+        db.close()
+    # 本轮造一条资产(向导 Step4 保存端点)
+    resp = api.post(f"/api/projects/{pid}/data-assets", json=[{
+        "uid": "asset-wb-1", "name": "客户信息", "data_type": "business_data",
+        "classification": "3级_C2主要信息", "is_pii": True, "is_sensitive_pii": False,
+        "storage_envs": ["db"], "cross_border_transfer": False, "tables": [],
+    }])
+    assert resp.status_code == 200, resp.text
+
+    reviewer = _client(api, "reviewer_u")
+    lead = _client(api, "lead_u")
+    for r in reqs:
+        reviewer.post(f"/api/projects/{pid}/review/requirements/{r['req_id']}/annotate",
+                      json={"disposition": "approve"})
+    reviewer.post(f"/api/projects/{pid}/review/decide", json={"conclusion": "approve"})
+    lead.post(f"/api/projects/{pid}/review/finalize", json={})
+
+    # 新一轮评估 → 基线预填
+    second = api.post("/api/projects", json={"name": "继承轮", "system_id": system_id}).json()
+    ws = api.get(f"/api/projects/{second['id']}/wizard-state").json()
+    assert [a["name"] for a in ws["data_assets"]] == ["客户信息"]

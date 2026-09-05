@@ -9,7 +9,9 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session
 
 import shared.constants as C
-from models import InfraAsset, PlatformUser, SbomComponent, System
+from pydantic import BaseModel
+
+from models import Filing, InfraAsset, PlatformUser, SbomComponent, System
 from routers.common import (
     client_ip, component_to_out, get_db, read_upload_limited, require_login,
     require_write_roles,
@@ -218,3 +220,54 @@ def remove_arch_image(system_id: int, env: str, request: Request,
         audit(db, user.username, "system_arch_image_delete",
               {"system_id": system.id, "env": env}, client_ip(request))
     return {"ok": True}
+
+
+class LevelConfirmIn(BaseModel):
+    """等保级别变更确认(#225): 采纳评估建议级覆盖备案, 或维持备案级留痕。"""
+    decision: str  # adopt_suggested / keep_filing
+    note: str | None = None
+
+
+@router.post("/{system_id}/baseline/confirm-level")
+def confirm_baseline_level(system_id: int, payload: LevelConfirmIn,
+                           request: Request,
+                           db: Session = Depends(get_db),
+                           user: PlatformUser = Depends(
+                               require_write_roles(*C.SECURITY_SIDE_ROLES))):
+    """安全侧人工定夺「级别变更确认」待办(#225): 两条路径都写履历留痕。"""
+    from models import SystemBaseline, SystemBaselineHistory
+
+    system = _get_accessible_system(system_id, db, user)
+    baseline = db.query(SystemBaseline).filter_by(system_id=system.id).first()
+    pending = baseline.pending_level_confirmation if baseline else None
+    if not pending:
+        raise HTTPException(status_code=409, detail="该系统没有待确认的级别变更")
+    suggested = pending.get("suggested_level")
+    filing_level = pending.get("filing_level")
+    filing = db.get(Filing, system.filing_id) if system.filing_id else None
+
+    if payload.decision == "adopt_suggested":
+        if filing is None:
+            raise HTTPException(status_code=409, detail="系统未备案, 无法采纳评估建议级")
+        old_level = filing.level
+        filing.level = suggested
+        summary = (f"级别变更: 备案定级 {old_level} → {suggested}"
+                   f"(采纳第 {pending.get('project_id')} 轮评估建议)"
+                   + (f"; {payload.note}" if payload.note else ""))
+    elif payload.decision == "keep_filing":
+        summary = (f"维持备案定级 {filing_level}, 评估建议 {suggested} 留痕"
+                   f"(第 {pending.get('project_id')} 轮)"
+                   + (f"; {payload.note}" if payload.note else ""))
+    else:
+        raise HTTPException(status_code=400, detail=f"未知确认决定: {payload.decision}")
+
+    baseline.pending_level_confirmation = None
+    db.add(SystemBaselineHistory(
+        system_id=system.id, baseline_id=baseline.id,
+        project_id=pending.get("project_id"),
+        summary=summary, operator_id=user.id, operator_name=user.display_name,
+    ))
+    db.commit()
+    audit(db, user.username, "baseline_level_confirm",
+          {"system_id": system.id, "decision": payload.decision}, client_ip(request))
+    return {"status": "ok", "summary": summary}

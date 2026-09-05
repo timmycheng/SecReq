@@ -168,7 +168,11 @@ def finalize(payload: ReviewOpinionIn,
     audit(db, ctx.user.username, "review_finalize",
           {"project_id": ctx.project.id, "gate_status": gate.status},
           client_ip(request))
-    return {"status": "ok", "gate_status": gate.status}
+    # 基线写回与终审结论分事务(#225): 写回失败只记告警, 不回滚评审结论
+    from services.baseline_writeback import writeback_baseline
+    baseline = writeback_baseline(db, ctx.project, gate, ctx.user)
+    return {"status": "ok", "gate_status": gate.status,
+            "baseline_written": baseline is not None}
 
 
 @router.get("/state")
