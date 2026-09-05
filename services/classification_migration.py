@@ -58,6 +58,8 @@ _NEW_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("reg_confirmed", "BOOLEAN DEFAULT 0"),
         ("confirmed_by", "VARCHAR(50)"),
         ("confirmed_at", "DATETIME"),
+        # 需求评审生命周期(#217): 补列后已有行为 NULL, 由 backfill_review_statuses 回填
+        ("review_status", "VARCHAR(20)"),
     ],
     # v2.2.0 SBOM 漏洞联动新增列: 漏登记会导致存量库升级后第一个触及
     # SBOM 组件的请求即抛 no such column。DDL 与模型列定义逐一对应,

@@ -543,6 +543,34 @@ SECURITY_SIDE_ROLES = ["security_reviewer", "security_lead"]
 WRITE_WIZARD_ROLES = ["pm", "security_reviewer", "security_lead"]
 
 
+# ── 需求评审生命周期(#217) ─────────────────────────────
+# 需求条目自己的评审生命周期, 与任务型 status(open/in_progress/done/risk_accepted)
+# 分离避免语义混用; 项目级整体评审门禁见 models/review.py 的 ReviewGate。
+# open(生成) → confirmed(PM确认) → reviewed(评审通过); 退回则 rectifying → 整改后重新确认。
+REQUIREMENT_REVIEW_STATUSES = {
+    "open": "待确认",
+    "confirmed": "已确认",
+    "reviewed": "评审通过",
+    "rectifying": "整改中",
+}
+
+# 合法流转表: 当前状态 → 允许迁入的状态(reviewed 为终态; 非法跳转一律 4xx)。
+REQUIREMENT_REVIEW_TRANSITIONS = {
+    "open": ["confirmed"],
+    "confirmed": ["reviewed", "rectifying"],
+    "rectifying": ["confirmed"],
+    "reviewed": [],
+}
+
+# 流转动作 → 目标状态(confirm/reconfirm 由 PM 触发, 其余由评审动作流(#218)触发)。
+REQUIREMENT_TRANSITION_ACTIONS = {
+    "confirm": ("confirmed", "确认"),
+    "reconfirm": ("confirmed", "整改后重新确认"),
+    "review_pass": ("reviewed", "评审通过"),
+    "request_change": ("rectifying", "退回整改"),
+}
+
+
 def label(mapping: dict, code, default="") -> str:
     """按映射字典取中文标签, 未注册的 code 原样返回。"""
     return mapping.get(code, code if isinstance(code, str) and code else default)

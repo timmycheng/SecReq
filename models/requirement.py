@@ -41,6 +41,9 @@ class SecurityRequirement(Base):
     )
     trigger_reason: Mapped[str] = mapped_column(Text, comment="触发了哪条输入(可回溯)")
     status: Mapped[str] = mapped_column(String(20), default="open", comment="open/in_progress/done/risk_accepted")
+    review_status: Mapped[str] = mapped_column(
+        String(20), default="open",
+        comment="评审生命周期: open/confirmed/reviewed/rectifying, 见 REQUIREMENT_REVIEW_STATUSES")
     regulatory_ref: Mapped[list] = mapped_column(
         JSON, default=list,
         comment="合规出处[{file, clause, summary, note?}], 取自知识库模板 regulatory_ref",
@@ -53,3 +56,31 @@ class SecurityRequirement(Base):
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, comment="确认时间")
 
     project: Mapped[Project] = relationship(back_populates="requirements")
+    transitions: Mapped[list["RequirementTransition"]] = relationship(
+        back_populates="requirement", cascade="all, delete-orphan",
+        order_by="RequirementTransition.id",
+    )
+
+
+class RequirementTransition(Base):
+    """需求流转记录(#217): 生命周期每步变更必留痕(动作/操作人/时间/意见)。
+
+    与项目级评审留痕(ReviewEvidence 链式哈希)分层: 本表只记需求条目自身状态迁移。
+    """
+
+    __tablename__ = "requirement_transitions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    requirement_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("security_requirements.id"), index=True)
+    action: Mapped[str] = mapped_column(
+        String(30), comment="confirm/reconfirm/review_pass/request_change")
+    from_status: Mapped[str] = mapped_column(String(20), comment="流转前状态")
+    to_status: Mapped[str] = mapped_column(String(20), comment="流转后状态")
+    operator_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("platform_users.id"), comment="操作人")
+    operator_name: Mapped[str] = mapped_column(String(50), comment="操作人姓名(展示口径同 confirmed_by)")
+    opinion: Mapped[str | None] = mapped_column(Text, comment="流转意见(评审批注/整改说明)")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, comment="流转时间")
+
+    requirement: Mapped["SecurityRequirement"] = relationship(back_populates="transitions")

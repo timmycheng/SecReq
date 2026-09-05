@@ -31,6 +31,7 @@ class RequirementOut(BaseModel):
     source_label: str | None = None
     trigger_reason: str
     status: str
+    review_status: str = "open"
     regulatory_ref: list[RegulatoryRefOut] = []
     owner: str | None = None
     reg_confirmed: bool = False
@@ -78,3 +79,18 @@ class GenerateSummary(BaseModel):
     bom_file: str | None = None
     # 配置有误被跳过的知识库模板([{template_id, reason}]; 带默认值, 老客户端向后兼容)
     skipped_templates: list[dict] = []
+
+
+class RequirementTransitionOut(BaseModel):
+    """需求流转记录(#217): 每步生命周期变更的操作人/时间/意见。"""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    requirement_id: int
+    action: str
+    from_status: str
+    to_status: str
+    operator_id: int | None = None
+    operator_name: str
+    opinion: str | None = None
+    created_at: datetime

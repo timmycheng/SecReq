@@ -52,6 +52,11 @@ async def lifespan(_: FastAPI):
     from services.entity_uid_migration import migrate_entity_uids
     db = SessionLocal()
     try:
+        from services.requirement_lifecycle import backfill_review_statuses
+        backfilled = backfill_review_statuses(db)
+        if backfilled:
+            db.commit()
+            logger.info("存量需求评审状态已回填(#217): %d 行", backfilled)
         stats = migrate_legacy_classification(db)
         if stats["migrated"]:
             logger.info("老四级分级已迁移为 JR/T 0197 五级: %s", stats)
