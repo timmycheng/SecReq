@@ -131,6 +131,7 @@ export interface SystemRow {
     updated_by: string | null
     updated_at: string | null
     uid_index?: Record<string, string[]>
+    pending_level_confirmation?: { suggested_level: string; filing_level: string; project_id: number } | null
   } | null
   baseline_histories?: {
     id: number

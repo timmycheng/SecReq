@@ -33,6 +33,9 @@ class SystemBaseline(Base):
     source_gate_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("review_gates.id"), comment="依据哪次评审(ReviewGate)")
     summary: Mapped[str | None] = mapped_column(Text, comment="最近一次写回的变更内容摘要")
+    pending_level_confirmation: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True,
+        comment="等保级别变更确认待办(#225): {suggested_level, filing_level, project_id}; 人工确认后置空")
     updated_by: Mapped[str | None] = mapped_column(String(50), comment="写回操作人姓名")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 

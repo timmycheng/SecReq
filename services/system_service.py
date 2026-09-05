@@ -292,6 +292,7 @@ def _baseline_out(db: Session, system: System) -> dict | None:
         "updated_by": baseline.updated_by,
         "updated_at": format_created_at(baseline.updated_at),
         "uid_index": baseline_uid_index(baseline),
+        "pending_level_confirmation": baseline.pending_level_confirmation,
     }
 
 

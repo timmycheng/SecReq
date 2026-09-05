@@ -61,6 +61,10 @@ _NEW_COLUMNS: dict[str, list[tuple[str, str]]] = {
         # 需求评审生命周期(#217): 补列后已有行为 NULL, 由 backfill_review_statuses 回填
         ("review_status", "VARCHAR(20)"),
     ],
+    # #225 级别变更确认待办挂基线行(#223 表已建的存量库需补列)
+    "system_baselines": [
+        ("pending_level_confirmation", "JSON"),
+    ],
     # v2.2.0 SBOM 漏洞联动新增列: 漏登记会导致存量库升级后第一个触及
     # SBOM 组件的请求即抛 no such column。DDL 与模型列定义逐一对应,
     # source 为 NOT NULL, ALTER 必须带 DEFAULT 才能通过并存老行

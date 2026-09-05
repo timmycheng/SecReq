@@ -7,7 +7,7 @@ import {
 } from 'antd'
 import { ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons'
 
-import { api } from '../api'
+import { api, getStoredUser, isSecuritySideRole } from '../api'
 import { labelMapOf, useEnums } from '../enums'
 import { navigate } from '../router'
 import { LevelTag, RoundCell, SystemFormModal } from './SystemsPage'
@@ -20,6 +20,21 @@ export default function SystemDetailPage({ systemId }: { systemId: number }) {
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState(false)
   const [filings, setFilings] = useState<FilingRow[]>([])
+  const [confirming, setConfirming] = useState(false)
+  const isSecuritySide = isSecuritySideRole(getStoredUser()?.role)
+
+  const confirmLevel = async (decision: 'adopt_suggested' | 'keep_filing') => {
+    setConfirming(true)
+    try {
+      const res = await api.confirmBaselineLevel(systemId, decision)
+      message.success(res.summary)
+      reload()
+    } catch (e) {
+      message.error((e as Error).message)
+    } finally {
+      setConfirming(false)
+    }
+  }
 
   const reload = useCallback(() => {
     api.getSystem(systemId)
@@ -100,6 +115,38 @@ export default function SystemDetailPage({ systemId }: { systemId: number }) {
       </Card>
 
       <Card title="安全基线(D 区)" style={{ marginTop: 16 }} variant="borderless">
+        {system.baseline?.pending_level_confirmation && (
+          <Alert
+            type="warning" showIcon style={{ marginBottom: 12 }}
+            message="等保级别变更确认"
+            description={
+              <Space direction="vertical" size={4}>
+                <Typography.Text>
+                  第 {system.baseline.pending_level_confirmation.project_id} 轮评估建议定级为
+                  <Tag color="gold" style={{ margin: '0 4px' }}>{system.baseline.pending_level_confirmation.suggested_level}</Tag>
+                  当前备案定级为
+                  <Tag color="blue" style={{ margin: '0 4px' }}>{system.baseline.pending_level_confirmation.filing_level}</Tag>
+                  请确认是否采纳评估建议覆盖备案定级。
+                </Typography.Text>
+                {isSecuritySide && (
+                  <Space>
+                    <Button size="small" type="primary" loading={confirming}
+                      onClick={() => void confirmLevel('adopt_suggested')}>
+                      采纳评估级(覆盖备案)
+                    </Button>
+                    <Button size="small" loading={confirming}
+                      onClick={() => void confirmLevel('keep_filing')}>
+                      维持备案级(留痕)
+                    </Button>
+                  </Space>
+                )}
+                {!isSecuritySide && (
+                  <Typography.Text type="secondary">请联系安全管理员确认。</Typography.Text>
+                )}
+              </Space>
+            }
+          />
+        )}
         {system.baseline ? (
           <Descriptions size="small" column={3}>
             <Descriptions.Item label="数据资产">{system.baseline.summary?.data_assets ?? 0}</Descriptions.Item>
