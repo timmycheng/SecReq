@@ -163,7 +163,7 @@ def seed_demo_project(session: Session, overwrite: bool = True) -> Project:
         legacy="机密",
     )
     add_asset(
-        "客户联系方式", "basic_personal_info", "2级_C1次要信息", True, False, ["db", "cache"],
+        "客户联系方式", "basic_personal_info", "3级_C2主要信息", True, False, ["db", "cache"],
         False,
         [("t_customer_contact", [
             ("mobile_number", "varchar(16)", False, "phone_number"),
@@ -302,8 +302,8 @@ def seed_demo_project(session: Session, overwrite: bool = True) -> Project:
     asset_ids = {a.name: a.id for a in session.query(DataAsset).filter_by(project_id=project.id)}
     endpoints = [
         ("转账汇款接口", "/api/v1/transfers", "POST", True, True, ["银行账户信息", "公民身份信息"], "100 QPS/IP"),
-        ("外汇牌价查询", "/api/v1/rates", "GET", False, True, [], None),
-        ("微信回调通知", "/open/wechat/callback", "POST", False, True, [], None),
+        ("外汇牌价查询", "/api/v1/rates", "GET", False, True, [], "200 QPS/IP"),
+        ("微信回调通知", "/open/wechat/callback", "POST", False, True, [], "100 QPS/IP"),
         ("客户信息查询", "/api/v1/customers/{id}", "GET", True, False, ["客户联系方式", "银行账户信息"], "50 QPS/IP"),
     ]
     for name, path, method, need_auth, pub, asset_names, rate in endpoints:

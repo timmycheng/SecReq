@@ -137,9 +137,10 @@ def requirement_gate_checks(db: Session, project: Project) -> list[str]:
     if not reqs:
         return ["安全需求清单为空: 至少需要生成 1 条安全需求才能提交评审"]
 
-    # 1) 溯源约束: 每条需求必须可追溯到输入实体(source_entity_id 非空)
+    # 1) 溯源约束: 每条需求必须可追溯到输入实体 —— uid 为权威口径(#66);
+    #    source_entity_id=0 是 permission_entry 复合键的设计内取值, 不算缺失
     for req in reqs:
-        if not req.source_entity_id:
+        if not req.source_entity_uid and not req.source_entity_id:
             missing.append(
                 f"需求 {req.req_id}「{req.title}」缺少来源实体, 无法追溯")
 

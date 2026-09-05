@@ -95,9 +95,9 @@ def test_submit_blocked_when_no_requirements(api):
 
 
 def test_submit_blocked_on_broken_traceability(api, generated):
-    """溯源约束: source_entity_id 为空(0)的需求让提交 blocked。"""
+    """溯源约束: uid 与 source_entity_id 双缺的需求让提交 blocked。"""
     pid, _ = generated
-    _add_req(api, pid, "SEC-GATE-001", source_entity_id=0)
+    _add_req(api, pid, "SEC-GATE-001", source_entity_id=0, source_entity_uid=None)
     body = _submit(api, pid)
     assert body["status"] == "blocked"
     assert any("SEC-GATE-001" in m and "来源实体" in m for m in body["missing"])
