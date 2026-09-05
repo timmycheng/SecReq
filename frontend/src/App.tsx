@@ -111,7 +111,7 @@ function AppBody() {
             items={[
               { key: 'systems', icon: <ApartmentOutlined />, label: '系统台账' },
               { key: 'projects', icon: <UnorderedListOutlined />, label: '评估管理' },
-              ...(user.role === 'security'
+              ...(user.role === 'security_reviewer' || user.role === 'security_lead'
                 ? [{ key: 'admin', icon: <CloudServerOutlined />, label: '系统管理' }]
                 : []),
             ]}
@@ -129,7 +129,7 @@ function AppBody() {
               <Space style={{ cursor: 'pointer' }} size={8}>
                 <Avatar size={28} icon={<UserOutlined />} style={{ background: '#2f5597' }} />
                 <span>{user.display_name}</span>
-                <Tag color={user.role === 'security' ? 'orange' : 'geekblue'}>{user.role_label}</Tag>
+                <Tag color={user.role === 'pm' ? 'geekblue' : user.role === 'auditor' ? 'purple' : 'orange'}>{user.role_label}</Tag>
               </Space>
             </Dropdown>
           </Layout.Header>

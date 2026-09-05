@@ -30,6 +30,14 @@ export function getStoredToken(): string | null {
   return localStorage.getItem(AUTH_STORAGE_KEY)
 }
 
+// 平台角色分组(#216): 安全侧可维护 NetBox/定级备案; 全量可见角色再含审计(只读)。
+export function isSecuritySideRole(role: string | undefined | null): boolean {
+  return role === 'security_reviewer' || role === 'security_lead'
+}
+export function isFullVisibilityRole(role: string | undefined | null): boolean {
+  return isSecuritySideRole(role) || role === 'auditor'
+}
+
 export function getStoredUser(): StoredUser | null {
   try {
     const raw = localStorage.getItem(USER_STORAGE_KEY)

@@ -8,7 +8,7 @@ import {
 } from 'antd'
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 
-import { api, getStoredUser } from '../../api'
+import { api, getStoredUser, isSecuritySideRole } from '../../api'
 import type { GradingBaseline } from '../../api'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
 import type {
@@ -35,7 +35,7 @@ const EMPTY_EXT: ExternalSystemRow = {
 
 export default function Step1ProjectInfo({ ws, patch }: StepProps) {
   const enums = useEnums()
-  const isSecurity = getStoredUser()?.role === 'security'
+  const isSecurity = isSecuritySideRole(getStoredUser()?.role)
   const [form] = Form.useForm<ProjectInfo>()
 
   // ── 外部系统 ──

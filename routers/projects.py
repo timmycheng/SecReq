@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+import shared.constants as C
 from models import Filing, GradingSurvey, PlatformUser, Project, System  # noqa: F401 (类型标注用)
 from routers.common import (
     client_ip, get_db, get_project_or_404, require_login,
@@ -23,14 +24,14 @@ from services.system_service import current_baseline_id
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
-_writable = Depends(require_write_roles("developer", "security"))
+_writable = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES))
 
 
 def _resolve_system(db: Session, user: PlatformUser, system_id: int | None) -> None:
     """归属校验(#195 必填): 系统须存在且在数据权限内(开发仅可关联本人系统)。"""
     system = db.get(System, system_id) if system_id is not None else None
     if system is None or (
-        user.role != "security" and system.owner_user_id not in (None, user.id)
+        user.role not in C.FULL_VISIBILITY_ROLES and system.owner_user_id not in (None, user.id)
     ):
         raise HTTPException(status_code=400, detail=f"所属系统不存在或无权关联: id={system_id}")
 
@@ -60,7 +61,7 @@ def _detail(db: Session, project: Project) -> ProjectDetail:
 
 @router.post("", response_model=ProjectDetail, status_code=201, dependencies=[_writable])
 def create(payload: ProjectCreate, request: Request, db: Session = Depends(get_db),
-           user: PlatformUser = Depends(require_write_roles("developer", "security"))):
+           user: PlatformUser = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES))):
     _resolve_system(db, user, payload.system_id)
     source: Project | None = None
     if payload.from_project_id:
@@ -93,7 +94,7 @@ class CopyFromIn(BaseModel):
              dependencies=[_writable])
 def copy_from(project_id: int, payload: CopyFromIn, request: Request,
               db: Session = Depends(get_db),
-              user: PlatformUser = Depends(require_write_roles("developer", "security"))):
+              user: PlatformUser = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES))):
     """从来源项目整卷复制向导数据到**已落库**的当前项目(#172, Step1 就地复制)。
 
     先清后拷(整卷替换语义, 与向导各步保存一致): 当前项目已有输入会被覆盖,
@@ -121,7 +122,7 @@ def copy_from(project_id: int, payload: CopyFromIn, request: Request,
              dependencies=[_writable])
 def reset_wizard(project_id: int, request: Request,
                  db: Session = Depends(get_db),
-                 user: PlatformUser = Depends(require_write_roles("developer", "security"))):
+                 user: PlatformUser = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES))):
     """一键清空当前项目全部向导输入(#172), 相当于回到空白模板; 生成产出不动。"""
     project = db.get(Project, project_id)
     if project is None:
@@ -154,7 +155,7 @@ def get_one(project: Project = Depends(get_project_or_404),
 @router.patch("/{project_id}", response_model=ProjectDetail, dependencies=[_writable])
 def patch(payload: ProjectUpdate, project: Project = Depends(get_project_or_404),
           db: Session = Depends(get_db),
-          user: PlatformUser = Depends(require_write_roles("developer", "security"))):
+          user: PlatformUser = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES))):
     from routers.common import ensure_project_access
     ensure_project_access(user, project)
     changes = payload.model_dump(exclude_unset=True)
@@ -172,7 +173,7 @@ def patch(payload: ProjectUpdate, project: Project = Depends(get_project_or_404)
 @router.delete("/{project_id}", status_code=204, dependencies=[_writable])
 def remove(request: Request, project: Project = Depends(get_project_or_404),
            db: Session = Depends(get_db),
-           user: PlatformUser = Depends(require_write_roles("developer", "security"))):
+           user: PlatformUser = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES))):
     from routers.common import ensure_project_access
     from services.project_service import delete_project_cascade
     ensure_project_access(user, project)

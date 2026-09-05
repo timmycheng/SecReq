@@ -149,13 +149,13 @@ def test_system_filing_must_exist(dev):
 # ── 数据权限与项目归属 ────────────────────────────────
 
 
-def test_developer_sees_only_own_systems(api, sec):
-    """开发仅见本人创建的系统; 安全全量可见。"""
+def test_pm_sees_only_own_systems(api, sec):
+    """pm 仅见本人创建的系统; 安全侧全量可见。"""
     _create_system(api, name="甲的系统")
 
     # 经管理端点开第二个开发账号(缺省种子口令), 以其身份再建一个系统
     resp = sec.post("/api/admin/users", json={
-        "username": "dev_ledger", "display_name": "台账开发", "role": "developer"})
+        "username": "dev_ledger", "display_name": "台账开发", "role": "pm"})
     assert resp.status_code == 201, resp.text
     other = login_as(api, "dev_ledger")
     _create_system(other, name="乙的系统")

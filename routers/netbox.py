@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+import shared.constants as C
 from models import InfraAsset, PlatformUser, Project, System
 from routers.admin import require_security
 from routers.common import ensure_project_access, get_db
@@ -41,7 +42,7 @@ def _proxy_502(exc: Exception) -> HTTPException:
 
 def _require_security_role(user: PlatformUser) -> None:
     """#196: NetBox 读写均收敛为安全角色; 其余角色 403。"""
-    if user.role != "security":
+    if user.role not in C.SECURITY_SIDE_ROLES:
         raise HTTPException(status_code=403, detail="仅安全角色可访问 NetBox 互通功能")
 
 
@@ -240,7 +241,7 @@ def push_system(payload: NetboxSystemPushIn,
     _require_security_role(user)
     system = db.get(System, payload.system_id)
     if system is None or (
-        user.role != "security" and system.owner_user_id not in (None, user.id)
+        user.role not in C.SECURITY_SIDE_ROLES and system.owner_user_id not in (None, user.id)
     ):
         raise HTTPException(status_code=404, detail=f"系统不存在: id={payload.system_id}")
     if system.netbox_object_id:

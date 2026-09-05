@@ -89,7 +89,7 @@ def assign_legacy_projects(session: Session) -> int:
     unowned = session.query(Project).filter(Project.owner_user_id.is_(None)).all()
     if not unowned:
         return 0
-    dev = session.query(PlatformUser).filter_by(role="developer", active=True).first()
+    dev = session.query(PlatformUser).filter_by(role="pm", active=True).first()
     target_id = dev.id if dev else None
     for project in unowned:
         project.owner_user_id = target_id

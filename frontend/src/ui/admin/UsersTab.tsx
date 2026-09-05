@@ -1,4 +1,4 @@
-/* 用户管理: 新增 / 编辑 / 重置密码 / 启停。角色固定两个, 越权一律 404。 */
+/* 用户管理: 新增 / 编辑 / 重置密码 / 启停。角色枚举取自 /api/meta/constants(#216)。 */
 import { useCallback, useEffect, useState } from 'react'
 import {
   Button, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
@@ -7,8 +7,14 @@ import { EditOutlined, PlusOutlined } from '@ant-design/icons'
 
 import { api, type AdminUserRow } from '../../api'
 
+// 角色徽标色: pm 蓝 / 安全侧橙 / 审计紫(等 #234 tokens 模块统一收敛)
+const ROLE_TAG_COLORS: Record<string, string> = {
+  pm: 'geekblue', security_reviewer: 'orange', security_lead: 'orange', auditor: 'purple',
+}
+
 export default function UsersTab() {
   const [rows, setRows] = useState<AdminUserRow[]>([])
+  const [roleOptions, setRoleOptions] = useState<{ value: string; label: string }[]>([])
   const [createOpen, setCreateOpen] = useState(false)
   const [editing, setEditing] = useState<AdminUserRow | null>(null)
   const [form] = Form.useForm()
@@ -18,6 +24,12 @@ export default function UsersTab() {
     api.adminListUsers().then(setRows).catch((e: Error) => message.error(e.message))
   }, [])
   useEffect(reload, [reload])
+  useEffect(() => {
+    api.constants().then((c) => {
+      const roles = (c.platform_roles ?? {}) as Record<string, string>
+      setRoleOptions(Object.entries(roles).map(([value, label]) => ({ value, label })))
+    }).catch(() => undefined)
+  }, [])
 
   return (
     <>
@@ -34,7 +46,10 @@ export default function UsersTab() {
           { title: '姓名', dataIndex: 'display_name' },
           { title: '工号', dataIndex: 'employee_id', render: (v) => v || '—' },
           { title: '角色', dataIndex: 'role', width: 100,
-            render: (v) => <Tag color={v === 'security' ? 'orange' : 'geekblue'}>{v === 'security' ? '安全' : '开发'}</Tag> },
+            render: (v) => {
+              const opt = roleOptions.find((o) => o.value === v)
+              return <Tag color={ROLE_TAG_COLORS[v] ?? 'default'}>{opt?.label ?? v}</Tag>
+            } },
           { title: '状态', dataIndex: 'active', width: 90,
             render: (v: boolean) => (v ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>) },
           {
@@ -102,10 +117,7 @@ export default function UsersTab() {
             name="role" label="角色" rules={[{ required: true }]}
             extra="修改自己的角色会被拒绝; 角色变更即时影响数据可见范围"
           >
-            <Select options={[
-              { value: 'developer', label: '开发' },
-              { value: 'security', label: '安全' },
-            ]} />
+            <Select options={roleOptions} />
           </Form.Item>
         </Form>
       </Modal>
@@ -134,11 +146,8 @@ export default function UsersTab() {
           <Form.Item name="employee_id" label="工号(可选)">
             <Input />
           </Form.Item>
-          <Form.Item name="role" label="角色" rules={[{ required: true }]} initialValue="developer">
-            <Select options={[
-              { value: 'developer', label: '开发' },
-              { value: 'security', label: '安全' },
-            ]} />
+          <Form.Item name="role" label="角色" rules={[{ required: true }]} initialValue="pm">
+            <Select options={roleOptions} />
           </Form.Item>
         </Form>
       </Modal>

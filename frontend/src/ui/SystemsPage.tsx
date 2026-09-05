@@ -7,7 +7,7 @@ import {
 } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 
-import { api, getStoredUser } from '../api'
+import { api, getStoredUser, isSecuritySideRole } from '../api'
 import { optionsOf, useEnums } from '../enums'
 import { navigate } from '../router'
 import NetboxSystemImportModal from './NetboxSystemImportModal'
@@ -69,7 +69,7 @@ function SystemsTab() {
   const [editing, setEditing] = useState<Partial<SystemRow> | null>(null)
   const [pushing, setPushing] = useState<number | null>(null)
   // NetBox 收敛为安全侧数据通道(#196): 开发界面不出现任何 NetBox 入口
-  const isSecurity = getStoredUser()?.role === 'security'
+  const isSecurity = isSecuritySideRole(getStoredUser()?.role)
 
   const reload = useCallback(() => {
     setLoading(true)
@@ -319,7 +319,7 @@ function FilingsTab() {
   const [loading, setLoading] = useState(false)
   const [editing, setEditing] = useState<Partial<FilingRow> | null>(null)
   // 备案由安全侧权威维护(#192): 开发只读, 选择挂靠在系统表单完成
-  const isSecurity = getStoredUser()?.role === 'security'
+  const isSecurity = isSecuritySideRole(getStoredUser()?.role)
 
   const reload = useCallback(() => {
     setLoading(true)

@@ -8,7 +8,7 @@
 - 前端在 `frontend/`: React 19 + TypeScript + Vite + antd 6; **无路由库**, 自研 hash 路由 `frontend/src/router.ts`, 侧边菜单硬编码在 `frontend/src/App.tsx`; API 层是单文件 `frontend/src/api.ts`(`request<T>()` 统一携带 Bearer)。
 - 前端界面代码生成前必读 [docs/frontend-design-spec.md](docs/frontend-design-spec.md)(布局四模式/表格与表单规则/状态与文案 tokens/敏感信息展示/生成自检清单), 状态色与文案不得各页面自造。
 - 系统管理(仅安全角色)是单页 Tabs: 外壳 `frontend/src/ui/AdminPage.tsx`, 各 Tab 组件在 `frontend/src/ui/admin/`(React.lazy 按需加载)。新增一个 Tab = admin/ 下新组件 + AdminPage 注册 + `api.ts` 加方法 + `routers/admin.py` 加端点(挂 `Depends(require_security)`), 前端没有权限注册步骤。
-- 平台鉴权只有二元角色 developer/security, 无权限点/权限表(`models/permission.py` 是项目内"权限矩阵"设计器的产物, 不是平台 RBAC); 全局 auth_guard 挂在 `main.py`, 开放前缀与 `require_login`/`require_write_roles` 在 `routers/common.py`。
+- 平台鉴权四类角色 pm/security_reviewer/security_lead/auditor(#216, 角色枚举在 `shared/constants.py`, 数据权限分组 FULL_VISIBILITY_ROLES/SECURITY_SIDE_ROLES), 无权限点/权限表(`models/permission.py` 是项目内"权限矩阵"设计器的产物, 不是平台 RBAC); 全局 auth_guard 挂在 `main.py`, 开放前缀与 `require_login`/`require_write_roles` 在 `routers/common.py`。
 - `CHANGELOG.md` 版本章节格式 `## [X.Y.Z] - YYYY-MM-DD`(无 v 前缀), 与 `main.py` version、`pyproject.toml` version、git tag 四者由 `scripts/check_version.py` 校验一致; 版本章节在打 tag 发版时一并更新(见 dev-workflow「版本与发版」清单)。
 - 质量门禁本地命令: `uv run pytest tests -q`、`uv run ruff check .`、`cd frontend && npm run lint && npm run build`(build 含 tsc 类型检查); 后端依赖经 uv 锁定(`pyproject.toml` 声明 + `uv.lock` 锁树入库, 改声明必须 `uv lock` 连锁文件一起提交), 测试夹具在 `tests/conftest.py`: `api` 默认开发身份, `api_as(api, "sec_admin")` 切安全身份。
 - 部署: Dockerfile 多阶段构建, 前端产物由 FastAPI 单进程托管, 数据/产物走 `/app/data`、`/app/output` 卷; 依赖仓库根静态文件的功能要注意该文件是否 COPY 进了镜像(CHANGELOG.md 就曾漏掉, 更新日志页运行时读取它, 后经 #123 补 dockerignore 例外)。
