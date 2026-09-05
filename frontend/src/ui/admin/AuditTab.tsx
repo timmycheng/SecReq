@@ -31,7 +31,7 @@ export default function AuditTab() {
       <Table<AuditLogRow>
         rowKey="id" loading={loading} dataSource={rows} size="small"
         tableLayout="fixed"
-        pagination={{ pageSize: 20, showSizeChanger: false }}
+        pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
         columns={[
           { title: '时间', dataIndex: 'created_at', width: 170 },
           { title: '操作人', dataIndex: 'username', width: 110 },

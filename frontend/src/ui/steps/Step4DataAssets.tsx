@@ -4,7 +4,7 @@
 import { useRef, useState } from 'react'
 import {
   Alert, Button, Checkbox, Col, Divider, Form, Input, Modal, Popconfirm, Row, Select,
-  Space, Spin, Table, Tag, Tooltip, Typography, Upload, message,
+  Space, Spin, Table, Tag, Tooltip, Typography, Upload, Watermark, message,
 } from 'antd'
 import {
   DatabaseOutlined, DeleteOutlined, EditOutlined, ImportOutlined, PlusOutlined,
@@ -57,6 +57,9 @@ export default function Step4DataAssets({ ws, patch }: StepProps) {
   const assetTypeMap = labelMapOf(enums, 'data_asset_types')
   const storageMap = labelMapOf(enums, 'storage_envs')
 
+  const hasSensitiveAssets = rows.some(
+    (r) => r.classification === '4级_C3鉴别信息' || r.classification === '5级_重要数据')
+
   return (
     <div style={{ maxWidth: 1080, margin: '0 auto' }}>
       <Space style={{ marginBottom: 12 }} wrap>
@@ -71,11 +74,13 @@ export default function Step4DataAssets({ ws, patch }: StepProps) {
         </Typography.Text>
       </Space>
 
-      <Table<DataAssetRow>
-        rowKey={(_, i) => String(i)}
-        dataSource={rows}
-        pagination={false}
-        size="small"
+      {hasSensitiveAssets ? (
+        <Watermark content="内部数据">
+          <Table<DataAssetRow>
+            rowKey={(_, i) => String(i)}
+            dataSource={rows}
+            pagination={false}
+            size="small"
         columns={[
           { title: '资产名称', dataIndex: 'name' },
           ...(baselineIndex ? [{
@@ -121,7 +126,61 @@ export default function Step4DataAssets({ ws, patch }: StepProps) {
             ),
           },
         ]}
-      />
+          />
+        </Watermark>
+      ) : (
+        <Table<DataAssetRow>
+          rowKey={(_, i) => String(i)}
+          dataSource={rows}
+          pagination={false}
+          size="small"
+          columns={[
+            { title: '资产名称', dataIndex: 'name' },
+            ...(baselineIndex ? [{
+              title: '来源', width: 90,
+              render: (_v: unknown, r: DataAssetRow) => (r.uid
+                ? (inheritedAssets.has(r.uid)
+                  ? <Tag color="blue">基线继承</Tag>
+                  : <Tag>本轮新增</Tag>)
+                : null),
+            }] : []),
+            { title: '分类', dataIndex: 'data_type', render: (v: string) => assetTypeMap[v] ?? v },
+            {
+              title: '分级(JR/T 0197)', dataIndex: 'classification',
+              render: (v: string, r) => (
+                <Space size={4} wrap>
+                  <Tag color={DATA_LEVEL_COLOR[v] ?? 'default'}>{levelLabels[v] ?? v}</Tag>
+                  {r.c3_tag && <Tag color="magenta">C3</Tag>}
+                </Space>
+              ),
+            },
+            {
+              title: '个人信息', dataIndex: 'is_sensitive_pii',
+              render: (_v, r) => (r.is_sensitive_pii ? <Tag color="red">敏感PII</Tag>
+                : r.is_pii ? <Tag color="gold">PII</Tag> : '—'),
+            },
+            {
+              title: '存储位置', dataIndex: 'storage_envs',
+              render: (envs: string[]) => envs.map((e) => <Tag key={e}>{storageMap[e] ?? e}</Tag>),
+            },
+            { title: '跨境传输', dataIndex: 'cross_border_transfer', width: 90,
+              render: (v: boolean) => (v ? <Tag color="volcano">是</Tag> : '否') },
+            { title: '表/字段数', render: (_v, r) =>
+              `${r.tables.length} / ${r.tables.reduce((n, t) => n + t.fields.length, 0)}`, width: 90 },
+            {
+              title: '操作', width: 120,
+              render: (_, __, index) => (
+                <Space>
+                  <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(index)} />
+                  <Popconfirm title="删除该资产及其下全部表/字段?" onConfirm={() => setRows(rows.filter((_, i) => i !== index))}>
+                    <Button size="small" danger icon={<DeleteOutlined />} />
+                  </Popconfirm>
+                </Space>
+              ),
+            },
+          ]}
+        />
+      )}
 
       <DictionaryImportModal
         projectId={ws.project.id}

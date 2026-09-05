@@ -105,7 +105,7 @@ export default function ProjectListPage() {
           rowKey="id"
           loading={loading}
           dataSource={visibleProjects}
-          pagination={{ pageSize: 15 }}
+          pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
           locale={{
             emptyText: (
               <Empty
