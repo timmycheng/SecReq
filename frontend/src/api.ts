@@ -65,6 +65,11 @@ export function clearAuth() {
   localStorage.removeItem(USER_STORAGE_KEY)
 }
 
+/** 步骤耗时埋点(#229): 秒数非空时拼到 URL Query。 */
+function qsDuration(seconds?: number): string {
+  return seconds != null && seconds > 0 ? `?duration_seconds=${Math.round(seconds)}` : ''
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -169,8 +174,8 @@ export const api = {
   /** 一键清空(#172): 清空当前项目全部向导输入, 回到空白模板 */
   resetProjectWizard: (id: number) =>
     request<ProjectDetail>(`/api/projects/${id}/reset-wizard`, { method: 'POST' }),
-  patchProject: (id: number, payload: Partial<ProjectInfo>) =>
-    request<ProjectDetail>(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  patchProject: (id: number, payload: Partial<ProjectInfo>, durationSeconds?: number) =>
+    request<ProjectDetail>(`/api/projects/${id}${qsDuration(durationSeconds)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deleteProject: (id: number) => request<void>(`/api/projects/${id}`, { method: 'DELETE' }),
 
   loadWizard: (id: number) => request<WizardState>(`/api/projects/${id}/wizard-state`),
@@ -266,21 +271,21 @@ export const api = {
     }
     return (await resp.json()) as { row_count: number; assets: DataAssetRow[] }
   },
-  saveFeatures: (id: number, rows: FeatureRow[]) =>
-    request<FeatureRow[]>(`/api/projects/${id}/features`, {
+  saveFeatures: (id: number, rows: FeatureRow[], durationSeconds?: number) =>
+    request<FeatureRow[]>(`/api/projects/${id}/features${qsDuration(durationSeconds)}`, {
       method: 'POST', body: JSON.stringify(rows),
     }),
-  saveDataAssets: (id: number, rows: DataAssetRow[]) =>
-    request<DataAssetRow[]>(`/api/projects/${id}/data-assets`, {
+  saveDataAssets: (id: number, rows: DataAssetRow[], durationSeconds?: number) =>
+    request<DataAssetRow[]>(`/api/projects/${id}/data-assets${qsDuration(durationSeconds)}`, {
       method: 'POST', body: JSON.stringify(rows),
     }),
-  saveMatrix: (id: number, roles: RoleRow[], resources: ResourceRow[], entries: MatrixEntryIn[]) =>
+  saveMatrix: (id: number, roles: RoleRow[], resources: ResourceRow[], entries: MatrixEntryIn[], durationSeconds?: number) =>
     request<{
       roles: (RoleRow & { id: number })[],
       resources: (ResourceRow & { id: number })[],
       entries: { id: number, role_id: number, resource_id: number, action: string, requires_approval: boolean }[],
       saved: { roles: number, resources: number, entries: number },
-    }>(`/api/projects/${id}/matrix`, {
+    }>(`/api/projects/${id}/matrix${qsDuration(durationSeconds)}`, {
       method: 'POST',
       body: JSON.stringify({ roles, resources, entries }),
     }),
@@ -311,8 +316,8 @@ export const api = {
       filename: string, format: string, total_parsed: number, added: number, skipped_duplicate: number,
     }
   },
-  saveApiEndpoints: (id: number, rows: ApiEndpointRow[]) =>
-    request<ApiEndpointRow[]>(`/api/projects/${id}/api-endpoints`, {
+  saveApiEndpoints: (id: number, rows: ApiEndpointRow[], durationSeconds?: number) =>
+    request<ApiEndpointRow[]>(`/api/projects/${id}/api-endpoints${qsDuration(durationSeconds)}`, {
       method: 'POST', body: JSON.stringify(rows),
     }),
   saveInfraAssets: (id: number, rows: InfraAssetRow[]) =>

@@ -8,7 +8,7 @@ import { DeleteOutlined, EditOutlined, PlusOutlined, QuestionCircleOutlined, Sni
 
 import { api } from '../../api'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
-import { useRegisterStepHandle } from './stepContext'
+import { useRegisterStepHandle, useStepDwell } from './stepContext'
 import type { StepProps } from '../WizardPage'
 import type { FeatureRow } from '../../types'
 
@@ -52,6 +52,7 @@ const SENSITIVITY_HINTS: Record<string, string> = {
 }
 
 export default function Step3Features({ ws, patch }: StepProps) {
+  const dwell = useStepDwell()
   const enums = useEnums()
   const [rows, setRows] = useState<FeatureRow[]>(ws.features)
   const [editing, setEditing] = useState<FeatureRow | null>(null)
@@ -73,7 +74,7 @@ export default function Step3Features({ ws, patch }: StepProps) {
 
   const save = async (silent = false): Promise<boolean> => {
     try {
-      const saved = await api.saveFeatures(ws.project.id, rows)
+      const saved = await api.saveFeatures(ws.project.id, rows, dwell.elapsed())
       patch({ features: saved })
       savedRef.current = JSON.stringify(rows)
       if (!silent) message.success(`已保存 ${saved.length} 个功能`)

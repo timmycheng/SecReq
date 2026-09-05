@@ -651,3 +651,12 @@ def list_audit_logs(limit: int = 200,
         }
         for r in rows
     ]
+
+
+@router.get("/step-metrics")
+def step_metrics(project_id: int | None = None,
+                db: Session = Depends(get_db),
+                _: PlatformUser = Depends(require_security)):
+    """步骤级耗时报表(#229): 各步骤 平均/中位/P90/样本数, 试点汇报用。"""
+    from services.step_metrics import step_metrics_report
+    return step_metrics_report(db, project_id)

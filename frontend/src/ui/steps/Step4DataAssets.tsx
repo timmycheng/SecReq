@@ -12,7 +12,7 @@ import {
 
 import { api } from '../../api'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
-import { useBaselineUidIndex, useRegisterStepHandle } from './stepContext'
+import { useBaselineUidIndex, useRegisterStepHandle, useStepDwell } from './stepContext'
 import { DATA_LEVEL_COLOR } from '../tokens'
 import type { StepProps } from '../WizardPage'
 import type { DataAssetRow, DataFieldRow, DataTableRow } from '../../types'
@@ -25,6 +25,7 @@ const EMPTY_ASSET: DataAssetRow = {
 }
 
 export default function Step4DataAssets({ ws, patch }: StepProps) {
+  const dwell = useStepDwell()
   const enums = useEnums()
   const baselineIndex = useBaselineUidIndex(ws.project.system_id)
   const inheritedAssets = new Set(baselineIndex?.data_assets ?? [])
@@ -39,7 +40,7 @@ export default function Step4DataAssets({ ws, patch }: StepProps) {
 
   const save = async (silent = false): Promise<boolean> => {
     try {
-      const saved = await api.saveDataAssets(ws.project.id, rows)
+      const saved = await api.saveDataAssets(ws.project.id, rows, dwell.elapsed())
       patch({ data_assets: saved })
       savedRef.current = JSON.stringify(rows)
       if (!silent) message.success(`已保存 ${saved.length} 个数据资产`)

@@ -11,7 +11,7 @@ import { api } from '../../api'
 import { useEnums } from '../../enums'
 import type { ApiEndpointRow } from '../../types'
 import GlossaryTip from '../GlossaryTip'
-import { useBaselineUidIndex, useRegisterStepHandle } from './stepContext'
+import { useBaselineUidIndex, useRegisterStepHandle, useStepDwell } from './stepContext'
 import type { StepProps } from '../WizardPage'
 
 const EMPTY_EP: ApiEndpointRow = {
@@ -24,6 +24,7 @@ const METHOD_COLOR: Record<string, string> = {
 }
 
 export default function Step6ApiList({ ws, patch }: StepProps) {
+  const dwell = useStepDwell()
   const baselineIndex = useBaselineUidIndex(ws.project.system_id)
   const inheritedApis = new Set(baselineIndex?.api_endpoints ?? [])
   const [endpoints, setEndpoints] = useState<ApiEndpointRow[]>(ws.api_endpoints)
@@ -37,7 +38,7 @@ export default function Step6ApiList({ ws, patch }: StepProps) {
 
   const save = async (silent = false): Promise<boolean> => {
     try {
-      const saved = await api.saveApiEndpoints(ws.project.id, endpoints)
+      const saved = await api.saveApiEndpoints(ws.project.id, endpoints, dwell.elapsed())
       patch({ api_endpoints: saved })
       savedRef.current = JSON.stringify(endpoints)
       if (!silent) message.success(`已保存 ${saved.length} 个接口`)

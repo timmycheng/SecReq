@@ -4,7 +4,7 @@
 数据权限: 开发(developer)只能看到/操作自己创建的项目, 安全(security)全量可见;
 越权访问一律按 404 处理, 不泄露项目存在性。
 """
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -20,6 +20,7 @@ from schemas.project import (
     ProjectCreate, ProjectDetail, ProjectUpdate, serialize_project,
 )
 from services.audit_service import audit
+from routers.steps import _record_duration
 from services.project_copy import copy_wizard_data, reset_wizard_data
 from services.project_service import ProjectExistsError, create_project, project_counts, update_project
 from services.system_service import current_baseline_id
@@ -171,7 +172,8 @@ def get_one(project: Project = Depends(get_project_or_404),
 @router.patch("/{project_id}", response_model=ProjectDetail, dependencies=[_writable])
 def patch(payload: ProjectUpdate, project: Project = Depends(get_project_or_404),
           db: Session = Depends(get_db),
-          user: PlatformUser = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES))):
+          user: PlatformUser = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES)),
+          duration_seconds: float | None = Query(default=None, description='本步停留秒数(#229 埋点)')):
     from routers.common import ensure_project_access
     ensure_project_access(user, project)
     changes = payload.model_dump(exclude_unset=True)
@@ -183,6 +185,7 @@ def patch(payload: ProjectUpdate, project: Project = Depends(get_project_or_404)
             raise HTTPException(status_code=400, detail="评估必须归属系统, 不允许解除绑定")
         _resolve_system(db, user, changes["system_id"])
     project = update_project(db, project, changes)
+    _record_duration(db, user, project, 'project_info', duration_seconds)
     return _detail(db, project)
 
 
