@@ -20,7 +20,7 @@ from routers.common import ensure_project_access
 from services.requirement_lifecycle import (
     RequirementTransitionError, transition_requirement,
 )
-from services.review_gates import requirement_gate_checks
+from services.review_gates import design_gate_checks, requirement_gate_checks
 
 GENESIS_HASH = "0" * 64
 
@@ -37,7 +37,7 @@ class ReviewForbidden(PermissionError):
 # checker(db, project) -> list[str]: 返回缺项描述列表, 空列表=通过。
 GATE_CHECKS: dict[str, list] = {
     "requirement": [requirement_gate_checks],
-    "design": [],
+    "design": [design_gate_checks],
 }
 
 

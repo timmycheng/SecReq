@@ -64,6 +64,33 @@ def create_system_api(client, name: str) -> dict:
     return resp.json()
 
 
+def satisfy_design_gate(client, system_id: int, project_id: int) -> None:
+    """让目标项目满足设计门禁(#222): 系统建 SBOM + 项目建带字典的账户类资产。
+
+    供提交评审链路用例使用 —— 设计门禁启用后, 提交评审会对 SBOM/SoD/数据字典/
+    漏填做硬校验, 不满足即 blocked。不构造敏感字段/公网接口/权限冲突等违例。
+    """
+    db = client.session_factory()
+    try:
+        from models import DataAsset, DataTable, SbomComponent
+        if not db.query(SbomComponent).filter_by(system_id=system_id).first():
+            db.add(SbomComponent(system_id=system_id, layer="library",
+                                 name="log4j-core", version="2.14.1",
+                                 source_type="manual_input"))
+        asset = DataAsset(
+            project_id=project_id, uid=f"uid-gate-{project_id}", name="交易流水",
+            data_type="business_data", classification="3级_C2主要信息",
+            is_pii=False, is_sensitive_pii=False, storage_envs=["db"],
+            cross_border_transfer=False,
+        )
+        db.add(asset)
+        db.flush()
+        db.add(DataTable(asset_id=asset.id, table_name="transactions"))
+        db.commit()
+    finally:
+        db.close()
+
+
 def gen_for(session, project, engine):
     """flush 后针对指定项目执行规则引擎的统一辅助入口。"""
     from rules.context import RequirementContext
