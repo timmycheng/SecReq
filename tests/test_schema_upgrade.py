@@ -179,7 +179,7 @@ def test_legacy_db_upgrade_columns_added(legacy_engine):
 
     assert set(added["sbom_components"]) == {
         "uid", "ecosystem", "distro", "osv_query_fingerprint", "vuln_status",
-        "vuln_status_note",
+        "vuln_status_note", "created_at",  # #224 SBOM 双轨
     }
     # #194: 三张清单表已整表重建挂 system_id, 记录在 tables 动作里
     assert {"infra_assets", "sbom_components", "infra_arch_images"}         <= set(added.get("tables", []))

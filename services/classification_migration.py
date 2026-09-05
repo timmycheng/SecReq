@@ -223,15 +223,16 @@ _INVENTORY_REBUILDS: dict[str, list[str]] = {
             last_osv_query_at DATETIME,
             osv_query_fingerprint VARCHAR(100),
             vuln_status VARCHAR(20),
-            vuln_status_note VARCHAR(300)
+            vuln_status_note VARCHAR(300),
+            created_at DATETIME
         )""",
         """INSERT INTO sbom_components_new
             (id, system_id, uid, layer, name, version, purl, license, source_type,
              ecosystem, distro, last_osv_query_at, osv_query_fingerprint,
-             vuln_status, vuln_status_note)
+             vuln_status, vuln_status_note, created_at)
         SELECT c.id, p.system_id, c.uid, c.layer, c.name, c.version, c.purl, c.license,
                c.source_type, c.ecosystem, c.distro, c.last_osv_query_at,
-               c.osv_query_fingerprint, c.vuln_status, c.vuln_status_note
+               c.osv_query_fingerprint, c.vuln_status, c.vuln_status_note, c.created_at
         FROM sbom_components c
         JOIN projects p ON c.project_id = p.id
         WHERE p.system_id IS NOT NULL
