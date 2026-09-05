@@ -3,6 +3,7 @@
 from models.database import Base, init_db, make_engine, make_session_factory
 from models.project import ExternalSystem, GradingSurvey, Project
 from models.system import Filing, System
+from models.system_baseline import SystemBaseline, SystemBaselineHistory
 from models.feature import Feature
 from models.data_dictionary import DataAsset, DataField, DataTable
 from models.permission import PermissionEntry, Resource, Role
@@ -34,6 +35,8 @@ __all__ = [
     "PermissionEntry",
     "AuthConfig",
     "SbomComponent",
+    "SystemBaseline",
+    "SystemBaselineHistory",
     "VulnerabilityRecord",
     "ApiEndpoint",
     "InfraAsset",

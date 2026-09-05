@@ -130,6 +130,40 @@ def test_system_detail_basic_info_fields(dev):
     assert target["name"] == "网银系统"
 
 
+def test_system_baseline_zone_and_histories(dev, session=None):
+    """#223 安全基线 D 区: 初始空不报错; 写入基线+履历后详情可见, 履历倒序。"""
+    from models import SystemBaseline, SystemBaselineHistory
+
+    system = _create_system(dev, name="基线系统", code="SYS-BL")
+    detail = dev.get(f"/api/systems/{system['id']}").json()
+    assert detail["baseline"] is None            # 履历初始为空不报错
+    assert detail["baseline_histories"] == []
+
+    db = dev.session_factory()
+    try:
+        bl = SystemBaseline(
+            system_id=system["id"],
+            baseline_json={"data_assets": [{"tables": [1, 2]}], "roles": [1],
+                           "resources": [1, 2], "permission_entries": [1], "api_endpoints": []},
+            source_project_id=7, updated_by="评审员甲", summary="首轮基线写回")
+        db.add(bl)
+        db.flush()
+        db.add(SystemBaselineHistory(
+            system_id=system["id"], baseline_id=bl.id, project_id=7,
+            summary="首轮基线写回: 资产 1/字典 2 表", operator_name="评审员甲"))
+        db.commit()
+    finally:
+        db.close()
+
+    detail = dev.get(f"/api/systems/{system['id']}").json()
+    assert detail["baseline"]["summary"] == {
+        "data_assets": 1, "data_tables": 2, "roles": 1, "resources": 2,
+        "permission_entries": 1, "api_endpoints": 0}
+    assert detail["baseline"]["source_project_id"] == 7
+    assert detail["baseline"]["updated_by"] == "评审员甲"
+    assert [h["summary"] for h in detail["baseline_histories"]] == ["首轮基线写回: 资产 1/字典 2 表"]
+
+
 def test_system_unique_conflict_409(dev):
     _create_system(dev, name="系统A", code="SYS-A")
     assert dev.post("/api/systems", json={"name": "系统A"}).status_code == 409

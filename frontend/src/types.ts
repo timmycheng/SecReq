@@ -122,6 +122,23 @@ export interface SystemRow {
   current_baseline_project_id?: number | null
   rounds?: RoundSummary[]
   latest_round?: RoundSummary | null
+  /** ── 安全基线 D 区(#223) ── */
+  baseline?: {
+    summary: Record<string, number> | null
+    source_project_id: number | null
+    source_gate_id: number | null
+    summary_text: string | null
+    updated_by: string | null
+    updated_at: string | null
+  } | null
+  baseline_histories?: {
+    id: number
+    project_id: number | null
+    gate_id: number | null
+    summary: string
+    operator_name: string | null
+    created_at: string | null
+  }[]
 }
 
 /* 两轮需求增量对比(GET /requirements/diff) */
