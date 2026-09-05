@@ -85,6 +85,16 @@ def create(payload: ProjectCreate, request: Request, db: Session = Depends(get_d
     if source is not None:
         from services.project_copy import copy_wizard_data
         copy_wizard_data(db, source, project)
+    else:
+        # 评估继承系统基线(#224): 显式选了复制来源走整卷复制, 否则系统有基线即预填
+        from models import SystemBaseline
+        baseline = (
+            db.query(SystemBaseline).filter_by(system_id=project.system_id).first()
+            if project.system_id is not None else None
+        )
+        if baseline is not None:
+            from services.baseline_inheritance import prefill_project_from_baseline
+            prefill_project_from_baseline(db, project, baseline)
     audit(db, user.username, "project_create",
           {"project_id": project.id, "code": project.code, "name": project.name,
            **({"copied_from": source.id} if source else {})},

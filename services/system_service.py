@@ -283,6 +283,7 @@ def _baseline_out(db: Session, system: System) -> dict | None:
     baseline = db.query(SystemBaseline).filter_by(system_id=system.id).first()
     if baseline is None:
         return None
+    from services.baseline_inheritance import baseline_uid_index
     return {
         "summary": baseline_summary(baseline),
         "source_project_id": baseline.source_project_id,
@@ -290,6 +291,7 @@ def _baseline_out(db: Session, system: System) -> dict | None:
         "summary_text": baseline.summary,
         "updated_by": baseline.updated_by,
         "updated_at": format_created_at(baseline.updated_at),
+        "uid_index": baseline_uid_index(baseline),
     }
 
 

@@ -38,6 +38,10 @@ class SbomComponent(Base, UidMixin):
     last_osv_query_at: Mapped[datetime | None] = mapped_column(
         DateTime, comment="最近一次漏洞查询成功时间(缓存判定依据)"
     )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now,
+        comment="入库时间(#224 SBOM 双轨: 晚于评估轮创建时间即本轮增量)",
+    )
     osv_query_fingerprint: Mapped[str | None] = mapped_column(
         String(100), comment="查询指纹(漏洞库版本+组件版本), 指纹不变则复用缓存"
     )

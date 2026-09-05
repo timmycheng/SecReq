@@ -130,6 +130,7 @@ export interface SystemRow {
     summary_text: string | null
     updated_by: string | null
     updated_at: string | null
+    uid_index?: Record<string, string[]>
   } | null
   baseline_histories?: {
     id: number

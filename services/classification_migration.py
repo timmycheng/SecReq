@@ -71,6 +71,8 @@ _NEW_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("osv_query_fingerprint", "VARCHAR(100)"),
         ("vuln_status", "VARCHAR(20)"),
         ("vuln_status_note", "VARCHAR(300)"),
+        # SBOM 双轨(#224): 入库时间, 晚于评估轮创建时间即本轮增量
+        ("created_at", "DATETIME"),
     ],
     # v2.3.0 实体稳定 uid(#66): 其余整表替换实体与接口资产关联。
     # 列补齐后由 services/entity_uid_migration.migrate_entity_uids 回填与重映射
@@ -221,15 +223,16 @@ _INVENTORY_REBUILDS: dict[str, list[str]] = {
             last_osv_query_at DATETIME,
             osv_query_fingerprint VARCHAR(100),
             vuln_status VARCHAR(20),
-            vuln_status_note VARCHAR(300)
+            vuln_status_note VARCHAR(300),
+            created_at DATETIME
         )""",
         """INSERT INTO sbom_components_new
             (id, system_id, uid, layer, name, version, purl, license, source_type,
              ecosystem, distro, last_osv_query_at, osv_query_fingerprint,
-             vuln_status, vuln_status_note)
+             vuln_status, vuln_status_note, created_at)
         SELECT c.id, p.system_id, c.uid, c.layer, c.name, c.version, c.purl, c.license,
                c.source_type, c.ecosystem, c.distro, c.last_osv_query_at,
-               c.osv_query_fingerprint, c.vuln_status, c.vuln_status_note
+               c.osv_query_fingerprint, c.vuln_status, c.vuln_status_note, c.created_at
         FROM sbom_components c
         JOIN projects p ON c.project_id = p.id
         WHERE p.system_id IS NOT NULL
