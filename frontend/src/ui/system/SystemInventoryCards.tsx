@@ -45,9 +45,11 @@ export interface InventoryCardHandle {
   isDirty: () => boolean
 }
 
-export function SystemInfraCard({ systemId, onHandle }: {
+export function SystemInfraCard({ systemId, onHandle, onSaved }: {
   systemId: number
   onHandle?: (h: InventoryCardHandle | null) => void
+  /** 保存成功后回吐最新清单(#259): 向导步骤据此同步 WizardState, 确认页条数不陈旧 */
+  onSaved?: (rows: InfraAssetRow[]) => void
 }) {
   const enums = useEnums()
   const [assets, setAssets] = useState<InfraAssetRow[]>([])
@@ -79,6 +81,7 @@ export function SystemInfraCard({ systemId, onHandle }: {
       const fresh = await api.saveSystemInfraAssets(systemId, assets)
       setAssets(fresh)
       setDirty(false)
+      onSaved?.(fresh)
       if (!silent) message.success(`已保存基础设施清单(共 ${fresh.length} 项资产)`)
       return true
     } catch (e) {
@@ -342,9 +345,11 @@ const STATUS_COLOR: Record<string, string> = {
   hit: 'red', not_found: 'green', undetermined: 'orange', not_covered: 'gold',
 }
 
-export function SystemComponentsCard({ systemId, onHandle }: {
+export function SystemComponentsCard({ systemId, onHandle, onSaved }: {
   systemId: number
   onHandle?: (h: InventoryCardHandle | null) => void
+  /** 保存成功后回吐最新清单(#259): 向导步骤据此同步 WizardState, 确认页条数不陈旧 */
+  onSaved?: (rows: ComponentRow[]) => void
 }) {
   const enums = useEnums()
   const [rows, setRows] = useState<DraftRow[]>([])
@@ -395,8 +400,9 @@ export function SystemComponentsCard({ systemId, onHandle }: {
     }
     setSaving(true)
     try {
-      await api.saveSystemComponents(systemId, rows)
+      const fresh = await api.saveSystemComponents(systemId, rows)
       setDirty(false)
+      onSaved?.(fresh)
       if (!silent) {
         message.success(rows.length ? `已保存 ${rows.length} 个组件` : '组件清单已保存(为空, 生成时跳过漏洞扫描)')
       }

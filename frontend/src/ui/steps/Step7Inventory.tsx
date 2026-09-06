@@ -12,7 +12,7 @@ import {
 import type { StepProps } from '../WizardPage'
 import { useRegisterStepHandle } from './stepContext'
 
-export default function Step7Inventory({ ws }: StepProps) {
+export default function Step7Inventory({ ws, patch }: StepProps) {
   const infraRef = useRef<InventoryCardHandle | null>(null)
   const compsRef = useRef<InventoryCardHandle | null>(null)
 
@@ -52,8 +52,14 @@ export default function Step7Inventory({ ws }: StepProps) {
         )}
       />
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
-        <SystemComponentsCard systemId={systemId} onHandle={(h) => { compsRef.current = h }} />
-        <SystemInfraCard systemId={systemId} onHandle={(h) => { infraRef.current = h }} />
+        <SystemComponentsCard
+          systemId={systemId} onHandle={(h) => { compsRef.current = h }}
+          onSaved={(rows) => patch({ components: rows })}
+        />
+        <SystemInfraCard
+          systemId={systemId} onHandle={(h) => { infraRef.current = h }}
+          onSaved={(rows) => patch({ infra_assets: rows })}
+        />
       </Space>
     </div>
   )
