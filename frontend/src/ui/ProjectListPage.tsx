@@ -246,7 +246,7 @@ export default function ProjectListPage() {
             {createMode === 'copy' && (
               <Alert
                 style={{ marginTop: 12 }} type="info" showIcon
-                message={`将复制「${latestRound.project_name}」(${latestRound.created_at?.slice(0, 10) || ''}{latestRound.status === 'generated' ? ', 已生成基线' : ''})`}
+                message={`将复制「${latestRound.project_name}」(${latestRound.created_at?.slice(0, 10) || ''}${latestRound.status === 'generated' ? ', 已生成基线' : ''})`}
                 description="各步向导数据与上一轮一致; 组件漏洞记录不复制, 生成时重新查询。"
               />
             )}
