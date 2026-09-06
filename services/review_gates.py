@@ -48,7 +48,9 @@ def design_gate_checks(db: Session, project: Project) -> list[str]:
         comp_count = (
             db.query(SbomComponent).filter_by(system_id=project.system_id).count())
         if comp_count == 0:
-            missing.append("设计门禁: SBOM 未生成, 请先在系统台账维护组件清单")
+            missing.append(
+                "设计门禁: SBOM 未生成, 请先维护组件清单"
+                "(评估向导「组件与基础设施」步或系统详情页)")
 
     # 2) SoD 冲突 = 0 或已生成整改需求(互斥对判定与规则引擎算法2一致)
     conflicts = _sod_conflicts(db, project)

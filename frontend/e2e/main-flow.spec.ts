@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test'
 
-/* 主链路 E2E(#72): 建系统 → 建项目 → 6 步向导 → 生成 → 批量确认 → 导出。
+/* 主链路 E2E(#72): 建系统 → 建项目 → 7 步向导 → 生成 → 批量确认 → 导出。
    覆盖平台最核心用户路径的前端行为(步骤保存/批量确认/导出下载)。 */
 
-test('建系统 → 建项目 → 6步向导 → 生成 → 批量确认 → 导出', async ({ page }) => {
+test('建系统 → 建项目 → 7步向导 → 生成 → 批量确认 → 导出', async ({ page }) => {
   test.setTimeout(300_000)
 
   // ── 登录(种子账号, 密码来自 playwright.config webServer env) ──
@@ -106,11 +106,11 @@ test('建系统 → 建项目 → 6步向导 → 生成 → 批量确认 → 导
   await expect(activeStep).toContainText('权限矩阵', { timeout: 20_000 })
   await page.getByRole('button', { name: '添加' }).nth(1).click()  // 资源编辑器的「添加」
   await page.getByPlaceholder('资源名, 如 交易流水记录').fill('E2E 客户数据')
-  // #194: 组件/基础设施已上收系统台账, 向导收敛为 6 步
+  // ── 第 5~6 步: API接口 → 组件与基础设施(#259 内嵌系统清单卡, 空清单直接推进) ──
   await advanceTo('API接口')
   await advanceTo('确认生成')
 
-  // ── 第 8 步: 确认生成(默认本地离线库, 保持用例封闭) ──
+  // ── 第 7 步: 确认生成(默认本地离线库, 保持用例封闭) ──
   await expect(page.locator('.ant-steps-item-active')).toContainText('确认生成', { timeout: 20_000 })
   await page.getByRole('button', { name: /生成安全基线/ }).click()
 

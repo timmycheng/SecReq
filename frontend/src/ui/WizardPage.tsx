@@ -1,4 +1,6 @@
-/* 6 步向导容器: 装载整卷状态并分步渲染(#194: 基础设施/组件已上收系统, 在系统详情页维护)。
+/* 7 步向导容器: 装载整卷状态并分步渲染。
+   #194 基础设施/组件上收系统; #259 恢复「组件与基础设施」步骤(内嵌系统清单卡,
+   默认带出系统已存版本, 修改写穿系统台账), 基本信息仍在系统详情页维护。
 
 职责划分: 各步骤组件通过 StepHandleContext 注册 save/isDirty(内聚各自的 API 调用与校验),
 本容器负责状态装载、统一吸底导航(保存并下一步/上一步)、未保存修改的离开拦截、
@@ -22,15 +24,17 @@ import Step3Features from './steps/Step3Features'
 import Step4DataAssets from './steps/Step4DataAssets'
 import Step5PermissionMatrix from './steps/Step5PermissionMatrix'
 import Step6ApiList from './steps/Step6ApiList'
+import Step7Inventory from './steps/Step7Inventory'
 import ConfirmStep from './steps/ConfirmStep'
 
-// 标题/描述保持短句, 避免 6 步并排时在窄屏被挤成竖排
+// 标题/描述保持短句, 避免 7 步并排时在窄屏被挤成竖排
 const STEPS: { title: string; description: string }[] = [
   { title: '评估定级', description: '基本信息/外部系统' },
   { title: '功能清单', description: '功能安全' },
   { title: '数据字典', description: '分级与脱敏' },
   { title: '权限矩阵', description: '越权与SoD' },
   { title: 'API接口', description: '匿名/公网' },
+  { title: '组件与基础设施', description: 'SBOM/资产·架构图' },
   { title: '确认生成', description: '预览/生成' },
 ]
 const LAST = STEPS.length - 1
@@ -219,6 +223,7 @@ export default function WizardPage({ projectId }: { projectId: number }) {
     ws.data_assets.length > 0,
     ws.roles.length > 0 && ws.resources.length > 0,
     ws.api_endpoints.length > 0,
+    ws.components.length > 0 || ws.infra_assets.length > 0,
     false,
   ]
   const statusOf = (i: number): 'process' | 'finish' | 'wait' =>
@@ -230,6 +235,7 @@ export default function WizardPage({ projectId }: { projectId: number }) {
     (p) => <Step4DataAssets {...p} />,
     (p) => <Step5PermissionMatrix {...p} />,
     (p) => <Step6ApiList {...p} />,
+    (p) => <Step7Inventory {...p} />,
     (p) => <ConfirmStep {...p} />,
   ]
 
@@ -277,7 +283,8 @@ export default function WizardPage({ projectId }: { projectId: number }) {
             <span>
               按 1→{STEPS.length} 步完成评估信息采集, 每步点「保存并下一步」即可, 也可点击顶部步骤条随时跳转
               (有未保存修改时会先询问); 最后一步试算预览并一键生成安全需求清单与 SBOM。
-              系统的基本信息、基础设施与组件清单在系统台账维护, 不在向导内重复填写。
+              第 6 步的组件与基础设施清单默认带出系统台账的已存版本, 可就地确认或修改(修改会同步系统台账);
+              基本信息(规模/类型/公网)仍在系统台账维护。
               第 1 步完成定级后即可预览本评估的合规基线要求。
               各步骤填什么, 看每步顶部说明与术语旁的 <QuestionCircleOutlined style={{ color: '#999' }} /> 图标。
             </span>
