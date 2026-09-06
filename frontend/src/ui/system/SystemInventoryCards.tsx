@@ -1,7 +1,9 @@
 /* 系统清单维护卡(#194): 基础设施(架构图+资产清单)与组件(SBOM)挂系统维护,
    多轮评估共享同一份清单。由向导步骤组件(Step7InfraList/Step7Components)平移改造:
    数据源从评估轮次切换为 /api/systems/{id}/..., 去掉向导步骤句柄与 NetBox 导入/推送
-   入口(旁路增强已收敛到安全侧, 见 #196; 存量行的 NetBox 关联标记仍只读展示)。 */
+   入口(旁路增强已收敛到安全侧, 见 #196; 存量行的 NetBox 关联标记仍只读展示)。
+   #259 起卡片同时被评估向导「组件与基础设施」步骤内嵌: 可选 onHandle 把 save/isDirty
+   注册给向导步骤句柄(吸底导航/离开拦截/草稿自动保存复用), 系统详情页不传, 行为不变。 */
 import { useEffect, useState } from 'react'
 import {
   Alert, AutoComplete, Button, Card, Checkbox, Collapse, Form, Image, Input, InputNumber, Modal,
@@ -36,7 +38,19 @@ const EMPTY_ASSET: InfraAssetRow = {
   os: null, quantity: 1, purpose: null,
 }
 
-export function SystemInfraCard({ systemId }: { systemId: number }) {
+/** 向导步骤句柄(#259): 与 steps/stepContext 的 StepHandle 同构。 */
+export interface InventoryCardHandle {
+  /** 保存清单; 未修改时短路返回 true, 校验/请求失败返回 false(提示由卡片内部负责)。 */
+  save: (silent?: boolean) => Promise<boolean>
+  isDirty: () => boolean
+}
+
+export function SystemInfraCard({ systemId, onHandle, onSaved }: {
+  systemId: number
+  onHandle?: (h: InventoryCardHandle | null) => void
+  /** 保存成功后回吐最新清单(#259): 向导步骤据此同步 WizardState, 确认页条数不陈旧 */
+  onSaved?: (rows: InfraAssetRow[]) => void
+}) {
   const enums = useEnums()
   const [assets, setAssets] = useState<InfraAssetRow[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -60,15 +74,19 @@ export function SystemInfraCard({ systemId }: { systemId: number }) {
 
   const assetsOf = (env: string) => assets.filter((a) => (a.env || 'prod') === env)
 
-  const save = async () => {
+  const save = async (silent = false): Promise<boolean> => {
+    if (!dirty) return true
     setSaving(true)
     try {
       const fresh = await api.saveSystemInfraAssets(systemId, assets)
       setAssets(fresh)
       setDirty(false)
-      message.success(`已保存基础设施清单(共 ${fresh.length} 项资产)`)
+      onSaved?.(fresh)
+      if (!silent) message.success(`已保存基础设施清单(共 ${fresh.length} 项资产)`)
+      return true
     } catch (e) {
       message.error((e as Error).message)
+      return false
     } finally {
       setSaving(false)
     }
@@ -103,6 +121,12 @@ export function SystemInfraCard({ systemId }: { systemId: number }) {
   }
 
   const mutate = (rows: InfraAssetRow[]) => { setAssets(rows); setDirty(true) }
+
+  // 每次渲染后重新注册句柄(闭包始终指向最新状态), 卸载时注销 —— 与 useRegisterStepHandle 同套路
+  useEffect(() => {
+    onHandle?.({ save, isDirty: () => dirty })
+    return () => onHandle?.(null)
+  })
 
   const archCard = (env: string) => {
     const url = archImages[env]
@@ -321,7 +345,12 @@ const STATUS_COLOR: Record<string, string> = {
   hit: 'red', not_found: 'green', undetermined: 'orange', not_covered: 'gold',
 }
 
-export function SystemComponentsCard({ systemId }: { systemId: number }) {
+export function SystemComponentsCard({ systemId, onHandle, onSaved }: {
+  systemId: number
+  onHandle?: (h: InventoryCardHandle | null) => void
+  /** 保存成功后回吐最新清单(#259): 向导步骤据此同步 WizardState, 确认页条数不陈旧 */
+  onSaved?: (rows: ComponentRow[]) => void
+}) {
   const enums = useEnums()
   const [rows, setRows] = useState<DraftRow[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -362,23 +391,35 @@ export function SystemComponentsCard({ systemId }: { systemId: number }) {
     source_type: 'manual_input', ecosystem: null, distro: null,
   })
 
-  const save = async () => {
+  const save = async (silent = false): Promise<boolean> => {
+    if (!dirty) return true
     const missingVersion = rows.find((r) => !r.version?.trim())
     if (missingVersion) {
       message.warning(`组件「${missingVersion.name}」缺少版本号(漏洞匹配需要), 请补全或删除`)
-      return
+      return false
     }
     setSaving(true)
     try {
-      await api.saveSystemComponents(systemId, rows)
+      const fresh = await api.saveSystemComponents(systemId, rows)
       setDirty(false)
-      message.success(rows.length ? `已保存 ${rows.length} 个组件` : '组件清单已保存(为空, 生成时跳过漏洞扫描)')
+      onSaved?.(fresh)
+      if (!silent) {
+        message.success(rows.length ? `已保存 ${rows.length} 个组件` : '组件清单已保存(为空, 生成时跳过漏洞扫描)')
+      }
+      return true
     } catch (e) {
       message.error((e as Error).message)
+      return false
     } finally {
       setSaving(false)
     }
   }
+
+  // 每次渲染后重新注册句柄(闭包始终指向最新状态), 卸载时注销 —— 与 useRegisterStepHandle 同套路
+  useEffect(() => {
+    onHandle?.({ save, isDirty: () => dirty })
+    return () => onHandle?.(null)
+  })
 
   const doImport = async (file: File) => {
     setUploading(true)
