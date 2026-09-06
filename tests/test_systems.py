@@ -124,10 +124,13 @@ def test_system_detail_basic_info_fields(dev):
     assert detail["user_scale"] == "1万-10万"
     assert detail["types"] == ["个人网银", "企业网银"]
     assert detail["is_public"] is True
-    # 台账接口保持原口径, 不受详情补字段影响
+    # 台账行同样携带三件套(#258): 台账页「编辑」以整行回填弹窗, 缺字段会回显为空
     ledger = dev.get("/api/systems/ledger").json()
     target = next(s for s in ledger if s["id"] == system["id"])
     assert target["name"] == "网银系统"
+    assert target["user_scale"] == "1万-10万"
+    assert target["types"] == ["个人网银", "企业网银"]
+    assert target["is_public"] is True
 
 
 def test_system_baseline_zone_and_histories(dev, session=None):
