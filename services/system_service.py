@@ -202,6 +202,10 @@ def systems_ledger(db: Session, user) -> list[dict]:
             "code": system.code,
             "owner_name": system.owner_name,
             "netbox_object_id": system.netbox_object_id,
+            # 基本信息三件套随行返回(#258): 台账页「编辑」以整行回填 SystemFormModal
+            "user_scale": system.user_scale,
+            "types": system.types or [],
+            "is_public": bool(system.is_public),
             "filing_id": system.filing_id,
             "filing_name": filing.name if filing else None,
             "filing_level": filing.level if filing else None,
