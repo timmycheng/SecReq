@@ -5,7 +5,7 @@
 import { Suspense, lazy } from 'react'
 import { Card, Result, Spin, Tabs, Typography } from 'antd'
 
-import { getStoredUser } from '../api'
+import { getStoredUser, isSecuritySideRole } from '../api'
 
 const KbTab = lazy(() => import('./admin/KbTab'))
 const QuestionTab = lazy(() => import('./admin/QuestionTab'))
@@ -28,8 +28,8 @@ function TabLoading() {
 }
 
 export default function AdminPage() {
-  // 后端仅安全角色可访问; 前端同步给非安全角色明确的 403 提示
-  if (getStoredUser()?.role !== 'security') {
+  // 后端安全侧角色(评审员/负责人)可访问(#216); 前端同步给其他角色明确的 403 提示
+  if (!isSecuritySideRole(getStoredUser()?.role)) {
     return (
       <div style={{ minHeight: '60vh', display: 'grid', placeItems: 'center', padding: 24 }}>
         <Card style={{ width: '100%', maxWidth: 480 }}>
