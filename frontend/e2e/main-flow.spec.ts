@@ -7,10 +7,14 @@ test('建系统 → 建项目 → 7步向导 → 生成 → 批量确认 → 导
   test.setTimeout(300_000)
 
   // ── 登录(种子账号, 密码来自 playwright.config webServer env) ──
+  // #280 改版: 登录后落地工作台, 经菜单进入评估清单
   await page.goto('/')
-  await page.getByPlaceholder('用户名').fill('dev_admin')
+  await page.getByPlaceholder(/用户名/).fill('dev_admin')
   await page.getByPlaceholder('密码').fill('e2e-pass')
   await page.getByRole('button', { name: '登 录' }).click()
+  await expect(page.getByRole('heading', { name: '工作台' }))
+    .toBeVisible({ timeout: 20_000 })
+  await page.getByText('评估清单', { exact: true }).first().click()
   await expect(page.getByRole('button', { name: '发起新评估' }).first())
     .toBeVisible({ timeout: 20_000 })
 
@@ -27,7 +31,7 @@ test('建系统 → 建项目 → 7步向导 → 生成 → 批量确认 → 导
   // 弹窗关闭 + 清单表格出现该系统行, 才算创建成功
   await expect(sysModal).toBeHidden({ timeout: 20_000 })
   await expect(page.locator('.ant-table').getByText('E2E 主链路系统')).toBeVisible({ timeout: 20_000 })
-  await page.getByText('评估管理', { exact: true }).first().click()
+  await page.getByText('评估清单', { exact: true }).first().click()
   await expect(page.getByRole('button', { name: '发起新评估' }).first())
     .toBeVisible({ timeout: 20_000 })
 

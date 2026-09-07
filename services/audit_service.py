@@ -48,6 +48,8 @@ ACTION_LABELS: dict[str, str] = {
     "user_reset_password": "重置用户密码",
     "user_toggle": "启停用户",
     "vulndb_verify": "漏洞库校验",
+    "ldap_update": "更新 LDAP 配置",
+    "ldap_sync": "LDAP 用户导入",
 }
 
 #: step_save 的 step 值 → 中文名(与 routers/steps.py 的调用点对应)
@@ -78,6 +80,8 @@ def summarize_detail(action: str, detail: dict) -> str | None:
         return f"创建项目 {get('name')}({get('code')})"
     if action == "project_delete":
         return f"删除项目 {get('name')}({get('code')})"
+    if action == "ldap_sync":
+        return f"导入目录用户: 总数 {get('total')}, 新增 {get('created')}, 跳过 {get('skipped')}"
     if action == "step_save":
         step = _STEP_NAMES.get(str(get("step")), str(get("step") or "未知步骤"))
         return f"项目 #{get('project_id')} 保存{step}, 共 {get('count')} 条"

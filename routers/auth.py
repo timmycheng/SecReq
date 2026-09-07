@@ -17,6 +17,8 @@ from services.audit_service import audit
 from services.auth_service import (
     get_user, hash_password, verify_password,
 )
+from services.ldap_service import authenticate as ldap_authenticate
+from services.ldap_service import local_login_allowed
 from services.session_service import (
     clear_login_failures, create_session, login_locked,
     record_login_failure, revoke_session, revoke_user_sessions,
@@ -39,19 +41,33 @@ def _login_out(user: PlatformUser, token: str | None = None) -> LoginOut:
 
 @router.post("/login", response_model=LoginOut)
 def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)):
-    """校验账密签发会话 token。连续失败达到阈值后临时锁定。"""
+    """校验账密签发会话 token。连续失败达到阈值后临时锁定。
+
+    认证顺序(#280): 本地密码可用时本地优先; 本地未通过则尝试 LDAP/AD
+    (目录认证通过会自动开通同名本地账号); 关闭本地兜底后一律走目录认证。
+    """
     username = payload.username.strip()
+    ip = request.client.host if request.client else None
     if login_locked(username):
         raise HTTPException(status_code=429, detail="失败次数过多, 账号已临时锁定, 请5分钟后再试")
     user = get_user(db, username)
-    if user is None or not verify_password(payload.password, user.password_hash):
-        record_login_failure(username)
-        audit(db, username, "login_failed", {}, request.client.host if request.client else None)
-        raise HTTPException(status_code=401, detail="用户名或密码错误")
-    clear_login_failures(username)
-    token = create_session(db, user, ip=request.client.host if request.client else None)
-    audit(db, user.username, "login", {}, request.client.host if request.client else None)
-    return _login_out(user, token=token)
+    if local_login_allowed(db) and user is not None \
+            and verify_password(payload.password, user.password_hash):
+        clear_login_failures(username)
+        token = create_session(db, user, ip=ip)
+        audit(db, user.username, "login", {}, ip)
+        return _login_out(user, token=token)
+
+    ldap_user = ldap_authenticate(db, username, payload.password)
+    if ldap_user is not None and ldap_user.active:
+        clear_login_failures(username)
+        token = create_session(db, ldap_user, ip=ip)
+        audit(db, ldap_user.username, "login", {"via": "ldap"}, ip)
+        return _login_out(ldap_user, token=token)
+
+    record_login_failure(username)
+    audit(db, username, "login_failed", {}, ip)
+    raise HTTPException(status_code=401, detail="用户名或密码错误")
 
 
 @router.post("/logout", status_code=204)

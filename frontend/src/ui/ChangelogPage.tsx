@@ -1,9 +1,10 @@
-/* 更新日志(#55): 后端解析 CHANGELOG.md 为结构化版本块, 本组件零依赖渲染
-   (行内 **加粗** 与 `代码`), 版本折叠展示, 新版本在前。 */
+/* 更新日志(#280, 自系统管理 Tab 独立): 后端解析 CHANGELOG.md 为结构化版本块,
+   本组件零依赖渲染(行内 **加粗** 与 `代码`), 版本折叠展示, 新版本在前。 */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Alert, Collapse, Spin, Tag, Typography, message } from 'antd'
+import { Alert, Card, Collapse, Spin, Tag, Typography, message } from 'antd'
 
-import { api } from '../../api'
+import { api } from '../api'
+import PageHeader from './PageHeader'
 
 interface ChangelogBlock {
   kind: 'h3' | 'para' | 'list_item' | 'quote' | 'table_row'
@@ -75,7 +76,7 @@ function Blocks({ blocks }: { blocks: ChangelogBlock[] }) {
   return <>{nodes}</>
 }
 
-export default function ChangelogTab() {
+export default function ChangelogPage() {
   const [versions, setVersions] = useState<ChangelogVersion[] | null>(null)
 
   const reload = useCallback(() => {
@@ -85,30 +86,40 @@ export default function ChangelogTab() {
   }, [])
   useEffect(reload, [reload])
 
-  if (versions === null) return <Spin style={{ display: 'block', margin: '40px auto' }} />
+  if (versions === null) {
+    return <div style={{ padding: 24 }}><Spin style={{ display: 'block', margin: '80px auto' }} /></div>
+  }
   if (!versions.length) {
-    return <Alert type="warning" showIcon message="未找到更新日志(CHANGELOG.md 缺失), 请核对部署包完整性" />
+    return (
+      <div style={{ padding: 24 }}>
+        <PageHeader title="更新日志" />
+        <Alert type="warning" showIcon message="未找到更新日志(CHANGELOG.md 缺失), 请核对部署包完整性" />
+      </div>
+    )
   }
   const latest = versions[0]
   return (
-    <>
-      <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
-        平台各版本变更记录(与仓库 CHANGELOG 同源), 当前展示 {versions.length} 个版本。
-      </Typography.Paragraph>
-      <Collapse
-        defaultActiveKey={[latest.version]}
-        items={versions.map((v) => ({
-          key: v.version,
-          label: (
-            <span>
-              <Tag color="blue">v{v.version}</Tag>
-              <span style={{ marginRight: 8 }}>{v.date}</span>
-              {v.version === latest.version && <Tag color="green">当前</Tag>}
-            </span>
-          ),
-          children: <Blocks blocks={v.blocks} />,
-        }))}
+    <div style={{ padding: 24 }}>
+      <PageHeader
+        title="更新日志"
+        description="平台各版本变更记录, 与仓库 CHANGELOG 同源"
       />
-    </>
+      <Card style={{ maxWidth: 880 }}>
+        <Collapse
+          defaultActiveKey={[latest.version]}
+          items={versions.map((v) => ({
+            key: v.version,
+            label: (
+              <span>
+                <Tag color="blue">v{v.version}</Tag>
+                <span style={{ marginRight: 8 }}>{v.date}</span>
+                {v.version === latest.version && <Tag color="green">当前</Tag>}
+              </span>
+            ),
+            children: <Blocks blocks={v.blocks} />,
+          }))}
+        />
+      </Card>
+    </div>
   )
 }

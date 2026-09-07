@@ -1,23 +1,24 @@
-/* 7 步向导容器: 装载整卷状态并分步渲染。
+/* 7 步向导容器(#280 新框架): 页头 + 步骤卡 + 吸底导航, 步骤内容组件沿用原业务逻辑。
    #194 基础设施/组件上收系统; #259 恢复「组件与基础设施」步骤(内嵌系统清单卡,
    默认带出系统已存版本, 修改写穿系统清单), 基本信息仍在系统详情页维护。
 
 职责划分: 各步骤组件通过 StepHandleContext 注册 save/isDirty(内聚各自的 API 调用与校验),
 本容器负责状态装载、统一吸底导航(保存并下一步/上一步)、未保存修改的离开拦截、
-步骤位置记忆与新手引导。 */
+步骤位置记忆与草稿自动保存。 */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import {
-  Alert, App, Breadcrumb, Button, Card, Grid, Input, Modal, Progress, Select, Space, Spin, Steps,
+  App, Alert, Button, Card, Grid, Input, Modal, Progress, Select, Space, Spin, Steps,
   Typography,
 } from 'antd'
-import { ArrowLeftOutlined, ArrowRightOutlined, QuestionCircleOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, ArrowRightOutlined } from '@ant-design/icons'
 
 import { api } from '../api'
 import type { WizardState } from '../types'
 import { navigate } from '../router'
 import { setLeaveAsker } from './dirtyGuard'
 import { StepHandleContext, type StepHandle } from './steps/stepContext'
+import PageHeader from './PageHeader'
 
 import Step1ProjectInfo from './steps/Step1ProjectInfo'
 import Step3Features from './steps/Step3Features'
@@ -40,7 +41,6 @@ const STEPS: { title: string; description: string }[] = [
 const LAST = STEPS.length - 1
 
 const stepKey = (projectId: number) => `secreq.wizard.${projectId}.step`
-const INTRO_DISMISSED_KEY = 'secreq.intro.dismissed'
 
 export interface StepProps {
   ws: WizardState
@@ -65,9 +65,6 @@ export default function WizardPage({ projectId }: { projectId: number }) {
   const [resetting, setResetting] = useState(false)
   // 清空后整卷换新, 递增 key 强制各步骤组件重挂载(避免表单残留旧值)
   const [resetEpoch, setResetEpoch] = useState(0)
-  const [introHidden, setIntroHidden] = useState(
-    () => localStorage.getItem(INTRO_DISMISSED_KEY) === '1',
-  )
   // 草稿恢复提示(#228): 打开向导时已有填报数据则提示一次
   const [resumeNotice] = useState(() => ({ done: false }))
   const handleRef = useRef<StepHandle | null>(null)
@@ -254,82 +251,53 @@ export default function WizardPage({ projectId }: { projectId: number }) {
 
   return (
     <div style={{ padding: 24 }}>
-      <Breadcrumb
-        items={[
-          {
-            title: (
-              <a onClick={(e) => { e.preventDefault(); guardLeave(() => navigate('/')) }}>
-                评估列表
-              </a>
-            ),
-          },
-          { title: `${ws.project.name}(${ws.project.code})` },
-          { title: `第 ${current + 1} 步 · ${STEPS[current].title}` },
-        ]}
+      <PageHeader
+        onBack={() => guardLeave(() => navigate('/evaluations'))}
+        title={ws.project.name}
+        description={[ws.project.code, ws.project.system_name].filter(Boolean).join(' · ') || undefined}
       />
 
-      {!introHidden && (
-        <Alert
-          style={{ marginTop: 12 }}
-          type="info"
-          showIcon
-          closable
-          afterClose={() => {
-            setIntroHidden(true)
-            localStorage.setItem(INTRO_DISMISSED_KEY, '1')
-          }}
-          message="第一次使用?"
-          description={(
-            <span>
-              按 1→{STEPS.length} 步完成评估信息采集, 每步点「保存并下一步」即可, 也可点击顶部步骤条随时跳转
-              (有未保存修改时会先询问); 最后一步试算预览并一键生成安全需求清单与 SBOM。
-              第 6 步的组件与基础设施清单默认带出系统清单的已存版本, 可就地确认或修改(修改会同步系统清单);
-              基本信息(规模/类型/公网)仍在系统清单维护。
-              第 1 步完成定级后即可预览本评估的合规基线要求。
-              各步骤填什么, 看每步顶部说明与术语旁的{' '}
-              <Typography.Text type="secondary"><QuestionCircleOutlined /></Typography.Text> 图标。
-            </span>
-          )}
-        />
-      )}
-
-      <Card style={{ marginTop: 12 }}>
-        <StepHandleContext.Provider value={{ set: register }}>
-          {compact ? (
-            <Space direction="vertical" size={4} style={{ width: '100%' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <Select
-                  value={current}
-                  onChange={(idx) => guardLeave(() => switchTo(idx))}
-                  style={{ flex: 1, minWidth: 0 }}
-                  options={STEPS.map((s, i) => ({
-                    value: i,
-                    label: `${done[i] && i !== current ? '✓ ' : ''}${i + 1}. ${s.title}`,
-                  }))}
-                />
-                <Typography.Text type="secondary" style={{ whiteSpace: 'nowrap' }}>
-                  {current + 1} / {STEPS.length}
-                </Typography.Text>
-              </div>
-              <Progress
-                percent={Math.round(((current + 1) / STEPS.length) * 100)}
-                size="small"
-                showInfo={false}
+      <Card style={{ marginBottom: 16 }}>
+        {compact ? (
+          <Space direction="vertical" size={4} style={{ width: '100%' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <Select
+                value={current}
+                onChange={(idx) => guardLeave(() => switchTo(idx))}
+                style={{ flex: 1, minWidth: 0 }}
+                options={STEPS.map((s, i) => ({
+                  value: i,
+                  label: `${done[i] && i !== current ? '✓ ' : ''}${i + 1}. ${s.title}`,
+                }))}
               />
-            </Space>
-          ) : (
-            <Steps
-              labelPlacement="vertical"
-              current={current}
-              onChange={(idx) => idx !== current && guardLeave(() => switchTo(idx))}
-              items={STEPS.map((s, i) => ({
-                title: s.title,
-                description: s.description,
-                status: statusOf(i),
-              }))}
+              <Typography.Text type="secondary" style={{ whiteSpace: 'nowrap' }}>
+                {current + 1} / {STEPS.length}
+              </Typography.Text>
+            </div>
+            <Progress
+              percent={Math.round(((current + 1) / STEPS.length) * 100)}
+              size="small"
+              showInfo={false}
             />
-          )}
-          <div key={resetEpoch} style={{ marginTop: 24, minHeight: 240 }}>
+          </Space>
+        ) : (
+          <Steps
+            size="small"
+            labelPlacement="vertical"
+            current={current}
+            onChange={(idx) => idx !== current && guardLeave(() => switchTo(idx))}
+            items={STEPS.map((s, i) => ({
+              title: s.title,
+              description: s.description,
+              status: statusOf(i),
+            }))}
+          />
+        )}
+      </Card>
+
+      <Card>
+        <StepHandleContext.Provider value={{ set: register }}>
+          <div key={resetEpoch} style={{ minHeight: 240 }}>
             {renderers[current]({ ws, patch, goto: (idx) => guardLeave(() => switchTo(idx)) })}
           </div>
           <div style={footerStyle}>

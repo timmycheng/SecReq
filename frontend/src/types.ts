@@ -610,3 +610,56 @@ export interface LoginInfo {
   role_label: string
   token?: string | null
 }
+
+/* ── 工作台聚合(#280) ───────────────────────────── */
+
+export interface DashboardData {
+  system_count: number
+  eval_total: number
+  eval_active: number
+  eval_done: number
+  avg_minutes: number
+  step_minutes: { step: string; min: number }[]
+  req_trend: { month: string; high: number; mid: number; low: number }[]
+  recent: {
+    id: number
+    code: string
+    name: string
+    system_name?: string | null
+    status: string
+    grading_level?: string | null
+    created_at?: string | null
+  }[]
+}
+
+/* ── LDAP/AD 对接(#280) ─────────────────────────── */
+
+export interface LdapConfigRow {
+  enabled: boolean
+  host: string
+  port: number
+  use_ssl: boolean
+  base_dn: string
+  bind_dn: string
+  /** 回显不外发密码, 仅 has_password 标志; 保存时留空表示沿用 */
+  bind_password?: string
+  has_password?: boolean
+  user_filter: string
+  attr_username: string
+  attr_display_name: string
+  attr_email: string
+  allow_local_fallback: boolean
+}
+
+export interface LdapTestResult {
+  ok: boolean
+  latency_ms?: number
+  user_count?: number
+  reason?: string
+}
+
+export interface LdapSyncResult {
+  total: number
+  created: number
+  skipped: number
+}

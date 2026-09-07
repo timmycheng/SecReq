@@ -1,22 +1,20 @@
-/* 登录页: 账号+密码, 登录成功回调 App 进入主界面。 */
+/* 登录页(#280): 品牌渐变背景 + 白卡; 本地账号或 LDAP/AD 账号均可登录(后端认证顺序见 auth 路由)。 */
 import { useState } from 'react'
-import { Alert, Button, Card, Form, Input, Typography } from 'antd'
+import { Alert, Button, Form, Input, Typography } from 'antd'
 import { LockOutlined, SafetyCertificateOutlined, UserOutlined } from '@ant-design/icons'
 
 import { api } from '../api'
 import type { LoginInfo } from '../types'
-import { BRAND_GRADIENT, PRIMARY } from './theme'
 
 export default function LoginPage({ onLogin }: { onLogin: (info: LoginInfo) => void }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const submit = async (values: { username: string; password: string }) => {
+  const finish = async (values: { username: string; password: string }) => {
     setLoading(true)
     setError(null)
     try {
-      const info = await api.login(values.username.trim(), values.password)
-      onLogin(info)
+      onLogin(await api.login(values.username.trim(), values.password))
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -25,37 +23,26 @@ export default function LoginPage({ onLogin }: { onLogin: (info: LoginInfo) => v
   }
 
   return (
-    <div
-      style={{
-        minHeight: '100vh', display: 'grid', placeItems: 'center',
-        background: BRAND_GRADIENT,
-      }}
-    >
-      <Card style={{ width: 380, boxShadow: '0 12px 40px rgba(0,0,0,0.25)' }}>
-        <div style={{ textAlign: 'center', marginBottom: 20 }}>
-          <SafetyCertificateOutlined style={{ fontSize: 40, color: PRIMARY }} />
-          <Typography.Title level={4} style={{ margin: '10px 0 2px' }}>
-            安全需求管理平台
-          </Typography.Title>
-          <Typography.Text type="secondary">请使用行内账号登录</Typography.Text>
+    <div className="login-bg">
+      <div className="login-card">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 28 }}>
+          <div className="login-logo"><SafetyCertificateOutlined /></div>
+          <div>
+            <Typography.Title level={4} style={{ margin: 0 }}>SecReq 安全需求管理平台</Typography.Title>
+            <Typography.Text type="secondary">系统安全评估 · 需求自动生成</Typography.Text>
+          </div>
         </div>
-        {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 14 }} />}
-        <Form layout="vertical" onFinish={(v) => void submit(v as { username: string; password: string })}>
+        {error && <Alert type="error" showIcon style={{ marginBottom: 16 }} message={error} />}
+        <Form layout="vertical" onFinish={(v) => void finish(v as { username: string; password: string })}>
           <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
-            <Input prefix={<UserOutlined />} placeholder="用户名" autoFocus size="large" />
+            <Input prefix={<UserOutlined />} placeholder="用户名(本地或 LDAP/AD 账号)" size="large" />
           </Form.Item>
           <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]}>
             <Input.Password prefix={<LockOutlined />} placeholder="密码" size="large" />
           </Form.Item>
-          <Button type="primary" htmlType="submit" block size="large" loading={loading}>
-            登 录
-          </Button>
+          <Button type="primary" htmlType="submit" size="large" block loading={loading}>登 录</Button>
         </Form>
-        <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 14, marginBottom: 0 }}>
-          演示账号: dev_admin(开发) / sec_admin(安全)。初始密码由部署配置 SECREQ_SEED_PASSWORD 指定,
-          未配置时见服务启动日志, 登录后可在右上角修改。
-        </Typography.Paragraph>
-      </Card>
+      </div>
     </div>
   )
 }

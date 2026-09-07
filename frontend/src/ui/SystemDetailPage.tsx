@@ -1,11 +1,11 @@
-/* 系统详情(#272 重构): 以 Tab 组织系统的全部事实 ——
-   基本信息(含基础设施/组件清单)、功能清单/数据资产/权限矩阵/接口清单(读当前基线, 只读)、
-   评估历史(轮次时间线)、变动历史(相邻已生成轮次需求 diff + 基线履历)、合规基线(D 区)。
-   清单类数据来源: features 读基线来源轮次, 其余读 system_baselines 快照(#272 后端 detail-section)。 */
+/* 系统详情(#280 改版): Tab 改为锚点分节 —— 左栏「栏目链接 + 评估时间线」sticky 固定
+   (滚动页面不滚走), 右侧内容卡片纵向排布; 基本信息卡对齐新原型样式。
+   数据事实与业务逻辑沿用 #272: 清单类分节读 system_baselines 快照(features 读来源轮次),
+   基础设施/组件清单为系统级直接编辑区, 变动历史为相邻轮次需求 diff + 基线履历。 */
 import { useCallback, useEffect, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import {
-  Alert, Button, Card, Descriptions, Empty, Modal, Space, Spin, Table, Tabs, Tag, Timeline,
+  Alert, Button, Card, Descriptions, Empty, Modal, Space, Spin, Table, Tag, Timeline,
   Typography, message,
 } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
@@ -14,7 +14,8 @@ import { api, getStoredUser, isSecuritySideRole } from '../api'
 import { labelMapOf, useEnums } from '../enums'
 import { navigate } from '../router'
 import { DATA_LEVEL_COLOR, PRIORITY_COLOR } from './tokens'
-import { LevelTag, RoundCell, SystemFormModal } from './SystemsPage'
+import { LevelTag, RoundCell } from './tags'
+import { SystemFormModal } from './SystemsPage'
 import PageHeader from './PageHeader'
 import { SystemComponentsCard, SystemInfraCard } from './system/SystemInventoryCards'
 import type {
@@ -43,7 +44,7 @@ function useSection<T>(loader: () => Promise<DetailSectionMeta & { rows: T }>) {
   return { meta, rows, loading, error, reload }
 }
 
-/** 清单类 Tab 未写回基线时的统一引导。 */
+/** 清单类分节未写回基线时的统一引导。 */
 function NoBaselineHint() {
   return (
     <Alert
@@ -59,6 +60,62 @@ function SectionError({ error, onRetry }: { error: string; onRetry: () => void }
     action={<Button size="small" onClick={onRetry}>重试</Button>} />
 }
 
+/** 内容分节容器: 锚点 id + 标题卡, 对齐详情页布局模式(#280)。 */
+function Section({ id, title, extra, children }: {
+  id: string
+  title: string
+  extra?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <Card id={`sec-${id}`} className="anchor-section" title={title} extra={extra}>
+      {children}
+    </Card>
+  )
+}
+
+/* ── 基本信息(#280 新样式): 描述表 + 定级来源 + 编辑入口在页头 ── */
+
+function BasicSection({ system, enums, onEdit }: {
+  system: SystemRow
+  enums: ReturnType<typeof useEnums>
+  onEdit: () => void
+}) {
+  const typeLabels = labelMapOf(enums, 'project_types')
+  const scaleLabels = labelMapOf(enums, 'user_scales')
+  return (
+    <Section
+      id="basic" title="基本信息"
+      extra={<Button size="small" onClick={onEdit}>编辑信息</Button>}
+    >
+      <Descriptions
+        column={{ xs: 1, sm: 2, md: 3 }} size="small" bordered
+        items={[
+          { key: 'code', label: '系统编号', children: system.code || '—' },
+          {
+            key: 'filing', label: '所属备案',
+            children: system.filing_name
+              ? <Space size={6}>{system.filing_name}<LevelTag level={system.filing_level} /></Space>
+              : <Typography.Text type="secondary">未挂备案(定级走评估问卷)</Typography.Text>,
+          },
+          { key: 'owner', label: '负责人', children: system.owner_name || '—' },
+          { key: 'scale', label: '用户规模', children: scaleLabels[system.user_scale ?? ''] ?? (system.user_scale || '—') },
+          { key: 'types', label: '业务类型', children: (system.types ?? []).map((t) => typeLabels[t] ?? t).join('、') || '—' },
+          {
+            key: 'public', label: '公网访问',
+            children: system.is_public ? <Tag color="orange">涉及公网</Tag> : <Tag>无公网</Tag>,
+          },
+        ]}
+      />
+      {system.filing_level && (
+        <Typography.Text type="secondary" style={{ display: 'block', marginTop: 12 }}>
+          定级来源: 备案「{system.filing_name}」(等保{system.filing_level}); 评估后人工调整定级会在产物页提示与备案不一致。
+        </Typography.Text>
+      )}
+    </Section>
+  )
+}
+
 /* ── 功能清单 ─────────────────────────────────────── */
 
 function FeaturesSection({ systemId }: { systemId: number }) {
@@ -67,35 +124,37 @@ function FeaturesSection({ systemId }: { systemId: number }) {
   const sensitivityLabels = labelMapOf(enums, 'sensitivity_levels')
   const { meta, rows, loading, error, reload } = useSection<SystemDetailFeature[]>(useCallback(
     () => api.systemDetailFeatures(systemId), [systemId]))
-  if (loading) return <div style={{ padding: 32, textAlign: 'center' }}><Spin /></div>
-  if (error) return <SectionError error={error} onRetry={reload} />
-  if (!meta?.has_baseline) return <NoBaselineHint />
+  if (loading) return <Section id="features" title="功能清单"><div style={{ padding: 24, textAlign: 'center' }}><Spin /></div></Section>
+  if (error) return <Section id="features" title="功能清单"><SectionError error={error} onRetry={reload} /></Section>
+  if (!meta?.has_baseline) return <Section id="features" title="功能清单"><NoBaselineHint /></Section>
   return (
-    <Table<SystemDetailFeature>
-      rowKey={(r) => r.uid || r.name}
-      size="small" loading={loading} dataSource={rows ?? []}
-      pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
-      locale={{ emptyText: <Empty description="基线来源轮次没有功能记录" /> }}
-      columns={[
-        { title: '功能名称', dataIndex: 'name' },
-        { title: '所属模块', dataIndex: 'module', width: 140, render: (v) => v || '—' },
-        { title: '功能分类', dataIndex: 'categories', width: 240,
-          render: (codes: string[]) => (codes ?? []).map((c) => (
-            <Tag key={c}>{categoryLabels[c] ?? c}</Tag>
-          )) },
-        { title: '敏感级别', dataIndex: 'sensitivity', width: 100,
-          render: (v) => (v ? sensitivityLabels[v] ?? v : '—') },
-        { title: '标记', width: 140,
-          render: (_: unknown, r: SystemDetailFeature) => (
-            <Space size={4} wrap>
-              {r.involves_payment && <Tag color="gold">涉及资金</Tag>}
-              {r.exposed_to_internet && <Tag color="orange">公网暴露</Tag>}
-              {!r.involves_payment && !r.exposed_to_internet && '—'}
-            </Space>
-          ) },
-        { title: '描述', dataIndex: 'description', ellipsis: true, render: (v) => v || '—' },
-      ]}
-    />
+    <Section id="features" title="功能清单">
+      <Table<SystemDetailFeature>
+        rowKey={(r) => r.uid || r.name}
+        size="small" loading={loading} dataSource={rows ?? []}
+        pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
+        locale={{ emptyText: <Empty description="基线来源轮次没有功能记录" /> }}
+        columns={[
+          { title: '功能名称', dataIndex: 'name' },
+          { title: '所属模块', dataIndex: 'module', width: 140, render: (v) => v || '—' },
+          { title: '功能分类', dataIndex: 'categories', width: 240,
+            render: (codes: string[]) => (codes ?? []).map((c) => (
+              <Tag key={c}>{categoryLabels[c] ?? c}</Tag>
+            )) },
+          { title: '敏感级别', dataIndex: 'sensitivity', width: 100,
+            render: (v) => (v ? sensitivityLabels[v] ?? v : '—') },
+          { title: '标记', width: 140,
+            render: (_: unknown, r: SystemDetailFeature) => (
+              <Space size={4} wrap>
+                {r.involves_payment && <Tag color="gold">涉及资金</Tag>}
+                {r.exposed_to_internet && <Tag color="orange">公网暴露</Tag>}
+                {!r.involves_payment && !r.exposed_to_internet && '—'}
+              </Space>
+            ) },
+          { title: '描述', dataIndex: 'description', ellipsis: true, render: (v) => v || '—' },
+        ]}
+      />
+    </Section>
   )
 }
 
@@ -104,62 +163,64 @@ function FeaturesSection({ systemId }: { systemId: number }) {
 function DataAssetsSection({ systemId }: { systemId: number }) {
   const { meta, rows, loading, error, reload } = useSection<BaselineDataAsset[]>(useCallback(
     () => api.systemDetailDataAssets(systemId), [systemId]))
-  if (loading) return <div style={{ padding: 32, textAlign: 'center' }}><Spin /></div>
-  if (error) return <SectionError error={error} onRetry={reload} />
-  if (!meta?.has_baseline) return <NoBaselineHint />
+  if (loading) return <Section id="assets" title="数据资产"><div style={{ padding: 24, textAlign: 'center' }}><Spin /></div></Section>
+  if (error) return <Section id="assets" title="数据资产"><SectionError error={error} onRetry={reload} /></Section>
+  if (!meta?.has_baseline) return <Section id="assets" title="数据资产"><NoBaselineHint /></Section>
   return (
-    <Table<BaselineDataAsset>
-      rowKey={(r) => r.uid || r.name}
-      size="small" loading={loading} dataSource={rows ?? []}
-      pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
-      locale={{ emptyText: <Empty description="基线中没有数据资产记录" /> }}
-      expandable={{
-        expandedRowRender: (asset) => (
-          <Table<BaselineDataTable>
-            rowKey="table_name" size="small" pagination={false}
-            dataSource={asset.tables ?? []}
-            locale={{ emptyText: <Empty description="该资产未登记数据字典表" /> }}
-            expandable={{
-              expandedRowRender: (t) => (
-                <Table size="small" pagination={false} rowKey="field_name"
-                  dataSource={t.fields ?? []}
-                  columns={[
-                    { title: '字段名', dataIndex: 'field_name' },
-                    { title: '字段类型', dataIndex: 'field_type', width: 120, render: (v) => v || '—' },
-                    { title: '加密', dataIndex: 'need_encrypt', width: 80,
-                      render: (v: boolean) => (v ? <Tag color="blue">加密</Tag> : '—') },
-                    { title: '脱敏', dataIndex: 'need_mask', width: 80,
-                      render: (v: boolean) => (v ? <Tag color="gold">脱敏</Tag> : '—') },
-                    { title: '脱敏规则', dataIndex: 'mask_rule', render: (v) => v || '—' },
-                  ]}
-                />
-              ),
-            }}
-            columns={[
-              { title: '数据表', dataIndex: 'table_name' },
-              { title: '字段数', width: 90, render: (_: unknown, t) => (t.fields ?? []).length },
-            ]}
-          />
-        ),
-      }}
-      columns={[
-        { title: '资产名称', dataIndex: 'name' },
-        { title: '数据类型', dataIndex: 'data_type', width: 120, render: (v) => v || '—' },
-        { title: '安全分级', dataIndex: 'classification', width: 170,
-          render: (v: string | null) => (v
-            ? <Tag color={DATA_LEVEL_COLOR[v] ?? 'default'}>{v}</Tag> : '—') },
-        { title: '标记', width: 160,
-          render: (_: unknown, r: BaselineDataAsset) => (
-            <Space size={4} wrap>
-              {r.c3_tag && <Tag color="red">C3</Tag>}
-              {(r.is_pii || r.is_sensitive_pii) && <Tag color="gold">PII</Tag>}
-              {r.cross_border_transfer && <Tag color="orange">跨境</Tag>}
-              {!r.c3_tag && !r.is_pii && !r.is_sensitive_pii && !r.cross_border_transfer && '—'}
-            </Space>
-          ) },
-        { title: '字典表数', width: 90, render: (_: unknown, r) => (r.tables ?? []).length },
-      ]}
-    />
+    <Section id="assets" title="数据资产">
+      <Table<BaselineDataAsset>
+        rowKey={(r) => r.uid || r.name}
+        size="small" loading={loading} dataSource={rows ?? []}
+        pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
+        locale={{ emptyText: <Empty description="基线中没有数据资产记录" /> }}
+        expandable={{
+          expandedRowRender: (asset) => (
+            <Table<BaselineDataTable>
+              rowKey="table_name" size="small" pagination={false}
+              dataSource={asset.tables ?? []}
+              locale={{ emptyText: <Empty description="该资产未登记数据字典表" /> }}
+              expandable={{
+                expandedRowRender: (t) => (
+                  <Table size="small" pagination={false} rowKey="field_name"
+                    dataSource={t.fields ?? []}
+                    columns={[
+                      { title: '字段名', dataIndex: 'field_name' },
+                      { title: '字段类型', dataIndex: 'field_type', width: 120, render: (v) => v || '—' },
+                      { title: '加密', dataIndex: 'need_encrypt', width: 80,
+                        render: (v: boolean) => (v ? <Tag color="blue">加密</Tag> : '—') },
+                      { title: '脱敏', dataIndex: 'need_mask', width: 80,
+                        render: (v: boolean) => (v ? <Tag color="gold">脱敏</Tag> : '—') },
+                      { title: '脱敏规则', dataIndex: 'mask_rule', render: (v) => v || '—' },
+                    ]}
+                  />
+                ),
+              }}
+              columns={[
+                { title: '数据表', dataIndex: 'table_name' },
+                { title: '字段数', width: 90, render: (_: unknown, t) => (t.fields ?? []).length },
+              ]}
+            />
+          ),
+        }}
+        columns={[
+          { title: '资产名称', dataIndex: 'name' },
+          { title: '数据类型', dataIndex: 'data_type', width: 120, render: (v) => v || '—' },
+          { title: '安全分级', dataIndex: 'classification', width: 170,
+            render: (v: string | null) => (v
+              ? <Tag color={DATA_LEVEL_COLOR[v] ?? 'default'}>{v}</Tag> : '—') },
+          { title: '标记', width: 160,
+            render: (_: unknown, r: BaselineDataAsset) => (
+              <Space size={4} wrap>
+                {r.c3_tag && <Tag color="red">C3</Tag>}
+                {(r.is_pii || r.is_sensitive_pii) && <Tag color="gold">PII</Tag>}
+                {r.cross_border_transfer && <Tag color="orange">跨境</Tag>}
+                {!r.c3_tag && !r.is_pii && !r.is_sensitive_pii && !r.cross_border_transfer && '—'}
+              </Space>
+            ) },
+          { title: '字典表数', width: 90, render: (_: unknown, r) => (r.tables ?? []).length },
+        ]}
+      />
+    </Section>
   )
 }
 
@@ -168,43 +229,45 @@ function DataAssetsSection({ systemId }: { systemId: number }) {
 function PermissionsSection({ systemId }: { systemId: number }) {
   const { meta, rows, loading, error, reload } = useSection<BaselinePermissionBundle>(useCallback(
     () => api.systemDetailPermissions(systemId), [systemId]))
-  if (loading) return <div style={{ padding: 32, textAlign: 'center' }}><Spin /></div>
-  if (error) return <SectionError error={error} onRetry={reload} />
-  if (!meta?.has_baseline) return <NoBaselineHint />
+  if (loading) return <Section id="permissions" title="权限矩阵"><div style={{ padding: 24, textAlign: 'center' }}><Spin /></div></Section>
+  if (error) return <Section id="permissions" title="权限矩阵"><SectionError error={error} onRetry={reload} /></Section>
+  if (!meta?.has_baseline) return <Section id="permissions" title="权限矩阵"><NoBaselineHint /></Section>
   const bundle = rows ?? { roles: [], resources: [], permission_entries: [] }
   const roleNameOf = (uid?: string | null) =>
     bundle.roles.find((r) => r.uid === uid)?.name ?? uid ?? '—'
   const resourceNameOf = (uid?: string | null) =>
     bundle.resources.find((r) => r.uid === uid)?.name ?? uid ?? '—'
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Table size="small" rowKey="uid" pagination={false} dataSource={bundle.roles}
-        locale={{ emptyText: <Empty description="基线中没有角色记录" /> }}
-        columns={[
-          { title: '角色', dataIndex: 'name' },
-          { title: '角色类型', dataIndex: 'role_type', width: 140, render: (v) => v || '—' },
-          { title: '预估用户数', dataIndex: 'user_count_estimate', width: 120, render: (v) => v ?? '—' },
-        ]} />
-      <Table size="small" rowKey="uid" pagination={false} dataSource={bundle.resources}
-        locale={{ emptyText: <Empty description="基线中没有资源记录" /> }}
-        columns={[
-          { title: '资源', dataIndex: 'name' },
-          { title: '资源类型', dataIndex: 'resource_type', width: 160, render: (v) => v || '—' },
-          { title: '重要度', dataIndex: 'criticality', width: 120, render: (v) => v || '—' },
-        ]} />
-      <Typography.Text strong>授权项({bundle.permission_entries.length})</Typography.Text>
-      <Table size="small" rowKey={(r) => `${r.role_uid}-${r.resource_uid}-${r.action}`}
-        pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
-        dataSource={bundle.permission_entries}
-        locale={{ emptyText: <Empty description="基线中没有授权记录" /> }}
-        columns={[
-          { title: '角色', dataIndex: 'role_uid', render: (v) => roleNameOf(v) },
-          { title: '资源', dataIndex: 'resource_uid', render: (v) => resourceNameOf(v) },
-          { title: '操作', dataIndex: 'action', width: 140, render: (v) => v || '—' },
-          { title: '需审批', dataIndex: 'requires_approval', width: 100,
-            render: (v: boolean) => (v ? <Tag color="orange">需审批</Tag> : '—') },
-        ]} />
-    </Space>
+    <Section id="permissions" title="权限矩阵">
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <Table size="small" rowKey="uid" pagination={false} dataSource={bundle.roles}
+          locale={{ emptyText: <Empty description="基线中没有角色记录" /> }}
+          columns={[
+            { title: '角色', dataIndex: 'name' },
+            { title: '角色类型', dataIndex: 'role_type', width: 140, render: (v) => v || '—' },
+            { title: '预估用户数', dataIndex: 'user_count_estimate', width: 120, render: (v) => v ?? '—' },
+          ]} />
+        <Table size="small" rowKey="uid" pagination={false} dataSource={bundle.resources}
+          locale={{ emptyText: <Empty description="基线中没有资源记录" /> }}
+          columns={[
+            { title: '资源', dataIndex: 'name' },
+            { title: '资源类型', dataIndex: 'resource_type', width: 160, render: (v) => v || '—' },
+            { title: '重要度', dataIndex: 'criticality', width: 120, render: (v) => v || '—' },
+          ]} />
+        <Typography.Text strong>授权项({bundle.permission_entries.length})</Typography.Text>
+        <Table size="small" rowKey={(r) => `${r.role_uid}-${r.resource_uid}-${r.action}`}
+          pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
+          dataSource={bundle.permission_entries}
+          locale={{ emptyText: <Empty description="基线中没有授权记录" /> }}
+          columns={[
+            { title: '角色', dataIndex: 'role_uid', render: (v) => roleNameOf(v) },
+            { title: '资源', dataIndex: 'resource_uid', render: (v) => resourceNameOf(v) },
+            { title: '操作', dataIndex: 'action', width: 140, render: (v) => v || '—' },
+            { title: '需审批', dataIndex: 'requires_approval', width: 100,
+              render: (v: boolean) => (v ? <Tag color="orange">需审批</Tag> : '—') },
+          ]} />
+      </Space>
+    </Section>
   )
 }
 
@@ -213,31 +276,51 @@ function PermissionsSection({ systemId }: { systemId: number }) {
 function ApisSection({ systemId }: { systemId: number }) {
   const { meta, rows, loading, error, reload } = useSection<BaselineApiEndpoint[]>(useCallback(
     () => api.systemDetailApis(systemId), [systemId]))
-  if (loading) return <div style={{ padding: 32, textAlign: 'center' }}><Spin /></div>
-  if (error) return <SectionError error={error} onRetry={reload} />
-  if (!meta?.has_baseline) return <NoBaselineHint />
+  if (loading) return <Section id="apis" title="接口清单"><div style={{ padding: 24, textAlign: 'center' }}><Spin /></div></Section>
+  if (error) return <Section id="apis" title="接口清单"><SectionError error={error} onRetry={reload} /></Section>
+  if (!meta?.has_baseline) return <Section id="apis" title="接口清单"><NoBaselineHint /></Section>
   return (
-    <Table<BaselineApiEndpoint>
-      rowKey={(r) => r.uid || `${r.method}-${r.path}`}
-      size="small" loading={loading} dataSource={rows ?? []}
-      pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
-      locale={{ emptyText: <Empty description="基线中没有接口记录" /> }}
-      columns={[
-        { title: '接口名称', dataIndex: 'name' },
-        { title: '方法', dataIndex: 'method', width: 90,
-          render: (v: string | null) => (v ? <Tag color="geekblue">{v.toUpperCase()}</Tag> : '—') },
-        { title: '路径', dataIndex: 'path', ellipsis: true, render: (v) => v || '—' },
-        { title: '需认证', dataIndex: 'auth_required', width: 90,
-          render: (v: boolean) => (v ? '是' : <Tag color="red">匿名</Tag>) },
-        { title: '公网暴露', dataIndex: 'public_exposed', width: 90,
-          render: (v: boolean) => (v ? <Tag color="orange">公网</Tag> : '—') },
-        { title: '限流', dataIndex: 'rate_limit', width: 120, render: (v) => v || '—' },
-      ]}
-    />
+    <Section id="apis" title="接口清单">
+      <Table<BaselineApiEndpoint>
+        rowKey={(r) => r.uid || `${r.method}-${r.path}`}
+        size="small" loading={loading} dataSource={rows ?? []}
+        pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
+        locale={{ emptyText: <Empty description="基线中没有接口记录" /> }}
+        columns={[
+          { title: '接口名称', dataIndex: 'name' },
+          { title: '方法', dataIndex: 'method', width: 90,
+            render: (v: string | null) => (v ? <Tag color="geekblue">{v.toUpperCase()}</Tag> : '—') },
+          { title: '路径', dataIndex: 'path', ellipsis: true, render: (v) => v || '—' },
+          { title: '需认证', dataIndex: 'auth_required', width: 90,
+            render: (v: boolean) => (v ? '是' : <Tag color="red">匿名</Tag>) },
+          { title: '公网暴露', dataIndex: 'public_exposed', width: 90,
+            render: (v: boolean) => (v ? <Tag color="orange">公网</Tag> : '—') },
+          { title: '限流', dataIndex: 'rate_limit', width: 120, render: (v) => v || '—' },
+        ]}
+      />
+    </Section>
   )
 }
 
-/* ── 评估历史 ─────────────────────────────────────── */
+/* ── 基础设施 / 组件清单(系统级, 唯一直接编辑区) ──── */
+
+function InfraSection({ systemId }: { systemId: number }) {
+  return (
+    <Section id="infra" title="基础设施">
+      <SystemInfraCard systemId={systemId} />
+    </Section>
+  )
+}
+
+function ComponentsSection({ systemId }: { systemId: number }) {
+  return (
+    <Section id="components" title="组件清单(SBOM)">
+      <SystemComponentsCard systemId={systemId} />
+    </Section>
+  )
+}
+
+/* ── 评估历史(内容分节完整版) ─────────────────────── */
 
 function HistorySection({ system, rounds }: { system: SystemRow; rounds: RoundSummary[] }) {
   if (rounds.length === 0) {
@@ -249,11 +332,10 @@ function HistorySection({ system, rounds }: { system: SystemRow; rounds: RoundSu
   }
   return (
     <Timeline
-      style={{ marginTop: 8 }}
-      items={rounds.map((r, idx) => ({
+      items={rounds.map((r) => ({
         color: r.status === 'generated' ? 'green' : 'gray',
         children: (
-          <div style={{ paddingBottom: idx === rounds.length - 1 ? 0 : 8 }}>
+          <div style={{ paddingBottom: 8 }}>
             <Space size={8} wrap align="center">
               <Typography.Text strong>{r.project_name}</Typography.Text>
               {system.current_baseline_project_id === r.project_id && (
@@ -265,11 +347,11 @@ function HistorySection({ system, rounds }: { system: SystemRow; rounds: RoundSu
             </Space>
             <div style={{ marginTop: 4 }}><RoundCell round={r} /></div>
             <Space size={8} style={{ marginTop: 6 }}>
-              <Button size="small" onClick={() => navigate(`/wizard/${r.project_id}`)}>
+              <Button size="small" onClick={() => navigate(`/evaluations/${r.project_id}/wizard`)}>
                 {r.status === 'generated' ? '再编辑' : '继续填写'}
               </Button>
               {r.status === 'generated' && (
-                <Button size="small" type="primary" ghost onClick={() => navigate(`/result/${r.project_id}`)}>
+                <Button size="small" type="primary" ghost onClick={() => navigate(`/evaluations/${r.project_id}/result`)}>
                   查看产物
                 </Button>
               )}
@@ -424,48 +506,8 @@ const DIFF_FIELD_FALLBACK_LABELS: Record<string, string> = {
   acceptance_criteria: '验收标准', category: '类目', regulatory_ref: '合规出处',
 }
 
-/* ── 页面容器 ─────────────────────────────────────── */
+/* ── 合规基线(D 区): 级别变更确认待办 + 基线概要 ──── */
 
-/** 基本信息 Tab: 描述区 + 定级来源 + 基础设施/组件清单卡(系统级, 各 Tab 中唯一直接编辑区)。 */
-function OverviewSection({ system, enums }: {
-  system: SystemRow
-  enums: ReturnType<typeof useEnums>
-}) {
-  const typeLabels = labelMapOf(enums, 'project_types')
-  const scaleLabels = labelMapOf(enums, 'user_scales')
-  return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Descriptions size="small" column={3}>
-        <Descriptions.Item label="系统编号">{system.code || '—'}</Descriptions.Item>
-        <Descriptions.Item label="所属备案">
-          {system.filing_name
-            ? <Space size={6}>{system.filing_name}<LevelTag level={system.filing_level} /></Space>
-            : <Typography.Text type="secondary">未挂备案(定级走评估问卷)</Typography.Text>}
-        </Descriptions.Item>
-        <Descriptions.Item label="负责人">{system.owner_name || '—'}</Descriptions.Item>
-        <Descriptions.Item label="用户规模">{scaleLabels[system.user_scale ?? ''] ?? (system.user_scale || '—')}</Descriptions.Item>
-        <Descriptions.Item label="业务类型">
-          {(system.types ?? []).map((t) => typeLabels[t] ?? t).join('、') || '—'}
-        </Descriptions.Item>
-        <Descriptions.Item label="公网访问">
-          {system.is_public ? <Tag color="orange">涉及公网</Tag> : <Tag>无公网</Tag>}
-        </Descriptions.Item>
-      </Descriptions>
-      {system.filing_level && (
-        <Alert
-          type="info"
-          showIcon
-          message={`定级来源: 备案「${system.filing_name}」(等保${system.filing_level})`}
-          description="向导中的定级问卷会预填备案定级; 若评估后人工调整了定级, 结果页会提示与备案不一致。"
-        />
-      )}
-      <SystemInfraCard systemId={system.id} />
-      <SystemComponentsCard systemId={system.id} />
-    </Space>
-  )
-}
-
-/** 合规基线 Tab(D 区): 级别变更确认待办 + 基线概要; 变更履历在「变动历史」Tab。 */
 function BaselineSection({ system, confirming, onConfirm, isSecuritySide }: {
   system: SystemRow
   confirming: boolean
@@ -507,35 +549,53 @@ function BaselineSection({ system, confirming, onConfirm, isSecuritySide }: {
         />
       )}
       {baseline ? (
-        <Descriptions size="small" column={3}>
-          <Descriptions.Item label="数据资产">{baseline.summary?.data_assets ?? 0}</Descriptions.Item>
-          <Descriptions.Item label="数据字典表">{baseline.summary?.data_tables ?? 0}</Descriptions.Item>
-          <Descriptions.Item label="API 清单">{baseline.summary?.api_endpoints ?? 0}</Descriptions.Item>
-          <Descriptions.Item label="权限矩阵">
-            角色 {baseline.summary?.roles ?? 0} · 资源 {baseline.summary?.resources ?? 0} ·
-            授权 {baseline.summary?.permission_entries ?? 0}
-          </Descriptions.Item>
-          <Descriptions.Item label="来源轮次">
-            {baseline.source_project_id
-              ? <Button type="link" size="small" style={{ padding: 0 }}
-                  onClick={() => navigate(`/result/${baseline.source_project_id}`)}>
+        <Descriptions size="small" column={{ xs: 1, sm: 2, md: 3 }} bordered
+          items={[
+            { key: 'assets', label: '数据资产', children: baseline.summary?.data_assets ?? 0 },
+            { key: 'tables', label: '数据字典表', children: baseline.summary?.data_tables ?? 0 },
+            { key: 'apis', label: 'API 清单', children: baseline.summary?.api_endpoints ?? 0 },
+            {
+              key: 'matrix', label: '权限矩阵',
+              children: `角色 ${baseline.summary?.roles ?? 0} · 资源 ${baseline.summary?.resources ?? 0} · 授权 ${baseline.summary?.permission_entries ?? 0}`,
+            },
+            {
+              key: 'source', label: '来源轮次',
+              children: baseline.source_project_id
+                ? <Button type="link" size="small" style={{ padding: 0 }}
+                    onClick={() => navigate(`/evaluations/${baseline.source_project_id}/result`)}>
                   第 {baseline.source_project_id} 轮评估
                 </Button>
-              : '—'}
-          </Descriptions.Item>
-          <Descriptions.Item label="写回时间">
-            {fmtDateTime(baseline.updated_at)}
-            {baseline.updated_by ? ` · ${baseline.updated_by}` : ''}
-          </Descriptions.Item>
-        </Descriptions>
+                : '—',
+            },
+            {
+              key: 'updated', label: '写回时间',
+              children: `${fmtDateTime(baseline.updated_at)}${baseline.updated_by ? ` · ${baseline.updated_by}` : ''}`,
+            },
+          ]}
+        />
       ) : (
         <Typography.Text type="secondary">
-          暂无安全基线。评估轮次终审通过后, 本轮资产/字典/权限/接口快照将写回为系统基线(v3.0 #225)。
+          暂无安全基线。评估轮次终审通过后, 本轮资产/字典/权限/接口快照将写回为系统基线。
         </Typography.Text>
       )}
     </Space>
   )
 }
+
+/* ── 页面容器: 左栏(栏目链接 + 时间线) sticky ─────── */
+
+const NAV_ITEMS = [
+  { key: 'basic', label: '基本信息' },
+  { key: 'features', label: '功能清单' },
+  { key: 'assets', label: '数据资产' },
+  { key: 'permissions', label: '权限矩阵' },
+  { key: 'apis', label: '接口清单' },
+  { key: 'infra', label: '基础设施' },
+  { key: 'components', label: '组件清单' },
+  { key: 'history', label: '评估历史' },
+  { key: 'changes', label: '变动历史' },
+  { key: 'baseline', label: '合规基线' },
+]
 
 export default function SystemDetailPage({ systemId }: { systemId: number }) {
   const enums = useEnums()
@@ -544,7 +604,35 @@ export default function SystemDetailPage({ systemId }: { systemId: number }) {
   const [editing, setEditing] = useState(false)
   const [filings, setFilings] = useState<FilingRow[]>([])
   const [confirming, setConfirming] = useState(false)
+  const [active, setActive] = useState('basic')
   const isSecuritySide = isSecuritySideRole(getStoredUser()?.role)
+
+  const reload = useCallback(() => {
+    api.getSystem(systemId)
+      .then(setSystem)
+      .catch((e: Error) => message.error(e.message))
+  }, [systemId])
+  useEffect(reload, [reload])
+  useEffect(() => { api.listFilings().then(setFilings).catch(() => undefined) }, [])
+
+  // 滚动跟随: 视口顶部最近的分节高亮左栏栏目
+  useEffect(() => {
+    const onScroll = () => {
+      let current = NAV_ITEMS[0].key
+      for (const item of NAV_ITEMS) {
+        const el = document.getElementById(`sec-${item.key}`)
+        if (el && el.getBoundingClientRect().top <= 120) current = item.key
+      }
+      setActive(current)
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  const jumpTo = (key: string) => {
+    setActive(key)
+    document.getElementById(`sec-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
   const confirmLevel = async (decision: 'adopt_suggested' | 'keep_filing') => {
     setConfirming(true)
@@ -558,14 +646,6 @@ export default function SystemDetailPage({ systemId }: { systemId: number }) {
       setConfirming(false)
     }
   }
-
-  const reload = useCallback(() => {
-    api.getSystem(systemId)
-      .then(setSystem)
-      .catch((e: Error) => message.error(e.message))
-  }, [systemId])
-  useEffect(reload, [reload])
-  useEffect(() => { api.listFilings().then(setFilings).catch(() => undefined) }, [])
 
   if (!system) {
     return <div style={{ padding: 24 }}><Spin /></div>
@@ -584,7 +664,7 @@ export default function SystemDetailPage({ systemId }: { systemId: number }) {
       message.success(rounds.length
         ? '已按上一轮评估创建新一轮, 请在向导中核对并修改变化部分'
         : '已创建新一轮评估, 请在向导第一步核对信息')
-      navigate(`/wizard/${detail.id}`)
+      navigate(`/evaluations/${detail.id}/wizard`)
     } catch (e) {
       message.error((e as Error).message)
       setCreating(false)
@@ -592,33 +672,100 @@ export default function SystemDetailPage({ systemId }: { systemId: number }) {
   }
 
   const rounds = system.rounds ?? []
+  const railStyle: CSSProperties = {
+    width: 188, flex: 'none',
+    position: 'sticky', top: 16,
+    display: 'flex', flexDirection: 'column', gap: 16,
+    maxHeight: 'calc(100vh - 32px)', overflow: 'auto',
+  }
+
   return (
-    <div style={{ padding: 24, maxWidth: 1080, margin: '0 auto' }}>
+    <div style={{ padding: 24 }}>
       <PageHeader
-        title={system.name}
-        backLabel="返回清单"
         onBack={() => navigate('/systems')}
+        title={system.name}
+        description={[system.code, system.filing_name, system.owner_name]
+          .filter(Boolean).join(' · ') || undefined}
         extra={(
-          <>
-            <Button onClick={() => setEditing(true)}>编辑信息</Button>
-            <Button type="primary" icon={<PlusOutlined />} loading={creating} onClick={() => void startNewRound()}>
-              发起新一轮评估
-            </Button>
-          </>
+          <Button
+            type="primary" icon={<PlusOutlined />} loading={creating}
+            onClick={() => void startNewRound()}
+          >
+            发起新一轮评估
+          </Button>
         )}
       />
-      <Card variant="borderless">
-        <Tabs items={[
-          { key: 'overview', label: '基本信息', children: <OverviewSection system={system} enums={enums} /> },
-          { key: 'features', label: '功能清单', children: <FeaturesSection systemId={system.id} /> },
-          { key: 'data_assets', label: '数据资产', children: <DataAssetsSection systemId={system.id} /> },
-          { key: 'permissions', label: '权限矩阵', children: <PermissionsSection systemId={system.id} /> },
-          { key: 'apis', label: '接口清单', children: <ApisSection systemId={system.id} /> },
-          { key: 'history', label: '评估历史', children: <HistorySection system={system} rounds={rounds} /> },
-          { key: 'changes', label: '变动历史', children: <ChangesSection system={system} /> },
-          { key: 'baseline', label: '合规基线', children: <BaselineSection system={system} confirming={confirming} onConfirm={confirmLevel} isSecuritySide={isSecuritySide} /> },
-        ]} />
-      </Card>
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+        {/* 左栏: 栏目链接 + 时间线, 一起 sticky 固定(#280 修正) */}
+        <div style={railStyle}>
+          <Card styles={{ body: { padding: 8 } }}>
+            {NAV_ITEMS.map((s) => (
+              <Button
+                key={s.key}
+                type="text"
+                block
+                size="small"
+                style={{
+                  justifyContent: 'flex-start',
+                  fontWeight: active === s.key ? 600 : 400,
+                  color: active === s.key ? 'var(--secreq-primary)' : undefined,
+                }}
+                onClick={() => jumpTo(s.key)}
+              >
+                {s.label}
+              </Button>
+            ))}
+          </Card>
+          {/* 时间线卡片(#280 修正): 固定在栏目链接下方, 滚动不滚走 */}
+          <Card size="small" title="评估时间线" styles={{ body: { maxHeight: 320, overflow: 'auto' } }}>
+            {rounds.length === 0 ? (
+              <Typography.Text type="secondary">暂无评估</Typography.Text>
+            ) : (
+              <Timeline
+                items={rounds.map((r) => ({
+                  color: r.status === 'generated' ? 'green' : 'gray',
+                  children: (
+                    <div style={{ cursor: 'pointer' }} onClick={() =>
+                      navigate(r.status === 'generated'
+                        ? `/evaluations/${r.project_id}/result`
+                        : `/evaluations/${r.project_id}/wizard`)
+                    }>
+                      <Typography.Text style={{ fontSize: 12 }}>{r.project_name}</Typography.Text>
+                      <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+                        {r.created_at?.slice(0, 10) || ''}
+                        {system.current_baseline_project_id === r.project_id ? ' · 当前基线' : ''}
+                      </Typography.Text>
+                    </div>
+                  ),
+                }))}
+              />
+            )}
+          </Card>
+        </div>
+
+        {/* 右侧内容分节 */}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <BasicSection system={system} enums={enums} onEdit={() => setEditing(true)} />
+          <FeaturesSection systemId={system.id} />
+          <DataAssetsSection systemId={system.id} />
+          <PermissionsSection systemId={system.id} />
+          <ApisSection systemId={system.id} />
+          <InfraSection systemId={system.id} />
+          <ComponentsSection systemId={system.id} />
+          <Section id="history" title="评估历史">
+            <HistorySection system={system} rounds={rounds} />
+          </Section>
+          <Section id="changes" title="变动历史">
+            <ChangesSection system={system} />
+          </Section>
+          <Section id="baseline" title="合规基线">
+            <BaselineSection
+              system={system} confirming={confirming}
+              onConfirm={confirmLevel} isSecuritySide={isSecuritySide}
+            />
+          </Section>
+        </div>
+      </div>
 
       {editing && (
         <SystemFormModal
