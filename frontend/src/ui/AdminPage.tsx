@@ -3,9 +3,10 @@
    各 Tab 拆分为 src/ui/admin/ 下各自独立的组件, 本文件只保留外壳与路由;
    Tab 组件经 React.lazy 按需加载, 切换到哪个 Tab 才下载并渲染对应代码(#40)。 */
 import { Suspense, lazy } from 'react'
-import { Card, Result, Spin, Tabs, Typography } from 'antd'
+import { Card, Result, Spin, Tabs } from 'antd'
 
 import { getStoredUser, isSecuritySideRole } from '../api'
+import PageHeader from './PageHeader'
 
 const KbTab = lazy(() => import('./admin/KbTab'))
 const QuestionTab = lazy(() => import('./admin/QuestionTab'))
@@ -39,14 +40,15 @@ export default function AdminPage() {
     )
   }
   return (
-    <div style={{ maxWidth: 1100, margin: '0 auto', padding: 24 }}>
-      <div style={{ marginBottom: 16 }}>
-        <Typography.Title level={4} style={{ marginBottom: 4 }}>系统管理</Typography.Title>
-        <Typography.Text type="secondary">
-          知识库、定级题库、密码策略基线、大模型接入、离线漏洞库、用户、审计日志、系统设置与更新日志的统一维护入口(仅安全角色)
-        </Typography.Text>
-      </div>
-      <Card>
+    <div style={{ padding: 24 }}>
+      <PageHeader
+        title="系统管理"
+        description={
+          '知识库、定级题库、密码策略基线、大模型接入、离线漏洞库、用户、审计日志、' +
+          '系统设置与更新日志的统一维护入口(仅安全角色)'
+        }
+      />
+      <Card variant="borderless">
         <Suspense fallback={<TabLoading />}>
           <Tabs
             items={[

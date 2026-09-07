@@ -14,6 +14,7 @@ import { api } from '../../api'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
 import { useBaselineUidIndex, useRegisterStepHandle, useStepDwell } from './stepContext'
 import { DATA_LEVEL_COLOR } from '../tokens'
+import { PRIMARY } from '../theme'
 import type { StepProps } from '../WizardPage'
 import type { DataAssetRow, DataFieldRow, DataTableRow } from '../../types'
 
@@ -359,7 +360,7 @@ function CardLikeTable({ table, onDelete, onReplace, enums }: {
   return (
     <div style={{ border: '1px solid #eee', borderRadius: 6, padding: '8px 12px', marginBottom: 10 }}>
       <Space style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-        <b><DatabaseOutlined style={{ color: '#2f5597' }} /> {table.table_name}</b>
+        <b><DatabaseOutlined style={{ color: PRIMARY }} /> {table.table_name}</b>
         <Popconfirm title="删除整张表?" onConfirm={onDelete}>
           <Button size="small" danger icon={<DeleteOutlined />} />
         </Popconfirm>

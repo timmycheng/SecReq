@@ -137,9 +137,11 @@ export function SystemInfraCard({ systemId, onHandle, onSaved }: {
         ) : (
           <div style={{
             width: 220, height: 124, border: '1px dashed #d9d9d9', borderRadius: 4,
-            display: 'grid', placeItems: 'center', color: '#999', fontSize: 12,
+            display: 'grid', placeItems: 'center',
           }}>
-            暂无{ENV_LABEL[env]}架构图
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              暂无{ENV_LABEL[env]}架构图
+            </Typography.Text>
           </div>
         )}
         <Space direction="vertical" size={6}>

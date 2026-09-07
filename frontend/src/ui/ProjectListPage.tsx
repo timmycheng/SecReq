@@ -2,8 +2,8 @@
    空状态带首次使用引导。 */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Alert, Button, Card, Empty, Modal, Popconfirm, Radio, Select, Space, Table, Tag, message,
-  Typography,
+  Alert, Button, Card, Divider, Empty, Modal, Popconfirm, Radio, Select, Space, Table, Tag,
+  message, Typography,
 } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 
@@ -12,6 +12,7 @@ import { GATE_STATUS_COLOR } from './tokens'
 import { GRADING_LEVEL_COLOR, HEX } from './tokens'
 import { labelOf, useEnums } from '../enums'
 import { navigate } from '../router'
+import PageHeader from './PageHeader'
 import type { ProjectDetail, RoundSummary, SystemRow } from '../types'
 
 export default function ProjectListPage() {
@@ -82,10 +83,10 @@ export default function ProjectListPage() {
 
   return (
     <div style={{ padding: 24 }}>
-      <Card
+      <PageHeader
         title={isFullView ? '评估列表(全部评估)' : '我的评估'}
         extra={(
-          <Space>
+          <>
             <Select
               allowClear showSearch
               style={{ minWidth: 180 }}
@@ -98,13 +99,16 @@ export default function ProjectListPage() {
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
               发起新评估
             </Button>
-          </Space>
+          </>
         )}
-      >
+      />
+      <Card variant="borderless">
         <Table<ProjectDetail>
           rowKey="id"
           loading={loading}
           dataSource={visibleProjects}
+          scroll={{ x: 1440 }}
+          sticky
           pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
           locale={{
             emptyText: (
@@ -113,11 +117,11 @@ export default function ProjectListPage() {
                 description={(
                   <>
                     <p style={{ fontWeight: 600 }}>还没有评估</p>
-                    <p style={{ color: '#888' }}>
+                    <Typography.Text type="secondary">
                       平台通过 7 步向导完成评估信息采集, 按行内安全知识库自动生成
                       安全需求清单、SBOM 漏洞清单与交付文档。
                       推荐顺序: 发起新评估 → 填写向导 → 生成基线 → 查看产物并确认需求。
-                    </p>
+                    </Typography.Text>
                   </>
                 )}
               >
@@ -131,7 +135,7 @@ export default function ProjectListPage() {
             expandedRowRender: (record) => <CountsGrid counts={record.counts} />,
           }}
           columns={[
-            { title: '评估名称', dataIndex: 'name' },
+            { title: '评估名称', dataIndex: 'name', width: 220, ellipsis: true },
             { title: '评估编码', dataIndex: 'code', width: 150 },
             {
               title: '所属系统', dataIndex: 'system_name', width: 150,
@@ -140,7 +144,7 @@ export default function ProjectListPage() {
                 : <Typography.Text type="secondary">未归属</Typography.Text>,
             },
             {
-              title: '类型', dataIndex: 'types', width: 160,
+              title: '类型', dataIndex: 'types', width: 130,
               render: (types: string[]) => (types ?? []).map((t) => (
                 <Tag key={t}>{labelOf(enums, 'project_types', t)}</Tag>
               )),
@@ -168,15 +172,15 @@ export default function ProjectListPage() {
                   </Tag>
                 : <Tag>未提交</Tag>),
             },
-            ...(isFullView ? [{ title: '创建人', dataIndex: 'owner_name', width: 100 }] : []),
+            ...(isFullView ? [{ title: '创建人', dataIndex: 'owner_name', width: 110 }] : []),
             { title: '安全需求', dataIndex: ['counts', 'requirements'], width: 90 },
             {
-              title: '操作', width: 330,
+              title: '操作', width: 250,
               render: (_, record) => (
-                <Space>
-                  <Button size="small" onClick={() => navigate(`/wizard/${record.id}`)}>填写向导</Button>
-                  <Button size="small" onClick={() => navigate(`/result/${record.id}`)}>查看产物</Button>
-                  <Button size="small" onClick={() => navigate(`/project/${record.id}/review`)}>评审中心</Button>
+                <Space size={0} split={<Divider type="vertical" />}>
+                  <Button type="link" size="small" onClick={() => navigate(`/wizard/${record.id}`)}>填写向导</Button>
+                  <Button type="link" size="small" onClick={() => navigate(`/result/${record.id}`)}>查看产物</Button>
+                  <Button type="link" size="small" onClick={() => navigate(`/project/${record.id}/review`)}>评审中心</Button>
                   <Popconfirm
                     title="删除该评估及其全部数据?"
                     onConfirm={async () => {
@@ -189,7 +193,7 @@ export default function ProjectListPage() {
                       reload()
                     }}
                   >
-                    <Button size="small" danger>删除</Button>
+                    <Button type="link" size="small" danger>删除</Button>
                   </Popconfirm>
                 </Space>
               ),

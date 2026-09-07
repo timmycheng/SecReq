@@ -1,11 +1,11 @@
 /* 应用外壳: 未登录显示登录页; 已登录为 dashboard 布局(左侧菜单 + 顶栏用户区)。 */
 import { useEffect, useState } from 'react'
 import {
-  Avatar, ConfigProvider, App as AntdApp, Dropdown, Layout, Menu, Space, Tag,
+  Avatar, ConfigProvider, App as AntdApp, Dropdown, Layout, Menu, Space, Tag, theme,
 } from 'antd'
 import {
-  ApartmentOutlined, CloudServerOutlined, SettingOutlined,
-  UnorderedListOutlined, UserOutlined,
+  ApartmentOutlined, CloudServerOutlined, SafetyCertificateOutlined,
+  SettingOutlined, UnorderedListOutlined, UserOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 
@@ -15,6 +15,8 @@ import { USER_STORAGE_KEY } from './api'
 import { EnumsProvider } from './enums'
 import { useRoute, navigate } from './router'
 import { requestLeave } from './ui/dirtyGuard'
+import { themeConfig } from './ui/theme'
+import { ROLE_COLOR } from './ui/tokens'
 import ChangePasswordModal from './ui/ChangePasswordModal'
 import LoginPage from './ui/LoginPage'
 import ProjectListPage from './ui/ProjectListPage'
@@ -28,6 +30,7 @@ import type { LoginInfo } from './types'
 
 function AppBody() {
   const { message } = AntdApp.useApp()
+  const { token } = theme.useToken()
   const route = useRoute()
   const [user, setUser] = useState<StoredUser | null>(getStoredUser())
   const [pwdOpen, setPwdOpen] = useState(false)
@@ -76,13 +79,8 @@ function AppBody() {
   }
 
   if (!user || !getStoredToken()) {
-    return (
-      <ConfigProvider locale={zhCN} theme={{ token: { colorPrimary: '#2f5597', borderRadius: 6 } }}>
-        <AntdApp>
-          <LoginPage onLogin={onLogin} />
-        </AntdApp>
-      </ConfigProvider>
-    )
+    // 主题与 AntdApp 上下文均由 Shell 单点提供, 登录页不再重复挂载(#268)
+    return <LoginPage onLogin={onLogin} />
   }
 
   const menuKey
@@ -108,10 +106,12 @@ function AppBody() {
           <div
             onClick={() => void requestLeave().then((ok) => ok && navigate('/'))}
             style={{
+              display: 'flex', alignItems: 'center', gap: 8,
               color: '#fff', fontSize: 16, fontWeight: 600, letterSpacing: 1,
               padding: '16px 16px 12px', cursor: 'pointer', whiteSpace: 'nowrap',
             }}
           >
+            <SafetyCertificateOutlined style={{ fontSize: 20 }} />
             安全需求管理平台
           </div>
           <Menu
@@ -133,20 +133,20 @@ function AppBody() {
         <Layout>
           <Layout.Header
             style={{
-              background: '#fff', padding: '0 24px', display: 'flex',
+              padding: '0 24px', display: 'flex',
               justifyContent: 'flex-end', alignItems: 'center', gap: 16,
-              borderBottom: '1px solid #f0f0f0',
+              borderBottom: `1px solid ${token.colorBorderSecondary}`,
             }}
           >
             <Dropdown menu={userMenu}>
               <Space style={{ cursor: 'pointer' }} size={8}>
-                <Avatar size={28} icon={<UserOutlined />} style={{ background: '#2f5597' }} />
+                <Avatar size={28} icon={<UserOutlined />} style={{ background: token.colorPrimary }} />
                 <span>{user.display_name}</span>
-                <Tag color={user.role === 'pm' ? 'geekblue' : user.role === 'auditor' ? 'purple' : 'orange'}>{user.role_label}</Tag>
+                <Tag color={ROLE_COLOR[user.role] ?? 'default'}>{user.role_label}</Tag>
               </Space>
             </Dropdown>
           </Layout.Header>
-          <Layout.Content style={{ background: '#f5f6fa' }}>
+          <Layout.Content>
             {route.name === 'list' && <ProjectListPage />}
             {route.name === 'systems' && <SystemsPage />}
             {route.name === 'systemDetail' && <SystemDetailPage key={route.systemId} systemId={route.systemId} />}
@@ -164,10 +164,7 @@ function AppBody() {
 
 function Shell() {
   return (
-    <ConfigProvider
-      locale={zhCN}
-      theme={{ token: { colorPrimary: '#2f5597', borderRadius: 6 } }}
-    >
+    <ConfigProvider locale={zhCN} theme={themeConfig}>
       <AntdApp style={{ minHeight: '100vh' }}>
         <AppBody />
       </AntdApp>

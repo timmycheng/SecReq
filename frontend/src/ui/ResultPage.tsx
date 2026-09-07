@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Key, ReactNode } from 'react'
 import {
-  Alert, Breadcrumb, Button, Card, Descriptions, Modal, Progress, Select, Space,
+  Alert, Breadcrumb, Button, Card, Descriptions, Dropdown, Modal, Progress, Select, Space,
   Spin, Table, Tabs, Tag, Tooltip, Typography, message,
 } from 'antd'
-import { AuditOutlined, CopyOutlined, DiffOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
+import {
+  AuditOutlined, CopyOutlined, DiffOutlined, DownloadOutlined, DownOutlined, ReloadOutlined,
+} from '@ant-design/icons'
 
 import { api, downloadFile } from '../api'
 import { labelMapOf, useEnums } from '../enums'
@@ -16,6 +18,7 @@ import type {
 } from '../types'
 import { batchConfirm, confirmOne, unconfirmedAll, unconfirmedRegulatory } from './assist'
 import GlossaryTip from './GlossaryTip'
+import { PRIMARY } from './theme'
 import {
   copyRichHtml, docShell, executiveSummarySection, requirementsSection, vulnsSection,
 } from './wordExport'
@@ -172,6 +175,21 @@ export default function ResultPage({ projectId }: { projectId: number }) {
     }
   }
 
+  /** 执行摘要复制到 Word(工具栏「导出与复制」下拉项)。 */
+  const copyExecutiveSummary = () => {
+    void copySection(
+      '执行摘要',
+      docShell(`${project.name} 执行摘要`, [], executiveSummarySection({
+        projectName: project.name,
+        requirements: hitAll,
+        vulns: vulns ?? [],
+        complianceTargets: project.compliance_targets ?? [],
+        complianceLabels: labelMapOf(enums, 'compliance_targets'),
+      })),
+      `${project.name} 执行摘要`,
+    )
+  }
+
   return (
     <div style={{ padding: 24, maxWidth: 1280, margin: '0 auto' }}>
       {/* 生成总结块(#95): 一屏回答"这次生成了什么、风险在哪", 数字与下方清单同源 */}
@@ -181,17 +199,17 @@ export default function ResultPage({ projectId }: { projectId: number }) {
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 24, fontWeight: 600 }}>{hitAll.length}</div>
               <Typography.Text type="secondary">安全需求</Typography.Text>
-              <div style={{ fontSize: 12, color: '#888' }}>
+              <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
                 {['critical', 'high', 'medium', 'low'].map((p) => {
                   const n = hitAll.filter((r) => r.priority === p).length
                   return n ? `${priorityLabels[p] ?? p}${n}` : null
                 }).filter(Boolean).join(' · ')}
-              </div>
+              </Typography.Text>
             </div>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 24, fontWeight: 600 }}>{components.length}</div>
               <Typography.Text type="secondary">组件</Typography.Text>
-              <div style={{ fontSize: 12, color: '#888' }}>
+              <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
                 {(() => {
                   const risky = components.filter((c) => {
                     const lic = c.license ? riskMap[c.license] : undefined
@@ -199,24 +217,26 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                   }).length
                   return risky ? `${risky} 个许可证中高风险` : '许可证风险均可控'
                 })()}
-              </div>
+              </Typography.Text>
             </div>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 24, fontWeight: 600 }}>{vulns?.length ?? 0}</div>
               <Typography.Text type="secondary">漏洞记录</Typography.Text>
-              <div style={{ fontSize: 12, color: '#888' }}>
+              <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
                 {vulns?.length ? ['critical', 'high', 'medium', 'low'].map((s) => {
                   const n = vulns.filter((v) => v.severity === s).length
                   return n ? `${severityLabels[s] ?? s}${n}` : null
                 }).filter(Boolean).join(' · ') || '未命中' : '未查询'}
-              </div>
+              </Typography.Text>
             </div>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 24, fontWeight: 600 }}>
                 {hitAll.filter((r) => (r.regulatory_ref ?? []).length > 0).length}
               </div>
               <Typography.Text type="secondary">含合规依据</Typography.Text>
-              <div style={{ fontSize: 12, color: '#888' }}>条目附监管文件条款引用</div>
+              <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+                条目附监管文件条款引用
+              </Typography.Text>
             </div>
           </Space>
         </Card>
@@ -260,37 +280,32 @@ export default function ResultPage({ projectId }: { projectId: number }) {
         <Button icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
         <Button onClick={() => navigate(`/wizard/${projectId}`)}>返回向导修改</Button>
         <Button icon={<AuditOutlined />} onClick={() => navigate(`/project/${projectId}/review`)}>评审中心</Button>
+        {/* 次级导出动作收进下拉, 保持「下载 Word 文档」全页唯一 primary(#268) */}
+        <Dropdown
+          menu={{
+            items: [
+              { key: 'copy-summary', icon: <CopyOutlined />, label: '复制执行摘要(到 Word 粘贴)' },
+              { key: 'xlsx', icon: <DownloadOutlined />, label: '需求跟踪表.xlsx(Jira 可导入)' },
+              { key: 'sbom', icon: <DownloadOutlined />,
+                label: <GlossaryTip term="sbom">SBOM JSON(CycloneDX 1.5)</GlossaryTip> },
+            ],
+            onClick: ({ key }) => {
+              if (key === 'copy-summary') copyExecutiveSummary()
+              if (key === 'xlsx') void downloadFile(`/api/projects/${projectId}/export/xlsx`)
+              if (key === 'sbom') void downloadFile(`/api/projects/${projectId}/sbom`)
+            },
+          }}
+        >
+          <Button>
+            <Space size={4}>导出与复制 <DownOutlined /></Space>
+          </Button>
+        </Dropdown>
         <Button
-          type="primary" ghost icon={<DownloadOutlined />}
+          type="primary" icon={<DownloadOutlined />}
           onClick={() => void downloadFile(`/api/projects/${projectId}/export/docx`,
             `${project.code}_安全需求说明书.docx`)}
         >
           下载 Word 文档
-        </Button>
-        <Button
-          icon={<CopyOutlined />}
-          onClick={() => {
-            const enumsCompliance = labelMapOf(enums, 'compliance_targets')
-            void copySection(
-              '执行摘要',
-              docShell(`${project.name} 执行摘要`, [], executiveSummarySection({
-                projectName: project.name,
-                requirements: hitAll,
-                vulns: vulns ?? [],
-                complianceTargets: project.compliance_targets ?? [],
-                complianceLabels: enumsCompliance,
-              })),
-              `${project.name} 执行摘要`,
-            )
-          }}
-        >
-          复制执行摘要
-        </Button>
-        <Button onClick={() => void downloadFile(`/api/projects/${projectId}/export/xlsx`)}>
-          <DownloadOutlined /> 需求跟踪表.xlsx(Jira 可导入)
-        </Button>
-        <Button onClick={() => void downloadFile(`/api/projects/${projectId}/sbom`)}>
-          <GlossaryTip term="sbom">SBOM JSON(CycloneDX 1.5)</GlossaryTip>
         </Button>
       </Space>
 
@@ -622,9 +637,9 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                       </div>
                     ))}
                     {Object.keys(c.field_values ?? {}).length === 0 && (
-                      <div style={{ color: '#888', marginTop: 4, fontSize: 12 }}>
+                      <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
                         变化字段: {c.fields.map((f) => DIFF_FIELD_FALLBACK_LABELS[f] ?? f).join('、')}
-                      </div>
+                      </Typography.Text>
                     )}
                   </Card>
                 ))}
@@ -676,11 +691,11 @@ function ReqDetail({ r }: { r: RequirementRow }) {
         <Typography.Text type="secondary">验收标准: </Typography.Text>
         <span style={{ whiteSpace: 'pre-line' }}>{numberedToLines(r.acceptance_criteria)}</span>
       </div>
-      <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
-        <div>
+      <div style={{ marginTop: 8 }}>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           触发原因: {r.trigger_reason || '未记录(存量数据)'}
           {r.source_label ? `(来源: ${r.source_label})` : ''}
-        </div>
+        </Typography.Text>
       </div>
       {(r.regulatory_ref ?? []).length > 0 && (
         <div style={{ marginTop: 8 }}>
@@ -850,12 +865,12 @@ function ExecutiveSummaryCard({ hitAll, vulns, complianceTargets, complianceLabe
                 onClick={() => onPickCategory(labelToCode[label] ?? label)}
                 style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0', cursor: 'pointer' }}
               >
-                <span style={{ width: 96, fontSize: 12, color: '#555', flexShrink: 0 }}>{label}</span>
+                <Typography.Text type="secondary" style={{ width: 96, fontSize: 12, flexShrink: 0 }}>{label}</Typography.Text>
                 <Progress
                   percent={Math.max(6, Math.round((count / catMax) * 100))}
                   showInfo={false}
                   size="small"
-                  strokeColor="#2f5597"
+                  strokeColor={PRIMARY}
                   style={{ flex: 1, margin: 0 }}
                 />
                 <span style={{ width: 28, fontSize: 12, textAlign: 'right' }}>{count}</span>

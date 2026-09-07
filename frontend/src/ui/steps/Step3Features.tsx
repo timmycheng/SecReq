@@ -313,7 +313,11 @@ function FeatureModal({ value, onOk, onCancel }: {
               return (
                 <div>
                   <div>{o.label}</div>
-                  {hint && <div style={{ fontSize: 12, color: '#999' }}>通常触发: {hint}</div>}
+                  {hint && (
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      通常触发: {hint}
+                    </Typography.Text>
+                  )}
                 </div>
               )
             }}
@@ -325,7 +329,9 @@ function FeatureModal({ value, onOk, onCancel }: {
             <span>
               敏感级别
               <Tooltip title="这是评估内的业务敏感标注(公开/内部/敏感/机密), 与第 3 步数据资产的 JR/T 0197 五级「安全分级」相互独立; 拿不准时按更保守的档位选择">
-                <QuestionCircleOutlined style={{ marginLeft: 4, color: '#999' }} />
+                <Typography.Text type="secondary" style={{ marginLeft: 4 }}>
+                  <QuestionCircleOutlined />
+                </Typography.Text>
               </Tooltip>
             </span>
           )}
@@ -339,7 +345,9 @@ function FeatureModal({ value, onOk, onCancel }: {
               optionRender: () => (
                 <div>
                   <div>{label}</div>
-                  <div style={{ fontSize: 12, color: '#999' }}>{SENSITIVITY_HINTS[value] ?? ''}</div>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {SENSITIVITY_HINTS[value] ?? ''}
+                  </Typography.Text>
                 </div>
               ),
             }))}

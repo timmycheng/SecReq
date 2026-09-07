@@ -5,12 +5,13 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   Alert, Button, Card, Descriptions, Space, Spin, Tag, Timeline, Typography, message,
 } from 'antd'
-import { ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons'
+import { PlusOutlined } from '@ant-design/icons'
 
 import { api, getStoredUser, isSecuritySideRole } from '../api'
 import { labelMapOf, useEnums } from '../enums'
 import { navigate } from '../router'
 import { LevelTag, RoundCell, SystemFormModal } from './SystemsPage'
+import PageHeader from './PageHeader'
 import { SystemComponentsCard, SystemInfraCard } from './system/SystemInventoryCards'
 import type { FilingRow, SystemRow } from '../types'
 
@@ -73,20 +74,20 @@ export default function SystemDetailPage({ systemId }: { systemId: number }) {
   const scaleLabels = labelMapOf(enums, 'user_scales')
   return (
     <div style={{ padding: 24, maxWidth: 1080, margin: '0 auto' }}>
-      <Space style={{ marginBottom: 16 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/systems')}>返回台账</Button>
-      </Space>
-      <Card
+      <PageHeader
         title={system.name}
+        backLabel="返回台账"
+        onBack={() => navigate('/systems')}
         extra={(
-          <Space>
+          <>
             <Button onClick={() => setEditing(true)}>编辑信息</Button>
             <Button type="primary" icon={<PlusOutlined />} loading={creating} onClick={() => void startNewRound()}>
               发起新一轮评估
             </Button>
-          </Space>
+          </>
         )}
-      >
+      />
+      <Card title="基本信息">
         <Descriptions size="small" column={3}>
           <Descriptions.Item label="系统编号">{system.code || '—'}</Descriptions.Item>
           <Descriptions.Item label="所属备案">

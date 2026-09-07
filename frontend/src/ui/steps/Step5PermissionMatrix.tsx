@@ -15,6 +15,7 @@ import type { MatrixEntryIn } from '../../types'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
 import type { RoleRow, ResourceRow } from '../../types'
 import GlossaryTip from '../GlossaryTip'
+import { PRIMARY } from '../theme'
 import { useRegisterStepHandle, useStepDwell } from './stepContext'
 import type { StepProps } from '../WizardPage'
 
@@ -209,12 +210,12 @@ export default function Step5PermissionMatrix({ ws, patch }: StepProps) {
             <thead>
               <tr>
                 <th style={{
-                  ...cellStyle('#2f5597', '#fff'),
+                  ...cellStyle(PRIMARY, '#fff'),
                   borderLeft: '1px solid #e8e8e8', borderTop: '1px solid #e8e8e8',
                   position: 'sticky', left: 0, zIndex: 3, boxShadow: '2px 0 4px rgba(0,0,0,0.06)',
                 }}>角色 \ 资源</th>
                 {resources.map((r, ci) => (
-                  <th key={ci} style={{ ...cellStyle('#2f5597', '#fff'), borderTop: '1px solid #e8e8e8' }}>
+                  <th key={ci} style={{ ...cellStyle(PRIMARY, '#fff'), borderTop: '1px solid #e8e8e8' }}>
                     {r.name}
                     <div>
                       <Tag style={{ marginRight: 0 }}>
