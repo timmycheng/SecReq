@@ -1,6 +1,6 @@
 # NetBox 联动测试环境
 
-SecReq 的 NetBox 互通(#152 配置管理 / #153 资产导入推送 / #154 系统台账互通)针对真实 NetBox 4.x +
+SecReq 的 NetBox 互通(#152 配置管理 / #153 资产导入推送 / #154 系统清单互通)针对真实 NetBox 4.x +
 官方 [netbox-custom-objects](https://github.com/netboxlabs/netbox-custom-objects) 插件;单元层用
 httpx MockTransport 隔离(tests/test_netbox.py),本环境提供**真实联动**的本地靶场。
 

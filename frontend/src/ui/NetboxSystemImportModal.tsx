@@ -1,4 +1,4 @@
-/* NetBox 系统清单导入弹窗(#154): 系统台账页与向导 Step1「所属系统」共用。
+/* NetBox 系统清单导入弹窗(#154): 系统清单页与向导 Step1「所属系统」共用。
    只负责搜索/勾选 NetBox 行, 创建与查重由调用方处理; 未配置/断连给可读空态+重试。 */
 import { useEffect, useState } from 'react'
 import { Alert, Button, Input, Modal, Table, Typography } from 'antd'
@@ -54,7 +54,7 @@ export default function NetboxSystemImportModal({ open, onClose, onSelected }: {
         <Alert
           type="warning" showIcon
           message={`NetBox 暂不可用: ${error}`}
-          description="系统台账与建项流程不受影响; 可在 系统管理 → NetBox 互通 检查配置后重试。"
+          description="系统清单与建项流程不受影响; 可在 系统管理 → NetBox 互通 检查配置后重试。"
           action={<Button size="small" onClick={() => load(keyword, page)}>重试</Button>}
         />
       ) : (
@@ -81,7 +81,7 @@ export default function NetboxSystemImportModal({ open, onClose, onSelected }: {
         </>
       )}
       <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
-        导入后即登记为本系统台账; 与已有系统按名称或 NetBox 对象查重, 重复行自动跳过。
+        导入后即登记为本系统清单; 与已有系统按名称或 NetBox 对象查重, 重复行自动跳过。
       </Typography.Text>
     </Modal>
   )

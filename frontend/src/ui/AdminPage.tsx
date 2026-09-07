@@ -10,6 +10,7 @@ import PageHeader from './PageHeader'
 
 const KbTab = lazy(() => import('./admin/KbTab'))
 const QuestionTab = lazy(() => import('./admin/QuestionTab'))
+const FilingsTab = lazy(() => import('./admin/FilingsTab'))
 const PolicyTab = lazy(() => import('./admin/PolicyTab'))
 const LlmTab = lazy(() => import('./admin/LlmTab'))
 const NetboxTab = lazy(() => import('./admin/NetboxTab'))
@@ -44,8 +45,8 @@ export default function AdminPage() {
       <PageHeader
         title="系统管理"
         description={
-          '知识库、定级题库、密码策略基线、大模型接入、离线漏洞库、用户、审计日志、' +
-          '系统设置与更新日志的统一维护入口(仅安全角色)'
+          '知识库、定级题库、定级备案、密码策略基线、大模型接入、离线漏洞库、用户、' +
+          '审计日志、系统设置与更新日志的统一维护入口(仅安全角色)'
         }
       />
       <Card variant="borderless">
@@ -55,6 +56,7 @@ export default function AdminPage() {
               { key: 'kb', label: '知识库', children: <KbTab /> },
               { key: 'vulndb', label: '漏洞库', children: <VulnDbTab /> },
               { key: 'questions', label: '定级题库', children: <QuestionTab /> },
+              { key: 'filings', label: '定级备案', children: <FilingsTab /> },
               { key: 'policy', label: '密码策略基线', children: <PolicyTab /> },
               { key: 'llm', label: '大模型接入', children: <LlmTab /> },
               { key: 'netbox', label: 'NetBox 互通', children: <NetboxTab /> },

@@ -1,4 +1,4 @@
-/* 极简 hash 路由: #/ 评估列表, #/systems 系统台账, #/system/:id 系统详情,
+/* 极简 hash 路由: #/ 评估列表, #/systems 系统清单, #/system/:id 系统详情,
    #/wizard/:id 向导, #/result/:id 产物页, #/project/:id/review 评审中心, #/admin 系统管理。 */
 import { useEffect, useState } from 'react'
 

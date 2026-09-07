@@ -227,7 +227,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
         <Form.Item
           name="system_id"
           label="所属系统(台账)"
-          tooltip="归属系统后, 同一系统多次评估在系统台账下形成时间线, 最新一轮即当前基线"
+          tooltip="归属系统后, 同一系统多次评估在系统清单下形成时间线, 最新一轮即当前基线"
           extra={(
             <Space size={4} wrap>
               {systemBound ? (
@@ -240,7 +240,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
                   <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setSysCreating(true)}>
                     就地新建系统
                   </Button>
-                  <span>(登记系统并挂靠定级备案; 规模/类型等基本信息在系统台账维护)</span>
+                  <span>(登记系统并挂靠定级备案; 规模/类型等基本信息在系统清单维护)</span>
                   {isSecurity && (
                     <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setSysImporting(true)}>
                       从 NetBox 导入
@@ -277,9 +277,9 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
         </Form.Item>
         <Form.Item
           name="types" label="评估类型(可多选)"
-          extra="系统业务形态在系统台账维护; 此处展示当前系统的类型(评估不再单独填写)"
+          extra="系统业务形态在系统清单维护; 此处展示当前系统的类型(评估不再单独填写)"
         >
-          <Select mode="multiple" options={optionsOf(enums, 'project_types')} disabled placeholder="在系统台账中维护" />
+          <Select mode="multiple" options={optionsOf(enums, 'project_types')} disabled placeholder="在系统清单中维护" />
         </Form.Item>
         <Row gutter={16}>
           <Col span={8}>

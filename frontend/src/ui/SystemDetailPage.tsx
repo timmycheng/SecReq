@@ -76,7 +76,7 @@ export default function SystemDetailPage({ systemId }: { systemId: number }) {
     <div style={{ padding: 24, maxWidth: 1080, margin: '0 auto' }}>
       <PageHeader
         title={system.name}
-        backLabel="返回台账"
+        backLabel="返回清单"
         onBack={() => navigate('/systems')}
         extra={(
           <>
