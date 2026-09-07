@@ -1,9 +1,10 @@
-/* 系统台账: 系统视角(系统 × 所属备案 × 最新评估) + 备案视角(备案 × 定级 × 下挂系统)。
-   台账是"看系统"的主入口: 同一系统多次评估在系统详情页形成时间线, 避免评估列表平行记录。 */
+/* 系统清单(#270, 原「系统台账」): 系统 × 所属备案/定级 × 最新评估。
+   清单是"看系统"的主入口: 同一系统多次评估在系统详情页形成时间线;
+   定级备案的管理已上收系统管理(安全侧权威维护 #192), 本页只在系统行上展示备案与定级。 */
 import { useCallback, useEffect, useState } from 'react'
 import {
   Button, Card, Divider, Empty, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table,
-  Tabs, Tag, Typography, message,
+  Tag, Typography, message,
 } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 
@@ -15,12 +16,12 @@ import NetboxSystemImportModal from './NetboxSystemImportModal'
 import PageHeader from './PageHeader'
 import type { FilingRow, NetboxSystemRow, RoundSummary, SystemRow } from '../types'
 
-function LevelTag({ level }: { level?: string | null }) {
+export function LevelTag({ level }: { level?: string | null }) {
   if (!level) return <Tag>未备案</Tag>
   return <Tag color={GRADING_LEVEL_COLOR[level] ?? 'default'}>等保{level}</Tag>
 }
 
-function RoundCell({ round }: { round?: RoundSummary | null }) {
+export function RoundCell({ round }: { round?: RoundSummary | null }) {
   if (!round) return <Typography.Text type="secondary">暂无已生成评估</Typography.Text>
   return (
     <Space size={6} wrap>
@@ -39,31 +40,6 @@ function RoundCell({ round }: { round?: RoundSummary | null }) {
 }
 
 export default function SystemsPage() {
-  return (
-    <div style={{ padding: 24 }}>
-      <PageHeader
-        title="系统台账"
-        description={
-          '一个系统对应多轮评估: 系统详情页查看评估时间线与当前基线; ' +
-          '对外备案按「定级备案」维护, 实际系统以备案子系统形式挂靠并继承其定级。'
-        }
-      />
-      <Card variant="borderless">
-        <Tabs
-          defaultActiveKey="systems"
-          items={[
-            { key: 'systems', label: '系统视角', children: <SystemsTab /> },
-            { key: 'filings', label: '定级备案', children: <FilingsTab /> },
-          ]}
-        />
-      </Card>
-    </div>
-  )
-}
-
-/* ── 系统视角 ─────────────────────────────────────── */
-
-function SystemsTab() {
   const enums = useEnums()
   const [rows, setRows] = useState<SystemRow[]>([])
   const [filings, setFilings] = useState<FilingRow[]>([])
@@ -131,7 +107,7 @@ function SystemsTab() {
     }
   }
 
-  /** 外链地址: 台账页挂载时拉一次 base_url(未配置静默; 仅安全角色, #196) */
+  /** 外链地址: 清单页挂载时拉一次 base_url(未配置静默; 仅安全角色, #196) */
   const [nbBaseUrl, setNbBaseUrl] = useState<string | undefined>(undefined)
   useEffect(() => {
     if (!isSecurity) return
@@ -206,36 +182,47 @@ function SystemsTab() {
   ]
 
   return (
-    <>
-      <Space style={{ marginBottom: 12 }}>
-        <Button
-          icon={<PlusOutlined />} type="primary"
-          onClick={() => setEditing({ user_scale: '1k_to_100k', types: [], is_public: false })}
-        >
-          新建系统
-        </Button>
-        {isSecurity && (
-          <Button icon={<PlusOutlined />} onClick={() => setImportOpen(true)}>
-            从 NetBox 导入
-          </Button>
+    <div style={{ padding: 24 }}>
+      <PageHeader
+        title="系统清单"
+        description={
+          '一个系统对应多轮评估: 详情页查看评估时间线与当前基线; ' +
+          '系统挂靠定级备案后评估自动继承定级, 备案管理在 系统管理 → 定级备案 维护。'
+        }
+        extra={(
+          <>
+            <Button
+              icon={<PlusOutlined />} type="primary"
+              onClick={() => setEditing({ user_scale: '1k_to_100k', types: [], is_public: false })}
+            >
+              新建系统
+            </Button>
+            {isSecurity && (
+              <Button icon={<PlusOutlined />} onClick={() => setImportOpen(true)}>
+                从 NetBox 导入
+              </Button>
+            )}
+          </>
         )}
-        <Typography.Text type="secondary">
-          规模/类型/公网等基本信息在系统上维护, 挂靠定级备案后评估自动继承定级
-        </Typography.Text>
-      </Space>
-      <Table<SystemRow>
-        rowKey="id"
-        loading={loading}
-        dataSource={rows}
-        pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
-        scroll={{ x: 900 }}
-        locale={{ emptyText: (
-          <Empty description="还没有系统登记">
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ user_scale: '1k_to_100k', types: [], is_public: false })}>新建系统</Button>
-          </Empty>
-) }}
-        columns={columns}
       />
+      <Card variant="borderless">
+        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+          规模/类型/公网等基本信息在系统上维护; 备案管理已上收 系统管理 → 定级备案(安全角色)
+        </Typography.Text>
+        <Table<SystemRow>
+          rowKey="id"
+          loading={loading}
+          dataSource={rows}
+          pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
+          scroll={{ x: 1100 }}
+          locale={{ emptyText: (
+            <Empty description="还没有系统登记">
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ user_scale: '1k_to_100k', types: [], is_public: false })}>新建系统</Button>
+            </Empty>
+) }}
+          columns={columns}
+        />
+      </Card>
       {isSecurity && (
         <NetboxSystemImportModal
           open={importOpen}
@@ -252,12 +239,12 @@ function SystemsTab() {
           onSaved={() => { setEditing(null); reload() }}
         />
       )}
-    </>
+    </div>
   )
 }
 
 /** 系统新建/编辑表单(#194): 身份 + 挂靠备案 + 基本信息(规模/类型/公网)。 */
-function SystemFormModal({ value, filings, enums, onSaved, onClose }: {
+export function SystemFormModal({ value, filings, enums, onSaved, onClose }: {
   value: Partial<SystemRow>
   filings: FilingRow[]
   enums: ReturnType<typeof useEnums>
@@ -293,7 +280,7 @@ function SystemFormModal({ value, filings, enums, onSaved, onClose }: {
         </Form.Item>
         <Form.Item
           name="filing_id" label="挂靠定级备案"
-          extra="挂靠后系统继承备案定级; 备案由安全管理员维护, 暂无合适项可先跳过"
+          extra="挂靠后系统继承备案定级; 备案由安全管理员在 系统管理 → 定级备案 维护, 暂无合适项可先跳过"
         >
           <Select
             allowClear placeholder="选择备案(选填)"
@@ -321,138 +308,3 @@ function SystemFormModal({ value, filings, enums, onSaved, onClose }: {
     </Modal>
   )
 }
-
-/* ── 备案视角 ─────────────────────────────────────── */
-
-function FilingsTab() {
-  const [rows, setRows] = useState<FilingRow[]>([])
-  const [loading, setLoading] = useState(false)
-  const [editing, setEditing] = useState<Partial<FilingRow> | null>(null)
-  // 备案由安全侧权威维护(#192): 开发只读, 选择挂靠在系统表单完成
-  const isSecurity = isSecuritySideRole(getStoredUser()?.role)
-
-  const reload = useCallback(() => {
-    setLoading(true)
-    api.listFilings()
-      .then(setRows)
-      .catch((e: Error) => message.error(e.message))
-      .finally(() => setLoading(false))
-  }, [])
-  useEffect(reload, [reload])
-
-  return (
-    <>
-      <Space style={{ marginBottom: 12 }}>
-        {isSecurity && (
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ level: '二级' })}>
-            新增备案
-          </Button>
-        )}
-        <Typography.Text type="secondary">
-          {isSecurity
-            ? '备案是对外备案测评的少数主体, 定级在此登记; 系统挂靠备案后自动继承定级'
-            : '定级备案由安全管理员维护, 如需新增或调整请联系安全管理员'}
-        </Typography.Text>
-      </Space>
-      <Table<FilingRow>
-        rowKey="id"
-        loading={loading}
-        dataSource={rows}
-        pagination={false}
-        locale={{ emptyText: (
-          <Empty description="还没有备案登记">
-            {/* #273: 必须给出非空 editing 才会挂载 FilingModal, 与工具栏新增按钮同参 */}
-            {isSecurity && (
-              <Button type="primary" onClick={() => setEditing({ level: '二级' })}>新建备案</Button>
-            )}
-          </Empty>
-) }}
-        columns={[
-          { title: '备案名称', dataIndex: 'name' },
-          { title: '备案编号', dataIndex: 'code', width: 160, render: (v: string | null) => v || '—' },
-          { title: '定级', dataIndex: 'level', width: 110, render: (v: string) => <LevelTag level={v} /> },
-          { title: '下挂系统数', dataIndex: 'system_count', width: 110 },
-          { title: '备注', dataIndex: 'note', ellipsis: true, render: (v: string | null) => v || '—' },
-          { title: '最新评估', dataIndex: 'latest_round', width: 300, render: (_: unknown, r: FilingRow) => <RoundCell round={r.latest_round} /> },
-          ...(isSecurity
-            ? [{
-                title: '操作', width: 120,
-                render: (_: unknown, record: FilingRow) => (
-                  <Space size={0} split={<Divider type="vertical" />}>
-                    <Button type="link" size="small" onClick={() => setEditing(record)}>编辑</Button>
-                    <Popconfirm
-                      title="删除该备案?"
-                      description="下挂系统需先解除关联"
-                      onConfirm={async () => {
-                        try {
-                          await api.deleteFiling(record.id)
-                          message.success('已删除')
-                          reload()
-                        } catch (e) {
-                          message.error((e as Error).message)
-                        }
-                      }}
-                    >
-                      <Button type="link" size="small" danger>删除</Button>
-                    </Popconfirm>
-                  </Space>
-                ),
-              }]
-            : []),
-        ]}
-      />
-      {editing !== null && (
-        <FilingModal
-          value={editing}
-          onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); reload() }}
-        />
-      )}
-    </>
-  )
-}
-
-function FilingModal({ value, onSaved, onClose }: {
-  value: Partial<FilingRow>
-  onSaved: () => void
-  onClose: () => void
-}) {
-  const [form] = Form.useForm<Partial<FilingRow>>()
-  const isEdit = value.id !== undefined
-  return (
-    <Modal
-      title={isEdit ? '编辑备案' : '新增备案'}
-      open
-      onCancel={onClose}
-      onOk={() => form.validateFields()
-        .then(async (v) => {
-          try {
-            if (isEdit) await api.updateFiling(value.id!, v)
-            else await api.createFiling(v)
-            message.success('已保存')
-            onSaved()
-          } catch (e) {
-            message.error((e as Error).message)
-          }
-        })
-        .catch(() => { /* 校验失败留在弹窗 */ })}
-    >
-      <Form form={form} layout="vertical" initialValues={value}>
-        <Form.Item name="name" label="备案名称" rules={[{ required: true, message: '请输入备案名称' }]}>
-          <Input placeholder="如: 个人网银系统(等保三级备案)" />
-        </Form.Item>
-        <Form.Item name="code" label="备案编号">
-          <Input placeholder="备案证明上的编号, 选填" />
-        </Form.Item>
-        <Form.Item name="level" label="备案定级" rules={[{ required: true, message: '请选择定级' }]}>
-          <Select options={['一级', '二级', '三级'].map((l) => ({ value: l, label: `等保${l}` }))} />
-        </Form.Item>
-        <Form.Item name="note" label="备注">
-          <Input.TextArea rows={2} placeholder="如: 备案日期 / 测评机构 / 测评有效期" />
-        </Form.Item>
-      </Form>
-    </Modal>
-  )
-}
-
-export { LevelTag, RoundCell, SystemFormModal }

@@ -262,7 +262,7 @@ export default function ProjectListPage() {
           />
         ))}
         <Typography.Text type="secondary" style={{ display: 'block', marginTop: 16, fontSize: 12 }}>
-          没有合适的系统? 点左下角「新建系统」先去系统台账登记(基本信息/基础设施/组件都在系统上维护)。
+          没有合适的系统? 点左下角「新建系统」先去系统清单登记(基本信息/基础设施/组件都在系统上维护)。
         </Typography.Text>
       </Modal>
     </div>

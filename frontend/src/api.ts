@@ -191,7 +191,7 @@ export const api = {
 
   loadWizard: (id: number) => request<WizardState>(`/api/projects/${id}/wizard-state`),
 
-  /* ── 系统台账: 定级备案 / 被评估系统 ── */
+  /* ── 系统清单: 定级备案 / 被评估系统 ── */
   listFilings: () => request<FilingRow[]>('/api/filings'),
   createFiling: (data: Partial<FilingRow>) =>
     request<FilingRow>('/api/filings', { method: 'POST', body: JSON.stringify(data) }),

@@ -80,7 +80,7 @@ export interface RequirementTransitionRow {
   created_at: string
 }
 
-/* ── 系统台账: 定级备案 / 被评估系统 / 评估轮次 ── */
+/* ── 系统清单: 定级备案 / 被评估系统 / 评估轮次 ── */
 
 export interface RoundSummary {
   project_id: number

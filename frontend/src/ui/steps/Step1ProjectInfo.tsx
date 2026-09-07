@@ -53,7 +53,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
   const [cfg, setCfg] = useState<AuthConfigRow>(ws.auth_config ?? DEFAULT_CFG)
   const [baseline, setBaseline] = useState<GradingBaseline | null>(null)
 
-  // ── 所属系统(台账): 绑定在「发起新评估」时确定(#203), 向导内锁定只读(#209/#210);
+  // ── 所属系统: 绑定在「发起新评估」时确定(#203), 向导内锁定只读(#209/#210);
   //    未归属的存量评估仍可在此绑定(就地新建/NetBox 导入救援), 绑定保存后同样锁定。
   //    已绑定时数据动作默认走「复制上一轮」, 与创建弹窗"按上一轮复制"口径一致(#186)。
   const systemBound = Boolean(ws.project.system_id)
@@ -226,8 +226,8 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
         </Row>
         <Form.Item
           name="system_id"
-          label="所属系统(台账)"
-          tooltip="归属系统后, 同一系统多次评估在系统台账下形成时间线, 最新一轮即当前基线"
+          label="所属系统"
+          tooltip="归属系统后, 同一系统多次评估在系统清单下形成时间线, 最新一轮即当前基线"
           extra={(
             <Space size={4} wrap>
               {systemBound ? (
@@ -240,7 +240,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
                   <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setSysCreating(true)}>
                     就地新建系统
                   </Button>
-                  <span>(登记系统并挂靠定级备案; 规模/类型等基本信息在系统台账维护)</span>
+                  <span>(登记系统并挂靠定级备案; 规模/类型等基本信息在系统清单维护)</span>
                   {isSecurity && (
                     <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setSysImporting(true)}>
                       从 NetBox 导入
@@ -277,9 +277,9 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
         </Form.Item>
         <Form.Item
           name="types" label="评估类型(可多选)"
-          extra="系统业务形态在系统台账维护; 此处展示当前系统的类型(评估不再单独填写)"
+          extra="系统业务形态在系统清单维护; 此处展示当前系统的类型(评估不再单独填写)"
         >
-          <Select mode="multiple" options={optionsOf(enums, 'project_types')} disabled placeholder="在系统台账中维护" />
+          <Select mode="multiple" options={optionsOf(enums, 'project_types')} disabled placeholder="在系统清单中维护" />
         </Form.Item>
         <Row gutter={16}>
           <Col span={8}>
@@ -550,7 +550,7 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
   )
 }
 
-/** 就地新建系统: 台账登记(名称/挂靠备案/负责人), 成功后自动选中。 */
+/** 就地新建系统: 系统清单登记(名称/挂靠备案/负责人), 成功后自动选中。 */
 function SystemQuickCreateModal({ filings, onClose, onCreated }: {
   filings: FilingRow[]
   onClose: () => void

@@ -33,7 +33,7 @@ export default function NetboxTab() {
       <Alert
         type="info" showIcon style={{ marginBottom: 12 }}
         message="NetBox 是旁路增强, 不是依赖"
-        description="未配置或断连时, 系统台账、向导等全部既有流程不受影响; 配置后可从 NetBox
+        description="未配置或断连时, 系统清单、向导等全部既有流程不受影响; 配置后可从 NetBox
           导入基础设施资产与系统清单, 并可将本系统数据手动推送写回。地址与 Token 只存后端。"
       />
       <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>

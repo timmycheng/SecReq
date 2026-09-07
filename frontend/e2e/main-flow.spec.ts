@@ -15,7 +15,7 @@ test('建系统 → 建项目 → 7步向导 → 生成 → 批量确认 → 导
     .toBeVisible({ timeout: 20_000 })
 
   // ── 先建系统(#194: 评估挂靠系统, 基本信息/清单都在系统上) ──
-  await page.getByText('系统台账', { exact: true }).first().click()
+  await page.getByText('系统清单', { exact: true }).first().click()
   // 限定顶部工具栏(#235 空态引导也含同名按钮, 需消歧)
   await page.getByRole('button', { name: '新建系统' }).first().click()
   const sysModal = page.locator('.ant-modal').filter({ hasText: '系统名称' })
@@ -24,7 +24,7 @@ test('建系统 → 建项目 → 7步向导 → 生成 → 批量确认 → 导
   await page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item')
     .first().click()
   await sysModal.getByRole('button', { name: /确\s*定/ }).click()
-  // 弹窗关闭 + 台账表格出现该系统行, 才算创建成功
+  // 弹窗关闭 + 清单表格出现该系统行, 才算创建成功
   await expect(sysModal).toBeHidden({ timeout: 20_000 })
   await expect(page.locator('.ant-table').getByText('E2E 主链路系统')).toBeVisible({ timeout: 20_000 })
   await page.getByText('评估管理', { exact: true }).first().click()
@@ -42,7 +42,7 @@ test('建系统 → 建项目 → 7步向导 → 生成 → 批量确认 → 导
 
   // ── 第 1 步: 评估定级(创建时已绑定系统; 合规目标 + 直接指定三级) ──
   await page.getByPlaceholder('如: 个人网银系统').fill('E2E 主链路项目')
-  await expect(page.locator('.ant-form-item', { hasText: '所属系统(台账)' })
+  await expect(page.locator('.ant-form-item', { hasText: '所属系统' })
     .getByText('E2E 主链路系统')).toBeVisible({ timeout: 20_000 })
   // 合规目标: 等级保护
   await page.getByText('等级保护', { exact: true }).click()

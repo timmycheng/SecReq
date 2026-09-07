@@ -122,7 +122,7 @@ function AppBody() {
               if (key === 'admin') navigate('/admin')
             }}
             items={[
-              { key: 'systems', icon: <ApartmentOutlined />, label: '系统台账' },
+              { key: 'systems', icon: <ApartmentOutlined />, label: '系统清单' },
               { key: 'projects', icon: <UnorderedListOutlined />, label: '评估管理' },
               ...(user.role === 'security_reviewer' || user.role === 'security_lead'
                 ? [{ key: 'admin', icon: <CloudServerOutlined />, label: '系统管理' }]
