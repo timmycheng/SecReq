@@ -1,6 +1,6 @@
 # NetBox 联动测试环境
 
-SecReq 的 NetBox 互通(#152 配置管理 / #153 资产导入推送 / #154 系统清单互通)针对真实 NetBox 4.x +
+SecReq 的 NetBox 互通(#271 起为单向 ETL 同步: SecReq → NetBox 只推不拉, 手动/定时双触发)针对真实 NetBox 4.x +
 官方 [netbox-custom-objects](https://github.com/netboxlabs/netbox-custom-objects) 插件;单元层用
 httpx MockTransport 隔离(tests/test_netbox.py),本环境提供**真实联动**的本地靶场。
 
@@ -60,8 +60,10 @@ SECREQ_USER=sec_admin SECREQ_PASSWORD=<密码> \
 scripts/netbox_smoke.sh
 ```
 
-覆盖:配置回填(含 field_map)→ `/api/netbox/status` → 系统清单导入(应见样例系统 `NB-SYS-001`)→
-设备代理 → 新建 SecReq 台账系统并推送 NetBox,校验 `netbox_object_id` 回填。
+覆盖(#271 ETL 口径):配置回填(含 field_map 与调度字段)→ `/api/netbox/status` → 新建 SecReq 系统 →
+`POST /api/netbox/sync/run` 一键同步(系统对象 upsert)→ 校验 `netbox_object_id` 回填与同步日志。
+注:同步会把 SecReq 全部系统推到 NetBox 侧, 设备/IP 也会经 `secreq-*` 引导对象写入,
+冒烟前请确认用的是测试 NetBox 实例。
 
 冒烟也可以完全零依赖地跑:临时 SecReq 实例(独立 sqlite,不碰生产库),跑完删除:
 
@@ -76,9 +78,10 @@ SECREQ_PASSWORD=netbox-smoke scripts/netbox_smoke.sh
 | 用途 | 端点 |
 | --- | --- |
 | 连接测试 | `GET /api/status`(301 → `/api/status/`,客户端已开 follow_redirects) |
-| 设备/虚拟机/IP 代理 | `GET /api/dcim/devices/` 等,`q=`+`limit/offset` |
-| 站点/角色/设备类型下拉 | `GET /api/dcim/sites/`、`/api/dcim/device-roles/`(4.7 实名,非 roles/)、`/api/dcim/device-types/` |
-| 系统对象清单/创建 | `GET|POST /api/plugins/custom-objects/<slug>/` |
+| 引导对象(同步用, slug 定位缺则建) | `GET|POST /api/dcim/sites/`、`/api/dcim/device-roles/`(4.7 实名,非 roles/)、`/api/dcim/device-types/`(需 manufacturer)、`/api/dcim/manufacturers/` |
+| 设备读写 | `GET|POST /api/dcim/devices/`、`PATCH /api/dcim/devices/<id>/` |
+| IP 创建 | `POST /api/ipam/ip-addresses/` |
+| 系统对象读写 | `GET|POST|PATCH /api/plugins/custom-objects/<slug>/` |
 | 类型定义(字段对照) | `GET /api/plugins/custom-objects/custom-object-types/` |
 
 认证:`Authorization: Token <key>`(v1);错误口径:未配置 409、NetBox 故障 502、4xx 透传 detail。
