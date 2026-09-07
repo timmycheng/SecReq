@@ -11,6 +11,7 @@ from models.permission import PermissionEntry, Resource, Role
 from models.auth import AuthConfig
 from models.sbom import SbomComponent, VulnerabilityRecord
 from models.inventory import ApiEndpoint, InfraArchImage, InfraAsset
+from models.netbox import NetboxSyncLog
 from models.requirement import RequirementTransition, SecurityRequirement
 from models.review import GENESIS_HASH, PlatformUser, ReviewEvidence, ReviewGate
 from models.session import UserSession
@@ -37,6 +38,7 @@ __all__ = [
     "AuthConfig",
     "SbomComponent",
     "SystemBaseline",
+    "NetboxSyncLog",
     "SystemBaselineHistory",
     "StepDuration",
     "VulnerabilityRecord",

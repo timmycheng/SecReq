@@ -28,7 +28,8 @@ from services.kb_admin import (
 from services.netbox import NetboxClient, NetboxApiError, NetboxUnavailable
 from services.session_service import revoke_user_sessions
 from services.settings_service import (
-    get_llm_config, get_netbox_config, get_project_code_rule, get_setting, set_setting,
+    get_llm_config, get_netbox_config, get_netbox_schedule, get_project_code_rule,
+    get_setting, set_setting,
 )
 
 logger = logging.getLogger(__name__)
@@ -290,6 +291,7 @@ def get_netbox(_: PlatformUser = Depends(require_security), db: Session = Depend
     if cfg.get("token"):
         cfg["token"] = cfg["token"][:4] + "****"
     cfg["configured"] = bool(cfg)
+    cfg.update(get_netbox_schedule(db))
     return cfg
 
 
@@ -298,6 +300,9 @@ class NetboxConfigIn(BaseModel):
     token: str = Field(max_length=300)
     system_slug: str = Field(default="system", max_length=100)
     field_map: dict = Field(default_factory=lambda: {"name": "name", "code": "code", "owner": "owner"})
+    # 定时同步调度(#271): enabled 关闭时 interval 仅作展示保留
+    sync_enabled: bool = False
+    sync_interval_hours: int = Field(default=24, ge=1, le=720)
 
 
 class NetboxTestIn(BaseModel):

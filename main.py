@@ -78,6 +78,9 @@ async def lifespan(_: FastAPI):
         _apply_policy_settings(db)
     finally:
         db.close()
+    # NetBox 定时同步(#271): 守护线程, 到期由 netbox 配置的 enabled/interval 决定
+    from services.netbox_sync import start_scheduler
+    start_scheduler(SessionLocal)
     _log_vuln_source_status()
     yield
 

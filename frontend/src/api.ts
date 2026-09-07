@@ -7,7 +7,6 @@ import type {
   ExternalSystemRow, FeatureRow, FilingRow, GenerateSummary, GradingQuestion,
   InfraArchImageRow, InfraAssetRow, LabelMap, LoginInfo, MatrixEntryIn,
   RequirementTransitionRow, ReviewState, SystemDetailFeature,
-  NetboxAssetRow, NetboxSystemRow,
   PreviewResult, ProjectDetail, ProjectInfo, RequirementDiff, RequirementRow, RoleRow,
   ResourceRow, SurveyAnswer, SystemRow, VulnerabilityRow, VulnDbStatus, VulnDbVerifyResult,
   WizardState,
@@ -390,7 +389,10 @@ export const api = {
     request<{ ok: boolean; latency_ms?: number; reply?: string; reason?: string }>(
       '/api/admin/llm-config/test', { method: 'POST', body: JSON.stringify(data) }),
   getNetboxConfig: () => request<NetboxConfig>('/api/admin/netbox-config'),
-  saveNetboxConfig: (data: { base_url: string; token: string; system_slug: string; field_map: Record<string, string> }) =>
+  saveNetboxConfig: (data: {
+    base_url: string; token: string; system_slug: string;
+    field_map: Record<string, string>; sync_enabled?: boolean; sync_interval_hours?: number
+  }) =>
     request<{ status: string }>('/api/admin/netbox-config', { method: 'PUT', body: JSON.stringify(data) }),
   /** 只测不存: token 留空表示沿用已保存的 Token(#152) */
   testNetboxConfig: (data: { base_url: string; token?: string }) =>
@@ -412,31 +414,18 @@ export const api = {
     return request<{ total: number; invalid: number; rows: { index: number; name: string; method: string; path: string; auth_required: boolean; public_exposed: boolean; error?: string | null }[] }>(
       `/api/projects/${projectId}/api-endpoints/parse`, { method: 'POST', body })
   },
-  /** NetBox 是否已配置 + base_url(构建外链用, 未配置不报错) */
+  /** NetBox 连接配置探测(#271): 是否已配置 */
   getNetboxStatus: () =>
-    request<{ configured: boolean; base_url?: string }>('/api/netbox/status'),
-  /** NetBox 系统清单搜索(#154): 按 field_map 裁剪为 {id, name, code, owner, url} */
-  listNetboxSystems: (keyword: string, limit: number, offset: number) =>
-    request<{ count: number; results: NetboxSystemRow[] }>(
-      `/api/netbox/systems?keyword=${encodeURIComponent(keyword)}&limit=${limit}&offset=${offset}`),
-  /** 推送台账系统到 NetBox(#154): 成功回填 netbox_object_id */
-  pushNetboxSystem: (data: { system_id: number; name: string; code?: string; owner?: string }) =>
-    request<{ netbox_object_id: string; url?: string }>('/api/netbox/systems',
-      { method: 'POST', body: JSON.stringify(data) }),
-  /** NetBox 资产搜索(#153): kind 为 devices / virtual-machines / ip-addresses */
-  listNetboxAssets: (kind: 'devices' | 'virtual-machines' | 'ip-addresses',
-                     keyword: string, limit: number, offset: number) =>
-    request<{ count: number; results: NetboxAssetRow[] }>(
-      `/api/netbox/${kind}?keyword=${encodeURIComponent(keyword)}&limit=${limit}&offset=${offset}`),
-  getNetboxOptions: () =>
-    request<{ sites: { id: number; name: string }[]; roles: { id: number; name: string }[];
-      device_types: { id: number; model: string }[]; base_url: string }>('/api/netbox/options'),
-  pushNetboxDevice: (data: {
-    project_id: number; asset_id: number; name: string;
-    site_id: number; role_id: number; device_type_id: number; ip_address?: string
-  }) =>
-    request<{ netbox_ref_type: string; netbox_ref_id: string; url: string; note?: string }>(
-      '/api/netbox/devices', { method: 'POST', body: JSON.stringify(data) }),
+    request<{ configured: boolean }>('/api/netbox/status'),
+  /** 同步状态: 执行中 + 调度配置 + 最近一轮日志(#271) */
+  getNetboxSyncState: () =>
+    request<NetboxSyncState>('/api/netbox/sync/state'),
+  /** 手动触发一轮同步(#271); 运行中/未配置 409 */
+  runNetboxSync: () =>
+    request<NetboxSyncLogOut>('/api/netbox/sync/run', { method: 'POST' }),
+  /** 同步执行历史(倒序) */
+  listNetboxSyncLogs: (limit = 20) =>
+    request<NetboxSyncLogOut[]>(`/api/netbox/sync/logs?limit=${limit}`),
   listArchImages: (id: number) =>
     request<InfraArchImageRow[]>(`/api/projects/${id}/arch-images`),
   saveArchImage: (id: number, env: string, imageDataUrl: string) =>
@@ -541,6 +530,25 @@ export interface NetboxConfig {
   system_slug?: string
   field_map?: Record<string, string>
   configured?: boolean
+  sync_enabled?: boolean
+  sync_interval_hours?: number
+}
+
+/** 一轮 NetBox 同步的日志(#271) */
+export interface NetboxSyncLogOut {
+  id: number
+  trigger: string
+  status: string
+  started_at: string | null
+  finished_at: string | null
+  stats: Record<string, Record<string, number>>
+  errors: string[]
+}
+
+export interface NetboxSyncState {
+  running: boolean
+  schedule: { enabled: boolean; interval_hours: number }
+  last: NetboxSyncLogOut | null
 }
 
 export interface AdminUserRow {
