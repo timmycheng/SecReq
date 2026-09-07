@@ -58,7 +58,7 @@ export default function ConfirmStep({ ws, goto }: StepProps) {
           6,
         )
       }
-      navigate(`/result/${ws.project.id}`)
+      navigate(`/evaluations/${ws.project.id}/result`)
     } catch (e) {
       message.error((e as Error).message)
       setGenerating(false)

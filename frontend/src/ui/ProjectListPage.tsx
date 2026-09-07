@@ -1,18 +1,19 @@
-/* 评估列表: 全部项目表格(按角色过滤); 新建弹窗强制先选系统(可按上一轮复制, #195);
-   空状态带首次使用引导。 */
+/* 评估清单(#280 新布局): PageHeader + 筛选卡 + 表格卡; 全部项目表格(按角色过滤)。
+   新建弹窗强制先选系统(可按上一轮复制, #195); 业务逻辑与角色可见性不变。 */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Alert, Button, Card, Divider, Empty, Modal, Popconfirm, Radio, Select, Space, Table, Tag,
-  message, Typography,
+  Typography, message,
 } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
+import type { ColumnsType } from 'antd/es/table'
 
 import { api, getStoredUser, isFullVisibilityRole } from '../api'
-import { GATE_STATUS_COLOR } from './tokens'
-import { GRADING_LEVEL_COLOR, HEX } from './tokens'
-import { labelOf, useEnums } from '../enums'
+import { HEX } from './tokens'
+import { useEnums } from '../enums'
 import { navigate } from '../router'
 import PageHeader from './PageHeader'
+import { GateStatusTag, LevelTag, ProjectStatusTag } from './tags'
 import type { ProjectDetail, RoundSummary, SystemRow } from '../types'
 
 export default function ProjectListPage() {
@@ -20,6 +21,7 @@ export default function ProjectListPage() {
   const [projects, setProjects] = useState<ProjectDetail[]>([])
   const [systems, setSystems] = useState<SystemRow[]>([])
   const [systemFilter, setSystemFilter] = useState<number | null>(null)
+  const [statusFilter, setStatusFilter] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
   // 新建弹窗(#195): 必选系统 → 有上一轮默认复制, 可切换空白; 支持跳转新建系统
@@ -39,8 +41,10 @@ export default function ProjectListPage() {
   useEffect(reload, [reload])
 
   const visibleProjects = useMemo(
-    () => (systemFilter ? projects.filter((p) => p.system_id === systemFilter) : projects),
-    [projects, systemFilter],
+    () => projects.filter((p) =>
+      (!systemFilter || p.system_id === systemFilter)
+      && (!statusFilter || p.status === statusFilter)),
+    [projects, systemFilter, statusFilter],
   )
 
   const copySystem = systems.find((s) => s.id === createSystemId)
@@ -67,7 +71,7 @@ export default function ProjectListPage() {
         ? '已按上一轮评估创建新一轮, 请在向导中核对并修改变化部分'
         : '已创建, 请在第一步补全评估信息')
       setCreateOpen(false)
-      navigate(`/wizard/${detail.id}`)
+      navigate(`/evaluations/${detail.id}/wizard`)
     } catch (e) {
       message.error((e as Error).message)
     } finally {
@@ -81,20 +85,88 @@ export default function ProjectListPage() {
     setCreateOpen(true)
   }
 
+  const columns: ColumnsType<ProjectDetail> = [
+    {
+      title: '评估名称 / 编码', dataIndex: 'name', width: 250, fixed: 'left',
+      render: (v: string, r) => (
+        <div>
+          <Typography.Link onClick={() => navigate(
+            r.status === 'draft' ? `/evaluations/${r.id}/wizard` : `/evaluations/${r.id}/result`,
+          )}>{v}</Typography.Link>
+          <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>{r.code}</Typography.Text>
+        </div>
+      ),
+    },
+    {
+      title: '所属系统', dataIndex: 'system_name', width: 150, ellipsis: true,
+      render: (v: string | null, r) => v
+        ? <a onClick={() => navigate(`/systems/${r.system_id}`)}>{v}</a>
+        : <Typography.Text type="secondary">未归属</Typography.Text>,
+    },
+    { title: '定级', dataIndex: 'grading_level', width: 90, render: (v: string | null) => <LevelTag level={v} /> },
+    {
+      title: '状态', dataIndex: 'status', width: 170,
+      render: (v: string, r) => (
+        <Space size={4} wrap>
+          <ProjectStatusTag status={v} />
+          {r.is_current_baseline && <Tag color="cyan">当前基线</Tag>}
+        </Space>
+      ),
+    },
+    { title: '评审', dataIndex: 'review_gate_status', width: 100, render: (v: string | null) => <GateStatusTag status={v} /> },
+    ...(isFullView ? [{ title: '创建人', dataIndex: 'owner_name', width: 100, render: (v: string | null) => v || '—' } as const] : []),
+    { title: '安全需求', dataIndex: ['counts', 'requirements'], width: 90 },
+    {
+      title: '操作', key: 'ops', width: 250, fixed: 'right',
+      render: (_, record) => (
+        <Space size={0} split={<Divider type="vertical" />}>
+          <Button type="link" size="small" onClick={() => navigate(`/evaluations/${record.id}/wizard`)}>填写向导</Button>
+          <Button type="link" size="small" onClick={() => navigate(`/evaluations/${record.id}/result`)}>查看产物</Button>
+          <Button type="link" size="small" onClick={() => navigate(`/evaluations/${record.id}/review`)}>评审中心</Button>
+          <Popconfirm
+            title="删除该评估及其全部数据?"
+            onConfirm={async () => {
+              try {
+                await api.deleteProject(record.id)
+                message.success('已删除')
+              } catch (e) {
+                message.error((e as Error).message)
+              }
+              reload()
+            }}
+          >
+            <Button type="link" size="small" danger>删除</Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ]
+
   return (
     <div style={{ padding: 24 }}>
       <PageHeader
-        title={isFullView ? '评估列表(全部评估)' : '我的评估'}
+        title="评估清单"
+        description={isFullView
+          ? '全部评估: 7 步向导采集信息, 生成安全需求清单与交付文档'
+          : '我的评估: 7 步向导采集信息, 生成安全需求清单与交付文档'}
         extra={(
           <>
             <Select
               allowClear showSearch
-              style={{ minWidth: 180 }}
+              style={{ minWidth: 170 }}
               placeholder="按所属系统筛选"
               value={systemFilter ?? undefined}
               optionFilterProp="label"
               options={systems.map((s) => ({ value: s.id, label: s.name }))}
               onChange={(v) => setSystemFilter(v ?? null)}
+            />
+            <Select
+              allowClear
+              style={{ width: 140 }}
+              placeholder="状态"
+              value={statusFilter ?? undefined}
+              options={Object.entries(labelMapOrEmpty(enums, 'project_status')).map(([value, label]) => ({ value, label }))}
+              onChange={(v) => setStatusFilter(v ?? null)}
             />
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
               发起新评估
@@ -102,14 +174,14 @@ export default function ProjectListPage() {
           </>
         )}
       />
-      <Card variant="borderless">
+      <Card styles={{ body: { padding: 0 } }}>
         <Table<ProjectDetail>
           rowKey="id"
           loading={loading}
           dataSource={visibleProjects}
-          scroll={{ x: 1440 }}
+          scroll={{ x: 1200 }}
           sticky
-          pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
+          pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50], showTotal: (t) => `共 ${t} 条` }}
           locale={{
             emptyText: (
               <Empty
@@ -118,9 +190,7 @@ export default function ProjectListPage() {
                   <>
                     <p style={{ fontWeight: 600 }}>还没有评估</p>
                     <Typography.Text type="secondary">
-                      平台通过 7 步向导完成评估信息采集, 按行内安全知识库自动生成
-                      安全需求清单、SBOM 漏洞清单与交付文档。
-                      推荐顺序: 发起新评估 → 填写向导 → 生成基线 → 查看产物并确认需求。
+                      发起新评估 → 填写向导 → 生成基线 → 查看产物并确认需求
                     </Typography.Text>
                   </>
                 )}
@@ -134,71 +204,7 @@ export default function ProjectListPage() {
           expandable={{
             expandedRowRender: (record) => <CountsGrid counts={record.counts} />,
           }}
-          columns={[
-            { title: '评估名称', dataIndex: 'name', width: 220, ellipsis: true },
-            { title: '评估编码', dataIndex: 'code', width: 150 },
-            {
-              title: '所属系统', dataIndex: 'system_name', width: 150,
-              render: (v: string | null, record) => v
-                ? <a onClick={() => navigate(`/system/${record.system_id}`)}>{v}</a>
-                : <Typography.Text type="secondary">未归属</Typography.Text>,
-            },
-            {
-              title: '类型', dataIndex: 'types', width: 130,
-              render: (types: string[]) => (types ?? []).map((t) => (
-                <Tag key={t}>{labelOf(enums, 'project_types', t)}</Tag>
-              )),
-            },
-            {
-              title: '定级', dataIndex: 'grading_level', width: 90,
-              render: (v: string | null) => (v ? <Tag color={GRADING_LEVEL_COLOR[v] ?? 'default'}>{v}</Tag> : <Tag>未定级</Tag>),
-            },
-            {
-              title: '状态', dataIndex: 'status', width: 150,
-              render: (v: string, record) => (
-                <Space size={4} wrap>
-                  {v === 'generated'
-                    ? <Tag color="green">已生成基线</Tag>
-                    : v === 'draft' ? <Tag color="orange">草稿</Tag> : <Tag>{labelOf(enums, 'project_status', v)}</Tag>}
-                  {record.is_current_baseline && <Tag color="cyan">当前基线</Tag>}
-                </Space>
-              ),
-            },
-            {
-              title: '评审', dataIndex: 'review_gate_status', width: 100,
-              render: (v: string | null) => (v
-                ? <Tag color={GATE_STATUS_COLOR[v] ?? 'default'}>
-                    {{ pending: '待提交', in_review: '评审中', passed: '已通过', rejected: '已否决', rectifying: '整改中' }[v] ?? v}
-                  </Tag>
-                : <Tag>未提交</Tag>),
-            },
-            ...(isFullView ? [{ title: '创建人', dataIndex: 'owner_name', width: 110 }] : []),
-            { title: '安全需求', dataIndex: ['counts', 'requirements'], width: 90 },
-            {
-              title: '操作', width: 250,
-              render: (_, record) => (
-                <Space size={0} split={<Divider type="vertical" />}>
-                  <Button type="link" size="small" onClick={() => navigate(`/wizard/${record.id}`)}>填写向导</Button>
-                  <Button type="link" size="small" onClick={() => navigate(`/result/${record.id}`)}>查看产物</Button>
-                  <Button type="link" size="small" onClick={() => navigate(`/project/${record.id}/review`)}>评审中心</Button>
-                  <Popconfirm
-                    title="删除该评估及其全部数据?"
-                    onConfirm={async () => {
-                      try {
-                        await api.deleteProject(record.id)
-                        message.success('已删除')
-                      } catch (e) {
-                        message.error((e as Error).message)
-                      }
-                      reload()
-                    }}
-                  >
-                    <Button type="link" size="small" danger>删除</Button>
-                  </Popconfirm>
-                </Space>
-              ),
-            },
-          ]}
+          columns={columns}
         />
       </Card>
 
@@ -261,12 +267,15 @@ export default function ProjectListPage() {
             message="该系统还没有历史评估, 将以空白新建"
           />
         ))}
-        <Typography.Text type="secondary" style={{ display: 'block', marginTop: 16, fontSize: 12 }}>
-          没有合适的系统? 点左下角「新建系统」先去系统清单登记(基本信息/基础设施/组件都在系统上维护)。
-        </Typography.Text>
       </Modal>
     </div>
   )
+}
+
+/** labelOf 前置: project_status 的 code→label 映射(枚举由后端统一下发)。 */
+function labelMapOrEmpty(enums: ReturnType<typeof useEnums>, key: string): Record<string, string> {
+  const raw = enums[key]
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, string> : {}
 }
 
 const COUNT_LABELS: Record<string, string> = {

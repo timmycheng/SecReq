@@ -3,9 +3,10 @@
    遇 401 广播 AUTH_EXPIRED_EVENT, 由 App 清除登录态并回到登录页。 */
 import type {
   ApiEndpointRow, AuthConfigRow, BaselineApiEndpoint, BaselineDataAsset,
-  BaselinePermissionBundle, ComponentRow, DataAssetRow, DetailSectionMeta,
+  BaselinePermissionBundle, ComponentRow, DashboardData, DataAssetRow, DetailSectionMeta,
   ExternalSystemRow, FeatureRow, FilingRow, GenerateSummary, GradingQuestion,
-  InfraArchImageRow, InfraAssetRow, LabelMap, LoginInfo, MatrixEntryIn,
+  InfraArchImageRow, InfraAssetRow, LabelMap, LdapConfigRow, LdapSyncResult, LdapTestResult,
+  LoginInfo, MatrixEntryIn,
   RequirementTransitionRow, ReviewState, SystemDetailFeature,
   PreviewResult, ProjectDetail, ProjectInfo, RequirementDiff, RequirementRow, RoleRow,
   ResourceRow, SurveyAnswer, SystemRow, VulnerabilityRow, VulnDbStatus, VulnDbVerifyResult,
@@ -466,6 +467,23 @@ export const api = {
     request<{ confirmed: number; missing: string[] }>(`/api/projects/${id}/requirements/batch-confirm`, {
       method: 'POST', body: JSON.stringify({ req_ids: reqIds }),
     }),
+
+  /* ── 工作台聚合(#280) ── */
+  getDashboard: () => request<DashboardData>('/api/meta/dashboard'),
+
+  /* ── LDAP/AD 对接(#280) ── */
+  getLdapConfig: () => request<LdapConfigRow>('/api/admin/ldap-config'),
+  saveLdapConfig: (data: LdapConfigRow) =>
+    request<{ status: string }>('/api/admin/ldap-config', {
+      method: 'PUT', body: JSON.stringify({ ...data, bind_password: data.bind_password ?? '' }),
+    }),
+  /** 只测不存: bind_password 留空表示沿用已保存密码(同 LLM/NetBox 口径) */
+  testLdapConfig: (data: Partial<LdapConfigRow>) =>
+    request<LdapTestResult>('/api/admin/ldap-config/test', {
+      method: 'POST', body: JSON.stringify(data),
+    }),
+  syncLdapUsers: () =>
+    request<LdapSyncResult>('/api/admin/ldap-config/sync', { method: 'POST' }),
 }
 
 /** 定级基线: 按当前输入干跑引擎得到的合规/策略/报送类要求(定级后即时反馈)。 */

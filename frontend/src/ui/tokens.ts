@@ -58,3 +58,11 @@ export const HEX = {
 export const RISK_TEXT_COLOR: Record<string, string> = {
   high: HEX.danger, medium: HEX.warning, low: HEX.success,
 }
+
+// ── 评估状态(#280): draft=橙(采集中) / generated=绿(已生成基线); 评审门禁见 GATE_STATUS_COLOR
+export const PROJECT_STATUS_COLOR: Record<string, string> = {
+  draft: 'orange', generated: 'green',
+}
+export const PROJECT_STATUS_TEXT: Record<string, string> = {
+  draft: '草稿', generated: '已生成基线',
+}

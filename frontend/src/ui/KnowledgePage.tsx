@@ -1,20 +1,21 @@
-/* 知识库管理: 模板新增/启停/编辑(写回 YAML 自动备份, 保存时全量校验)。
-   编辑弹窗含监管出处增删排序(#80); 下拉一律用 meta 下发的中文映射(#82)。
-   新增支持「复制为新模板」: 带入相近模板文案并自动建议下一个可用 id(#165)。 */
+/* 知识库管理(#280, 自系统管理 Tab 独立): 模板新增/启停/编辑/复制。
+   编辑弹窗含监管出处增删排序(#80)与表单/JSON 双模触发条件(#81);
+   下拉一律用 meta 下发的中文映射(#82); 复制为新模板自动顺延 id(#165)。 */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Button, Col, Collapse, Divider, Form, Input, Modal, Popconfirm, Row, Select, Space, Switch,
-  Table, Tag, Tooltip, Typography, message,
+  Button, Card, Col, Collapse, Divider, Form, Input, Modal, Popconfirm, Row, Select, Space,
+  Switch, Table, Tag, Tooltip, Typography, message,
 } from 'antd'
 import {
   ArrowDownOutlined, ArrowUpOutlined, CopyOutlined, DeleteOutlined, PlusOutlined,
-  ReloadOutlined,
 } from '@ant-design/icons'
+import type { ColumnsType } from 'antd/es/table'
 
-import { api, type KbTemplateRow } from '../../api'
-import { labelMapOf, useEnums } from '../../enums'
-import TriggerEditor, { type Trigger } from './TriggerEditor'
-import { PRIORITY_COLOR } from '../tokens'
+import { api, type KbTemplateRow } from '../api'
+import { labelMapOf, useEnums } from '../enums'
+import { PRIORITY_COLOR } from './tokens'
+import PageHeader from './PageHeader'
+import TriggerEditor, { type Trigger } from './admin/TriggerEditor'
 
 const ID_PATTERN = /^SEC-[A-Z0-9]+-\d{3}$/
 
@@ -37,7 +38,7 @@ function emptyTemplate(): KbTemplateRow {
   }
 }
 
-export default function KbTab() {
+export default function KnowledgePage() {
   const enums = useEnums()
   const [rows, setRows] = useState<KbTemplateRow[]>([])
   const [loading, setLoading] = useState(false)
@@ -71,50 +72,58 @@ export default function KbTab() {
     })
   }
 
+  const columns: ColumnsType<KbTemplateRow> = [
+    { title: '编号', dataIndex: 'id', width: 170 },
+    { title: '标题', dataIndex: 'title', ellipsis: true },
+    { title: '类目', dataIndex: 'trigger_type', width: 130,
+      render: (v) => <Tag>{categoryLabels[v] ?? v}</Tag> },
+    { title: '优先级', dataIndex: 'priority', width: 90,
+      render: (v) => <Tag color={PRIORITY_COLOR[v]}>{labelMapOf(enums, 'priority_labels')[v] ?? v}</Tag> },
+    { title: '启用', dataIndex: 'enabled', width: 80,
+      render: (_v, r) => <Switch size="small" checked={r.enabled} onChange={() => void toggle(r)} /> },
+    {
+      title: '操作', key: 'ops', width: 190, fixed: 'right',
+      render: (_v, r) => (
+        <Space size={0} split={<Divider type="vertical" />}>
+          <Button type="link" size="small" onClick={() => setEditing({ mode: 'edit', row: r })}>编辑</Button>
+          <Tooltip title="带入该模板文案与触发条件, id 自动顺延, 适合新增相近规则">
+            <Button type="link" size="small" icon={<CopyOutlined />} onClick={() => copyAsNew(r)}>复制</Button>
+          </Tooltip>
+        </Space>
+      ),
+    },
+  ]
+
   return (
-    <>
-      <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
-        停用后生成时跳过; 新增/编辑写回 YAML 自动备份并校验(条件键写错会被拦截),
-        保存后下一轮生成即生效。当前共 {rows.length} 条模板。
-      </Typography.Paragraph>
-      <Space style={{ marginBottom: 12 }} wrap>
-        <Input.Search
-          placeholder="按 id 或标题搜索" allowClear style={{ width: 280 }}
-          onSearch={setKeyword}
-        />
-        <Button icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ mode: 'create', row: emptyTemplate() })}>
-          新增模板
-        </Button>
-      </Space>
-      <Table<KbTemplateRow>
-        rowKey="id"
-        loading={loading}
-        dataSource={rows}
-        pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
-        size="small"
-        columns={[
-          { title: '编号', dataIndex: 'id', width: 160 },
-          { title: '标题', dataIndex: 'title' },
-          { title: '类目', dataIndex: 'trigger_type', width: 140,
-            render: (v) => <Tag>{categoryLabels[v] ?? v}</Tag> },
-          { title: '优先级', dataIndex: 'priority', width: 80,
-            render: (v) => <Tag color={PRIORITY_COLOR[v]}>{labelMapOf(enums, 'priority_labels')[v] ?? v}</Tag> },
-          { title: '启用', dataIndex: 'enabled', width: 80,
-            render: (_v, r) => <Switch size="small" checked={r.enabled} onChange={() => void toggle(r)} /> },
-          {
-            title: '操作', width: 190,
-            render: (_v, r) => (
-              <Space size={0} split={<Divider type="vertical" />}>
-                <Button type="link" size="small" onClick={() => setEditing({ mode: 'edit', row: r })}>编辑</Button>
-                <Tooltip title="带入该模板文案与触发条件, id 自动顺延, 适合新增相近规则">
-                  <Button type="link" size="small" icon={<CopyOutlined />} onClick={() => copyAsNew(r)}>复制为新模板</Button>
-                </Tooltip>
-              </Space>
-            ),
-          },
-        ]}
+    <div style={{ padding: 24 }}>
+      <PageHeader
+        title="知识库管理"
+        description="安全需求模板库: 生成时按触发条件匹配; 停用后生成时跳过, 保存后下一轮生成即生效"
+        extra={(
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ mode: 'create', row: emptyTemplate() })}>
+            新增模板
+          </Button>
+        )}
       />
+      <Card size="small" style={{ marginBottom: 16 }}>
+        <Space wrap>
+          <Input.Search
+            placeholder="按 id 或标题搜索" allowClear style={{ width: 280 }}
+            onSearch={setKeyword}
+          />
+          <Typography.Text type="secondary">共 {rows.length} 条模板</Typography.Text>
+        </Space>
+      </Card>
+      <Card styles={{ body: { padding: 0 } }}>
+        <Table<KbTemplateRow>
+          rowKey="id"
+          loading={loading}
+          dataSource={rows}
+          pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50], showTotal: (t) => `共 ${t} 条` }}
+          size="small"
+          columns={columns}
+        />
+      </Card>
       {editing && (
         <KbEditModal
           row={editing.row}
@@ -123,7 +132,7 @@ export default function KbTab() {
           onSaved={() => { setEditing(null); reload() }}
         />
       )}
-    </>
+    </div>
   )
 }
 

@@ -1,16 +1,18 @@
-/* 产物页(Web 形式展示, 走查整改): 执行摘要作第一页 Tab, 随后安全需求清单平铺(描述全文/来源中文/批量确认)、
-   漏洞清单、组件与许可证; 每个视图可「复制到 Word」(HTML 剪贴板, 粘贴即排版)。 */
+/* 产物页(#280 改版): 执行摘要作第一页 Tab, 随后安全需求清单平铺(描述全文/来源中文/批量确认)、
+   漏洞清单、组件与许可证; 每个视图可「复制到 Word」(HTML 剪贴板, 粘贴即排版)。
+   状态流转采用新框架的「右侧固定评审操作面板」: 提交评审 / 整体裁定 / 终审会签
+   走既有 review API; 逐条批注与留痕明细仍在评审中心页。 */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Key, ReactNode } from 'react'
 import {
-  Alert, Breadcrumb, Button, Card, Descriptions, Dropdown, Modal, Progress, Select, Space,
-  Spin, Table, Tabs, Tag, Tooltip, Typography, message,
+  Alert, Button, Card, Descriptions, Dropdown, Input, Modal, Progress, Radio, Select,
+  Space, Spin, Table, Tabs, Tag, Tooltip, Typography, message,
 } from 'antd'
 import {
-  AuditOutlined, CopyOutlined, DiffOutlined, DownloadOutlined, DownOutlined, ReloadOutlined,
+  CopyOutlined, DiffOutlined, DownloadOutlined, DownOutlined, ReloadOutlined,
 } from '@ant-design/icons'
 
-import { api, downloadFile } from '../api'
+import { api, downloadFile, getStoredUser } from '../api'
 import { labelMapOf, useEnums } from '../enums'
 import { navigate } from '../router'
 import type {
@@ -19,6 +21,8 @@ import type {
 import { batchConfirm, confirmOne, unconfirmedAll, unconfirmedRegulatory } from './assist'
 import GlossaryTip from './GlossaryTip'
 import { PRIMARY } from './theme'
+import PageHeader from './PageHeader'
+import { GateStatusTag, LevelTag, ProjectStatusTag } from './tags'
 import {
   copyRichHtml, docShell, executiveSummarySection, requirementsSection, vulnsSection,
 } from './wordExport'
@@ -91,6 +95,24 @@ export default function ResultPage({ projectId }: { projectId: number }) {
   // 两轮增量对比(评估继承): 有上一轮已生成评估时展示"新增/移除/变更"摘要条
   const [diff, setDiff] = useState<RequirementDiff | null>(null)
   const [diffOpen, setDiffOpen] = useState(false)
+  // 右侧评审操作面板(#280): 门禁状态 + 提交评审/裁定/终审(走既有 review API)
+  const [gate, setGate] = useState<Awaited<ReturnType<typeof api.reviewState>>['gate']>(null)
+  const [reviewBlocked, setReviewBlocked] = useState<string[] | null>(null)
+  const [acting, setActing] = useState(false)
+  const [decide, setDecide] = useState<string | null>(null)
+  const [decideComment, setDecideComment] = useState('')
+  const [finalizeOpen, setFinalizeOpen] = useState(false)
+  const [finalizeComment, setFinalizeComment] = useState('')
+  const user = getStoredUser()
+  const isSecuritySide = user?.role === 'security_reviewer' || user?.role === 'security_lead'
+  const isLead = user?.role === 'security_lead'
+  const gateSubmitter = gate?.submitter_id != null && gate.submitter_id === user?.id
+  const gateReviewer = gate?.reviewer_id != null && gate.reviewer_id === user?.id
+  const inReview = gate?.status === 'in_review'
+  const canSubmit = user?.role === 'pm' || isLead
+  const canDecide = isSecuritySide && inReview && !gateSubmitter
+  const canFinalize = isLead && inReview && gate?.reviewer_conclusion === 'approve'
+    && !gateSubmitter && !gateReviewer
 
   const priorityLabels = labelMapOf(enums, 'priority_labels')
   const severityLabels = labelMapOf(enums, 'severity_labels')
@@ -108,6 +130,7 @@ export default function ResultPage({ projectId }: { projectId: number }) {
       .catch((e: Error) => { setVulns([]); setVulnError(e.message) })
     api.listComponents(projectId).then(setComponents).catch(() => setComponents([]))
     api.requirementsDiff(projectId).then(setDiff).catch(() => setDiff(null))
+    api.reviewState(projectId).then((s) => setGate(s.gate)).catch(() => setGate(null))
   }, [projectId])
   useEffect(() => { reload() }, [reload])
   useEffect(() => {
@@ -190,8 +213,84 @@ export default function ResultPage({ projectId }: { projectId: number }) {
     )
   }
 
+  /* ── 评审操作面板动作(#280): 与评审中心共用同一组 API ── */
+
+  const doSubmitReview = async () => {
+    setActing(true)
+    try {
+      const res = await api.reviewSubmit(projectId)
+      if (res.status === 'blocked') {
+        setReviewBlocked(res.missing ?? [])
+        message.warning('门禁校验未通过, 请补齐缺项后重新提交评审')
+      } else {
+        setReviewBlocked(null)
+        message.success('已提交评审, 等待安全侧评审')
+        reload()
+      }
+    } catch (e) {
+      message.error((e as Error).message)
+    } finally {
+      setActing(false)
+    }
+  }
+
+  const runReviewAction = async (fn: () => Promise<unknown>, ok: string) => {
+    setActing(true)
+    try {
+      await fn()
+      message.success(ok)
+      reload()
+      return true
+    } catch (e) {
+      message.error((e as Error).message)
+      return false
+    } finally {
+      setActing(false)
+    }
+  }
+
   return (
-    <div style={{ padding: 24, maxWidth: 1280, margin: '0 auto' }}>
+    <div style={{ padding: 24 }}>
+      <PageHeader
+        onBack={() => navigate('/evaluations')}
+        title={project.name}
+        description={[project.code, project.system_name].filter(Boolean).join(' · ') || undefined}
+        extra={(
+          <Space wrap>
+            <Button icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
+            <Button onClick={() => navigate(`/evaluations/${projectId}/wizard`)}>返回向导修改</Button>
+            {/* 次级导出动作收进下拉, 保持「下载 Word 文档」全页唯一 primary(#268) */}
+            <Dropdown
+              menu={{
+                items: [
+                  { key: 'copy-summary', icon: <CopyOutlined />, label: '复制执行摘要(到 Word 粘贴)' },
+                  { key: 'xlsx', icon: <DownloadOutlined />, label: '需求跟踪表.xlsx(Jira 可导入)' },
+                  { key: 'sbom', icon: <DownloadOutlined />,
+                    label: <GlossaryTip term="sbom">SBOM JSON(CycloneDX 1.5)</GlossaryTip> },
+                ],
+                onClick: ({ key }) => {
+                  if (key === 'copy-summary') copyExecutiveSummary()
+                  if (key === 'xlsx') void downloadFile(`/api/projects/${projectId}/export/xlsx`)
+                  if (key === 'sbom') void downloadFile(`/api/projects/${projectId}/sbom`)
+                },
+              }}
+            >
+              <Button>
+                <Space size={4}>导出与复制 <DownOutlined /></Space>
+              </Button>
+            </Dropdown>
+            <Button
+              type="primary" icon={<DownloadOutlined />}
+              onClick={() => void downloadFile(`/api/projects/${projectId}/export/docx`,
+                `${project.code}_安全需求说明书.docx`)}
+            >
+              下载 Word 文档
+            </Button>
+          </Space>
+        )}
+      />
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
       {/* 生成总结块(#95): 一屏回答"这次生成了什么、风险在哪", 数字与下方清单同源 */}
       {requirements && (
         <Card size="small" style={{ marginBottom: 16 }}>
@@ -262,53 +361,6 @@ export default function ResultPage({ projectId }: { projectId: number }) {
         />
       )}
 
-      <Breadcrumb
-        items={[
-          { title: <a onClick={(e) => { e.preventDefault(); navigate('/') }}>评估列表</a> },
-          {
-            title: (
-              <a onClick={(e) => { e.preventDefault(); navigate(`/wizard/${projectId}`) }}>
-                {project.name}({project.code})
-              </a>
-            ),
-          },
-          { title: '生成产物' },
-        ]}
-      />
-
-      <Space style={{ margin: '12px 0 16px' }} wrap>
-        <Button icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
-        <Button onClick={() => navigate(`/wizard/${projectId}`)}>返回向导修改</Button>
-        <Button icon={<AuditOutlined />} onClick={() => navigate(`/project/${projectId}/review`)}>评审中心</Button>
-        {/* 次级导出动作收进下拉, 保持「下载 Word 文档」全页唯一 primary(#268) */}
-        <Dropdown
-          menu={{
-            items: [
-              { key: 'copy-summary', icon: <CopyOutlined />, label: '复制执行摘要(到 Word 粘贴)' },
-              { key: 'xlsx', icon: <DownloadOutlined />, label: '需求跟踪表.xlsx(Jira 可导入)' },
-              { key: 'sbom', icon: <DownloadOutlined />,
-                label: <GlossaryTip term="sbom">SBOM JSON(CycloneDX 1.5)</GlossaryTip> },
-            ],
-            onClick: ({ key }) => {
-              if (key === 'copy-summary') copyExecutiveSummary()
-              if (key === 'xlsx') void downloadFile(`/api/projects/${projectId}/export/xlsx`)
-              if (key === 'sbom') void downloadFile(`/api/projects/${projectId}/sbom`)
-            },
-          }}
-        >
-          <Button>
-            <Space size={4}>导出与复制 <DownOutlined /></Space>
-          </Button>
-        </Dropdown>
-        <Button
-          type="primary" icon={<DownloadOutlined />}
-          onClick={() => void downloadFile(`/api/projects/${projectId}/export/docx`,
-            `${project.code}_安全需求说明书.docx`)}
-        >
-          下载 Word 文档
-        </Button>
-      </Space>
-
       {requirements.length === 0 && (
         <Alert
           style={{ marginBottom: 16 }}
@@ -318,7 +370,7 @@ export default function ResultPage({ projectId }: { projectId: number }) {
           description={(
             <Space>
               <span>先在向导中完成信息采集, 再到「确认生成」页一键生成。</span>
-              <Button type="primary" size="small" onClick={() => navigate(`/wizard/${projectId}`)}>
+              <Button type="primary" size="small" onClick={() => navigate(`/evaluations/${projectId}/wizard`)}>
                 前往向导
               </Button>
             </Space>
@@ -647,6 +699,131 @@ export default function ResultPage({ projectId }: { projectId: number }) {
             </div>
           )}
         </Space>
+      </Modal>
+        </div>
+
+        {/* ── 右侧固定评审操作面板(#280): 状态流转逻辑采用新页面框架 ── */}
+        <Card size="small" title="评审操作面板" style={{ width: 320, flex: 'none', position: 'sticky', top: 16 }}>
+          <Descriptions column={1} size="small" style={{ marginBottom: 8 }}>
+            <Descriptions.Item label="评估状态">
+              <Space size={4} wrap>
+                <ProjectStatusTag status={project.status} />
+                {project.is_current_baseline && <Tag color="cyan">当前基线</Tag>}
+              </Space>
+            </Descriptions.Item>
+            <Descriptions.Item label="评审状态"><GateStatusTag status={gate?.status ?? null} /></Descriptions.Item>
+            <Descriptions.Item label="有效定级"><LevelTag level={project.grading_level} /></Descriptions.Item>
+            <Descriptions.Item label="确认进度">
+              {hitAll.length
+                ? `${hitAll.filter((r) => r.reg_confirmed).length}/${hitAll.length} 条`
+                : '—'}
+            </Descriptions.Item>
+          </Descriptions>
+          {hitAll.length > 0 && (
+            <Progress
+              percent={Math.round((hitAll.filter((r) => r.reg_confirmed).length / hitAll.length) * 100)}
+              size="small" strokeColor={PRIMARY} style={{ marginBottom: 12 }}
+            />
+          )}
+
+          {reviewBlocked !== null && reviewBlocked.length > 0 && (
+            <Alert
+              type="error" showIcon style={{ marginBottom: 12 }}
+              message="门禁校验未通过"
+              description={
+                <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                  {reviewBlocked.map((m) => <li key={m}><Typography.Text style={{ fontSize: 12 }}>{m}</Typography.Text></li>)}
+                </ul>
+              }
+            />
+          )}
+
+          {hitAll.length === 0 && (
+            <Alert type="info" showIcon style={{ marginBottom: 12 }} message="尚未生成安全需求" description="先在向导完成信息采集并生成。" />
+          )}
+
+          {canSubmit && gate?.status !== 'in_review' && gate?.status !== 'passed' && hitAll.length > 0 && (
+            <Button type="primary" block loading={acting} onClick={() => void doSubmitReview()}>
+              {gate?.status === 'rectifying' || gate?.status === 'rejected' ? '整改后重新提交评审' : '提交评审'}
+            </Button>
+          )}
+          {canSubmit && inReview && (
+            <Typography.Text type="secondary">评审进行中, 如需修改请等待评审结论。</Typography.Text>
+          )}
+          {canSubmit && gate?.status === 'passed' && (
+            <Typography.Text type="secondary">评审已通过, 本轮归档。</Typography.Text>
+          )}
+
+          {canDecide && (
+            <div>
+              <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>整体裁定(安全侧)</Typography.Paragraph>
+              <Radio.Group
+                value={decide}
+                onChange={(e) => setDecide(e.target.value)}
+                options={[
+                  { value: 'approve', label: '通过' },
+                  { value: 'request_change', label: '退回整改' },
+                  { value: 'reject', label: '否决' },
+                ]}
+                style={{ marginBottom: 8 }}
+              />
+              <Input.TextArea
+                rows={2} placeholder="裁定意见(可空)" value={decideComment}
+                onChange={(e) => setDecideComment(e.target.value)} style={{ marginBottom: 8 }}
+              />
+              <Button
+                type="primary" block disabled={!decide} loading={acting}
+                onClick={() => {
+                  if (!decide) return
+                  void runReviewAction(
+                    () => api.reviewDecide(projectId, decide, decideComment), '裁定已记录',
+                  ).then((ok) => { if (ok) { setDecide(null); setDecideComment('') } })
+                }}
+              >
+                提交裁定
+              </Button>
+            </div>
+          )}
+
+          {canFinalize && (
+            <div>
+              <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+                终审会签(负责人): 评审员已通过
+              </Typography.Paragraph>
+              <Input.TextArea
+                rows={2} placeholder="终审意见(可空)" value={finalizeComment}
+                onChange={(e) => setFinalizeComment(e.target.value)} style={{ marginBottom: 8 }}
+              />
+              <Button type="primary" block loading={acting} onClick={() => setFinalizeOpen(true)}>
+                终审会签(复审通过)
+              </Button>
+            </div>
+          )}
+
+          {user?.role === 'auditor' && (
+            <Typography.Text type="secondary">审计视角: 只读查看。</Typography.Text>
+          )}
+
+          <Button block style={{ marginTop: 12 }} onClick={() => navigate(`/evaluations/${projectId}/review`)}>
+            评审中心(批注 / 留痕)
+          </Button>
+        </Card>
+      </div>
+
+      {/* ── 终审确认弹窗 ── */}
+      <Modal
+        title="终审会签确认" open={finalizeOpen} onCancel={() => setFinalizeOpen(false)}
+        onOk={async () => {
+          const ok = await runReviewAction(
+            () => api.reviewFinalize(projectId, finalizeComment), '终审通过, 本轮评审归档')
+          if (ok) { setFinalizeOpen(false); setFinalizeComment('') }
+        }}
+        okText="确认复审通过"
+      >
+        <Typography.Paragraph>
+          终审通过后门禁进入 passed, 未批注的已确认需求将随项目整体推为「评审通过」。
+        </Typography.Paragraph>
+        <Typography.Paragraph type="secondary">终审人与提交人/评审员不得为同一人。</Typography.Paragraph>
       </Modal>
     </div>
   )

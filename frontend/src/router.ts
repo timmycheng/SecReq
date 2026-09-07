@@ -1,26 +1,53 @@
-/* 极简 hash 路由: #/ 评估列表, #/systems 系统清单, #/system/:id 系统详情,
-   #/wizard/:id 向导, #/result/:id 产物页, #/project/:id/review 评审中心, #/admin 系统管理。 */
+/* 自研 hash 路由(#280 改版): #/ 工作台, #/systems 系统清单, #/systems/:id 系统详情,
+   #/evaluations 评估清单, #/evaluations/:id/wizard 问卷, #/evaluations/:id/result 产物页,
+   #/evaluations/:id/review 评审中心; 平台设置组: /admin /filings /knowledge /users /ldap
+   /llm /netbox /audit /changelog。 */
 import { useEffect, useState } from 'react'
 
 export type Route =
-  | { name: 'list' }
+  | { name: 'dashboard' }
   | { name: 'systems' }
   | { name: 'systemDetail'; systemId: number }
+  | { name: 'evaluations' }
   | { name: 'wizard'; projectId: number }
   | { name: 'result'; projectId: number }
   | { name: 'review'; projectId: number }
   | { name: 'admin' }
+  | { name: 'filings' }
+  | { name: 'knowledge' }
+  | { name: 'users' }
+  | { name: 'ldap' }
+  | { name: 'llm' }
+  | { name: 'netbox' }
+  | { name: 'audit' }
+  | { name: 'changelog' }
+
+const NAMED_SEGMENTS: Record<string, Route> = {
+  systems: { name: 'systems' },
+  evaluations: { name: 'evaluations' },
+  admin: { name: 'admin' },
+  filings: { name: 'filings' },
+  knowledge: { name: 'knowledge' },
+  users: { name: 'users' },
+  ldap: { name: 'ldap' },
+  llm: { name: 'llm' },
+  netbox: { name: 'netbox' },
+  audit: { name: 'audit' },
+  changelog: { name: 'changelog' },
+}
 
 export function parseHash(hash: string): Route {
-  const path = hash.replace(/^#\/?/, '')
-  const parts = path.split('/').filter(Boolean)
-  if (parts[0] === 'wizard' && parts[1]) return { name: 'wizard', projectId: Number(parts[1]) }
-  if (parts[0] === 'result' && parts[1]) return { name: 'result', projectId: Number(parts[1]) }
-  if (parts[0] === 'project' && parts[1] && parts[2] === 'review') return { name: 'review', projectId: Number(parts[1]) }
-  if (parts[0] === 'system' && parts[1]) return { name: 'systemDetail', systemId: Number(parts[1]) }
-  if (parts[0] === 'systems') return { name: 'systems' }
-  if (parts[0] === 'admin') return { name: 'admin' }
-  return { name: 'list' }
+  const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean)
+  const [head, second, third] = parts
+  if (head === 'systems' && second) return { name: 'systemDetail', systemId: Number(second) }
+  if (head === 'evaluations' && second) {
+    const projectId = Number(second)
+    if (third === 'wizard') return { name: 'wizard', projectId }
+    if (third === 'review') return { name: 'review', projectId }
+    return { name: 'result', projectId }
+  }
+  if (head && NAMED_SEGMENTS[head]) return NAMED_SEGMENTS[head]
+  return { name: 'dashboard' }
 }
 
 export function navigate(path: string) {

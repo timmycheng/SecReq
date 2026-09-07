@@ -153,8 +153,7 @@ export default function ReviewPage({ projectId }: { projectId: number }) {
               </Tag>
             </Space>
           )}
-          backLabel="返回列表"
-          onBack={() => navigate('/')}
+          onBack={() => navigate('/evaluations')}
         />
 
         <Card

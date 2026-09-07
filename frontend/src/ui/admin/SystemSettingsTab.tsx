@@ -1,9 +1,23 @@
-/* 系统设置: 评估编号规则(前缀/年份/位数), 带实时格式预览(#85)。
-   未配置时后端回退历史格式 XM<年份>-<三位序号>, 老评估编号不受影响。 */
+/* 系统设置(#280 收编): 评估编号规则(前缀/年份/位数, #85) + 密码策略基线 + 定级题库,
+   三块以分组卡片纵向排布; 密码策略与题库原为独立 Tab, 业务逻辑原样迁入。
+   编号规则未配置时后端回退历史格式 XM<年份>-<三位序号>, 老评估编号不受影响。 */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Button, Card, Checkbox, Form, Input, InputNumber, Typography, message } from 'antd'
+import { Button, Card, Checkbox, Form, Input, InputNumber, Space, Spin, Tag, Typography, message } from 'antd'
 
-import { api } from '../../api'
+import { api, type PolicyBaselines, type QuestionBank } from '../../api'
+import { NumField } from './shared'
+
+export default function SystemSettingsTab() {
+  return (
+    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      <CodeRuleCard />
+      <PolicyBaselineCard />
+      <QuestionBankCard />
+    </Space>
+  )
+}
+
+/* ── 评估编号规则 ──────────────────────────────────── */
 
 interface CodeRule {
   prefix: string
@@ -11,7 +25,7 @@ interface CodeRule {
   digits: number
 }
 
-export default function SystemSettingsTab() {
+function CodeRuleCard() {
   const [rule, setRule] = useState<CodeRule | null>(null)
   const [saving, setSaving] = useState(false)
   const [form] = Form.useForm<CodeRule>()
@@ -33,30 +47,31 @@ export default function SystemSettingsTab() {
   }, [watched, rule])
 
   return (
-    <div style={{ maxWidth: 640, margin: '0 auto' }}>
-      <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
-        评估编号在发起新评估时自动生成, 同时用作产物输出目录名 —— 修改规则只影响新评估,
-        老评估编号与目录不变。序号按前缀查库递增保证不冲突。
-      </Typography.Paragraph>
-      <Card size="small" title="评估编号规则" style={{ marginBottom: 16 }}>
-        <Form form={form} layout="vertical" initialValues={rule ?? undefined}>
+    <Card
+      size="small" title="评估编号规则" style={{ width: 680 }}
+      extra={<Typography.Text type="secondary">修改规则只影响新评估</Typography.Text>}
+    >
+      <Form form={form} layout="vertical" initialValues={rule ?? undefined}>
+        <Space size={16} wrap align="start">
           <Form.Item
             name="prefix" label="前缀(1-10 位字母数字)"
             rules={[{ required: true }, { pattern: /^[A-Za-z0-9]+$/, message: '仅字母数字' }]}
           >
-            <Input placeholder="如 XM / PRJ" maxLength={10} style={{ width: 200 }} />
+            <Input placeholder="如 XM / PRJ" maxLength={10} style={{ width: 160 }} />
           </Form.Item>
-          <Form.Item name="include_year" valuePropName="checked">
+          <Form.Item name="include_year" valuePropName="checked" style={{ marginTop: 30 }}>
             <Checkbox>编号包含当前年份</Checkbox>
           </Form.Item>
           <Form.Item name="digits" label="序号位数" extra="1-6 位, 不足补零">
-            <InputNumber min={1} max={6} style={{ width: 120 }} />
+            <InputNumber min={1} max={6} style={{ width: 100 }} />
           </Form.Item>
-          <Typography.Paragraph style={{ marginBottom: 12 }}>
-            下一个编号预览: <code>{preview}</code>
-          </Typography.Paragraph>
+          <Form.Item label="下一个编号" style={{ marginTop: 0 }}>
+            <Typography.Text code>{preview}</Typography.Text>
+          </Form.Item>
+        </Space>
+        <div>
           <Button
-            type="primary" loading={saving}
+            type="primary" size="small" loading={saving}
             onClick={async () => {
               const values = await form.validateFields()
               setSaving(true)
@@ -73,8 +88,133 @@ export default function SystemSettingsTab() {
           >
             保存规则
           </Button>
-        </Form>
-      </Card>
-    </div>
+        </div>
+      </Form>
+    </Card>
+  )
+}
+
+/* ── 密码策略基线(原 PolicyTab 逻辑迁入) ───────────── */
+
+function PolicyBaselineCard() {
+  const [data, setData] = useState<PolicyBaselines | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    api.getPolicyBaselines().then(setData).catch((e: Error) => message.error(e.message))
+  }, [])
+
+  if (!data) return <Spin style={{ display: 'block', margin: '24px auto' }} />
+
+  const update = (level: string, key: string, value: number | null) => {
+    const copy: PolicyBaselines = JSON.parse(JSON.stringify(data))
+    if (value !== null) copy.baselines[level][key as keyof PolicyBaselines['baselines'][string]] = value
+    setData(copy)
+  }
+
+  return (
+    <Card
+      size="small" title="密码策略基线" style={{ width: 680 }}
+      extra={<Typography.Text type="secondary">评估未显式覆盖时按档位默认取值</Typography.Text>}
+    >
+      {Object.entries(data.baselines).map(([level, base]) => (
+        <Card key={level} type="inner" size="small" title={`等保${level}`} style={{ marginBottom: 12 }}>
+          <Space size={24} wrap>
+            <NumField label="最小长度" value={base.pwd_min_length}
+              onChange={(v) => update(level, 'pwd_min_length', v)} />
+            <NumField label="复杂度类别数" value={base.pwd_complexity}
+              onChange={(v) => update(level, 'pwd_complexity', v)} />
+            <NumField label="有效期(天)" value={base.pwd_valid_days}
+              onChange={(v) => update(level, 'pwd_valid_days', v)} />
+          </Space>
+        </Card>
+      ))}
+      <Space size={24} style={{ marginBottom: 16 }} wrap>
+        <NumField label="全局锁定阈值(次)" value={data.lockout_threshold}
+          onChange={(v) => v !== null && setData({ ...data, lockout_threshold: v })} />
+        <NumField label="全局会话超时(分钟)" value={data.session_timeout_min}
+          onChange={(v) => v !== null && setData({ ...data, session_timeout_min: v })} />
+      </Space>
+      <div>
+        <Button
+          type="primary" size="small" loading={saving}
+          onClick={async () => {
+            setSaving(true)
+            try {
+              await api.savePolicyBaselines(data)
+              message.success('策略基线已保存')
+            } catch (e) {
+              message.error((e as Error).message)
+            } finally {
+              setSaving(false)
+            }
+          }}
+        >
+          保存基线
+        </Button>
+      </div>
+    </Card>
+  )
+}
+
+/* ── 定级题库(原 QuestionTab 逻辑迁入) ─────────────── */
+
+function QuestionBankCard() {
+  const [bank, setBank] = useState<QuestionBank | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    api.getQuestionBank().then(setBank).catch((e: Error) => message.error(e.message))
+  }, [])
+
+  if (!bank) return <Spin style={{ display: 'block', margin: '24px auto' }} />
+
+  const updateOption = (qi: number, oi: number, patch: Partial<QuestionBank['questions'][0]['options'][0]>) => {
+    const copy: QuestionBank = JSON.parse(JSON.stringify(bank))
+    Object.assign(copy.questions[qi].options[oi], patch)
+    setBank(copy)
+  }
+
+  return (
+    <Card
+      size="small" title="定级题库" style={{ width: 880 }}
+      extra={<Typography.Text type="secondary">题目分值决定自动定级建议, 保存后对新问卷立即生效</Typography.Text>}
+    >
+      {bank.questions.map((q, qi) => (
+        <Card
+          key={q.id} type="inner" size="small" title={`${q.id}. ${q.title}`} style={{ marginBottom: 12 }}
+          extra={<Tag>命中组合: {bank.levels.find((l) => l.level)?.level ?? ''}</Tag>}
+        >
+          {q.options.map((o, oi) => (
+            <Space key={o.id} size={8} style={{ display: 'flex', marginBottom: 6 }} wrap>
+              <Tag style={{ minWidth: 28, textAlign: 'center' }}>{o.id}</Tag>
+              <Input style={{ width: 300 }} value={o.label}
+                onChange={(e) => updateOption(qi, oi, { label: e.target.value })} />
+              <InputNumber min={0} max={20} value={o.score}
+                onChange={(v) => updateOption(qi, oi, { score: typeof v === 'number' ? v : 0 })} />
+              <Typography.Text type="secondary">分</Typography.Text>
+              <Input style={{ width: 320 }} value={o.basis ?? ''} placeholder="判定依据文案"
+                onChange={(e) => updateOption(qi, oi, { basis: e.target.value })} />
+            </Space>
+          ))}
+        </Card>
+      ))}
+      <Button type="primary" size="small" loading={saving}
+        onClick={async () => {
+          if (!bank) return
+          setSaving(true)
+          try {
+            await api.saveQuestionBank(bank)
+            message.success('题库已保存并即时生效')
+          } catch (e) {
+            message.error((e as Error).message)
+          } finally {
+            setSaving(false)
+          }
+        }}
+      >
+        保存题库
+      </Button>
+    </Card>
   )
 }

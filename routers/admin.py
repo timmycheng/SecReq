@@ -665,3 +665,75 @@ def step_metrics(project_id: int | None = None,
     """步骤级耗时报表(#229): 各步骤 平均/中位/P90/样本数, 试点汇报用。"""
     from services.step_metrics import step_metrics_report
     return step_metrics_report(db, project_id)
+
+
+# ── LDAP/AD 对接(#280) ────────────────────────────────
+@router.get("/ldap-config")
+def get_ldap(_: PlatformUser = Depends(require_security), db: Session = Depends(get_db)):
+    """配置回显: bind_password 不外发, 以 has_password 代替。"""
+    from services.ldap_service import get_ldap_config
+    return get_ldap_config(db)
+
+
+class LdapConfigIn(BaseModel):
+    enabled: bool = False
+    host: str = Field(default="", max_length=300)
+    port: int = Field(default=389, ge=1, le=65535)
+    use_ssl: bool = False
+    base_dn: str = Field(default="", max_length=300)
+    bind_dn: str = Field(default="", max_length=300)
+    bind_password: str = Field(default="", max_length=300)
+    user_filter: str = Field(default="(objectClass=person)", max_length=300)
+    attr_username: str = Field(default="uid", max_length=60)
+    attr_display_name: str = Field(default="cn", max_length=60)
+    attr_email: str = Field(default="mail", max_length=60)
+    allow_local_fallback: bool = True
+
+
+@router.put("/ldap-config")
+def put_ldap(payload: LdapConfigIn, request: Request,
+             db: Session = Depends(get_db),
+             user: PlatformUser = Depends(require_security)):
+    """保存配置; bind_password 留空表示沿用已存密码(掩码回显场景, 同 LLM 口径)。"""
+    from services.ldap_service import save_ldap_config
+    save_ldap_config(db, payload.model_dump())
+    audit(db, user.username, "ldap_update",
+          {"host": payload.host, "base_dn": payload.base_dn, "enabled": payload.enabled},
+          client_ip(request))
+    return {"status": "ok"}
+
+
+class LdapTestIn(BaseModel):
+    """连接测试提交值; bind_password 留空表示沿用已存密码, 只测不存。"""
+
+    enabled: bool = True
+    host: str = Field(max_length=300)
+    port: int = Field(default=389, ge=1, le=65535)
+    use_ssl: bool = False
+    base_dn: str = Field(max_length=300)
+    bind_dn: str = Field(default="", max_length=300)
+    bind_password: str = Field(default="", max_length=300)
+    user_filter: str = Field(default="(objectClass=person)", max_length=300)
+    attr_username: str = Field(default="uid", max_length=60)
+
+
+@router.post("/ldap-config/test")
+def test_ldap(payload: LdapTestIn, db: Session = Depends(get_db),
+              _: PlatformUser = Depends(require_security)):
+    from services.ldap_service import test_connection
+    return test_connection(db, payload.model_dump())
+
+
+@router.post("/ldap-config/sync")
+def sync_ldap_users(request: Request, db: Session = Depends(get_db),
+                    user: PlatformUser = Depends(require_security)):
+    """目录用户导入: 已存在跳过, 新增默认 pm 角色; 日常登录走 LDAP。"""
+    from services.ldap_service import sync_users
+    try:
+        result = sync_users(db, user.username)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+    audit(db, user.username, "ldap_sync", dict(result), client_ip(request))
+    return result
