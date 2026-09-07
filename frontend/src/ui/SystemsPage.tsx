@@ -151,7 +151,7 @@ export default function SystemsPage() {
       title: '操作', width: 250,
       render: (_: unknown, record: SystemRow) => (
         <Space size={0} split={<Divider type="vertical" />}>
-          <Button type="link" size="small" onClick={() => navigate(`/system/${record.id}`)}>评估时间线</Button>
+          <Button type="link" size="small" onClick={() => navigate(`/system/${record.id}`)}>系统详情</Button>
           <Button type="link" size="small" onClick={() => setEditing(record)}>编辑</Button>
           {isSecurity && !record.netbox_object_id && (
             <Button

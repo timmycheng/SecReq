@@ -2,10 +2,11 @@
    身份: 登录后 token 存 localStorage, 每个请求经 Authorization: Bearer 携带;
    遇 401 广播 AUTH_EXPIRED_EVENT, 由 App 清除登录态并回到登录页。 */
 import type {
-  ApiEndpointRow, AuthConfigRow, ComponentRow, DataAssetRow,
+  ApiEndpointRow, AuthConfigRow, BaselineApiEndpoint, BaselineDataAsset,
+  BaselinePermissionBundle, ComponentRow, DataAssetRow, DetailSectionMeta,
   ExternalSystemRow, FeatureRow, FilingRow, GenerateSummary, GradingQuestion,
   InfraArchImageRow, InfraAssetRow, LabelMap, LoginInfo, MatrixEntryIn,
-  RequirementTransitionRow, ReviewState,
+  RequirementTransitionRow, ReviewState, SystemDetailFeature,
   NetboxAssetRow, NetboxSystemRow,
   PreviewResult, ProjectDetail, ProjectInfo, RequirementDiff, RequirementRow, RoleRow,
   ResourceRow, SurveyAnswer, SystemRow, VulnerabilityRow, VulnDbStatus, VulnDbVerifyResult,
@@ -200,6 +201,19 @@ export const api = {
   deleteFiling: (id: number) => request<void>(`/api/filings/${id}`, { method: 'DELETE' }),
   listSystems: () => request<SystemRow[]>('/api/systems'),
   getSystem: (id: number) => request<SystemRow>(`/api/systems/${id}`),
+  /* 系统详情 Tab 分节数据(#272): features 读基线来源轮次, 其余读基线快照 */
+  systemDetailFeatures: (id: number) =>
+    request<DetailSectionMeta & { rows: SystemDetailFeature[] }>(
+      `/api/systems/${id}/detail-section?section=features`),
+  systemDetailDataAssets: (id: number) =>
+    request<DetailSectionMeta & { rows: BaselineDataAsset[] }>(
+      `/api/systems/${id}/detail-section?section=data_assets`),
+  systemDetailPermissions: (id: number) =>
+    request<DetailSectionMeta & { rows: BaselinePermissionBundle }>(
+      `/api/systems/${id}/detail-section?section=permissions`),
+  systemDetailApis: (id: number) =>
+    request<DetailSectionMeta & { rows: BaselineApiEndpoint[] }>(
+      `/api/systems/${id}/detail-section?section=apis`),
   createSystem: (data: Partial<SystemRow>) =>
     request<SystemRow>('/api/systems', { method: 'POST', body: JSON.stringify(data) }),
   updateSystem: (id: number, data: Partial<SystemRow>) =>

@@ -534,7 +534,93 @@ export interface VulnDbVerifyResult {
   cnnvd?: { available: boolean; path: string; total: number; db_version?: string | null }
 }
 
+
+/* ── 系统详情 Tab 数据(#272): 基线快照分节出数 ───────────────── */
+
+export interface DetailSectionMeta {
+  has_baseline: boolean
+  source_project_id: number | null
+  updated_at: string | null
+  summary: string | null
+}
+
+export interface SystemDetailFeature {
+  uid: string
+  name: string
+  module: string | null
+  description: string | null
+  categories: string[]
+  sensitivity: string | null
+  involves_payment: boolean
+  exposed_to_internet: boolean
+}
+
+export interface BaselineDataField {
+  field_name: string
+  field_type?: string | null
+  need_encrypt?: boolean
+  need_mask?: boolean
+  mask_rule?: string | null
+}
+
+export interface BaselineDataTable {
+  table_name: string
+  fields: BaselineDataField[]
+}
+
+export interface BaselineDataAsset {
+  uid: string
+  name: string
+  data_type?: string | null
+  classification?: string | null
+  c3_tag?: boolean
+  is_pii?: boolean
+  is_sensitive_pii?: boolean
+  storage_envs?: string[]
+  cross_border_transfer?: boolean
+  tables: BaselineDataTable[]
+}
+
+export interface BaselineRole {
+  uid: string
+  name: string
+  role_type?: string
+  user_count_estimate?: number | null
+}
+
+export interface BaselineResource {
+  uid: string
+  name: string
+  resource_type?: string
+  criticality?: string
+}
+
+export interface BaselinePermissionEntry {
+  role_uid?: string | null
+  resource_uid?: string | null
+  action?: string
+  requires_approval?: boolean
+}
+
+export interface BaselinePermissionBundle {
+  roles: BaselineRole[]
+  resources: BaselineResource[]
+  permission_entries: BaselinePermissionEntry[]
+}
+
+export interface BaselineApiEndpoint {
+  uid: string
+  name: string
+  path?: string
+  method?: string
+  auth_required?: boolean
+  public_exposed?: boolean
+  sensitive_asset_uids?: string[]
+  rate_limit?: string | null
+}
+
 /* ── 平台认证 ───────────────────────────────────── */
+
 
 export interface LoginInfo {
   id: number

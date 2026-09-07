@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 import shared.constants as C
 from pydantic import BaseModel
 
-from models import Filing, InfraAsset, PlatformUser, SbomComponent, System
+from models import Filing, Feature, InfraAsset, PlatformUser, SbomComponent, System, SystemBaseline
 from routers.common import (
     client_ip, component_to_out, get_db, read_upload_limited, require_login,
     require_write_roles,
@@ -237,7 +237,7 @@ def confirm_baseline_level(system_id: int, payload: LevelConfirmIn,
                            user: PlatformUser = Depends(
                                require_write_roles(*C.SECURITY_SIDE_ROLES))):
     """安全侧人工定夺「级别变更确认」待办(#225): 两条路径都写履历留痕。"""
-    from models import SystemBaseline, SystemBaselineHistory
+    from models import SystemBaselineHistory
 
     system = _get_accessible_system(system_id, db, user)
     baseline = db.query(SystemBaseline).filter_by(system_id=system.id).first()
@@ -273,3 +273,48 @@ def confirm_baseline_level(system_id: int, payload: LevelConfirmIn,
     audit(db, user.username, "baseline_level_confirm",
           {"system_id": system.id, "decision": payload.decision}, client_ip(request))
     return {"status": "ok", "summary": summary}
+
+
+# ── 系统详情 Tab 数据(#272): 详情页按 Tab 展示系统事实 ──
+
+@router.get("/{system_id}/detail-section")
+def detail_section(system_id: int, section: str,
+                   db: Session = Depends(get_db),
+                   user: PlatformUser = Depends(require_login)):
+    """系统详情页分 Tab 出数(#272)。
+
+    - features: 功能清单不进基线快照, 读当前基线来源轮次的项目数据;
+    - data_assets / permissions / apis: 读 system_baselines.baseline_json 快照;
+    - 尚未写回基线时 rows 为空并带 has_baseline=False, 前端据此给引导文案。
+    """
+    system = _get_accessible_system(system_id, db, user)
+    baseline = db.query(SystemBaseline).filter_by(system_id=system.id).first()
+    data = (baseline.baseline_json or {}) if baseline else {}
+    meta = {
+        "has_baseline": baseline is not None,
+        "source_project_id": baseline.source_project_id if baseline else None,
+        "updated_at": baseline.updated_at.isoformat() if baseline and baseline.updated_at else None,
+        "summary": baseline.summary if baseline else None,
+    }
+    if section == "features":
+        pid = meta["source_project_id"]
+        rows = ([] if pid is None
+                else db.query(Feature).filter_by(project_id=pid).order_by(Feature.id).all())
+        return {**meta, "rows": [{
+            "uid": f.uid, "name": f.name, "module": f.module,
+            "description": f.description, "categories": f.categories or [],
+            "sensitivity": f.sensitivity,
+            "involves_payment": bool(f.involves_payment),
+            "exposed_to_internet": bool(f.exposed_to_internet),
+        } for f in rows]}
+    if section == "data_assets":
+        return {**meta, "rows": data.get("data_assets") or []}
+    if section == "permissions":
+        return {**meta, "rows": {
+            "roles": data.get("roles") or [],
+            "resources": data.get("resources") or [],
+            "permission_entries": data.get("permission_entries") or [],
+        }}
+    if section == "apis":
+        return {**meta, "rows": data.get("api_endpoints") or []}
+    raise HTTPException(status_code=400, detail=f"未知 section: {section}")
