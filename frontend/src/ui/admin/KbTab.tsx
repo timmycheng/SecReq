@@ -3,8 +3,8 @@
    新增支持「复制为新模板」: 带入相近模板文案并自动建议下一个可用 id(#165)。 */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Button, Col, Collapse, Form, Input, Modal, Popconfirm, Row, Select, Space, Switch, Table, Tag,
-  Tooltip, Typography, message,
+  Button, Col, Collapse, Divider, Form, Input, Modal, Popconfirm, Row, Select, Space, Switch,
+  Table, Tag, Tooltip, Typography, message,
 } from 'antd'
 import {
   ArrowDownOutlined, ArrowUpOutlined, CopyOutlined, DeleteOutlined, PlusOutlined,
@@ -103,12 +103,12 @@ export default function KbTab() {
           { title: '启用', dataIndex: 'enabled', width: 80,
             render: (_v, r) => <Switch size="small" checked={r.enabled} onChange={() => void toggle(r)} /> },
           {
-            title: '操作', width: 170,
+            title: '操作', width: 190,
             render: (_v, r) => (
-              <Space>
-                <Button size="small" onClick={() => setEditing({ mode: 'edit', row: r })}>编辑</Button>
+              <Space size={0} split={<Divider type="vertical" />}>
+                <Button type="link" size="small" onClick={() => setEditing({ mode: 'edit', row: r })}>编辑</Button>
                 <Tooltip title="带入该模板文案与触发条件, id 自动顺延, 适合新增相近规则">
-                  <Button size="small" icon={<CopyOutlined />} onClick={() => copyAsNew(r)}>复制为新模板</Button>
+                  <Button type="link" size="small" icon={<CopyOutlined />} onClick={() => copyAsNew(r)}>复制为新模板</Button>
                 </Tooltip>
               </Space>
             ),

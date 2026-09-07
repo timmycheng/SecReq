@@ -57,8 +57,8 @@ function Blocks({ blocks }: { blocks: ChangelogBlock[] }) {
       nodes.push(<Typography.Title key={i} level={5} style={{ marginTop: 12 }}><InlineText text={b.text ?? ''} /></Typography.Title>)
     } else if (b.kind === 'quote') {
       nodes.push(
-        <blockquote key={i} style={{ borderLeft: '3px solid #d9d9d9', margin: '8px 0', padding: '2px 10px', color: '#666' }}>
-          <InlineText text={b.text ?? ''} />
+        <blockquote key={i} style={{ borderLeft: '3px solid #d9d9d9', margin: '8px 0', padding: '2px 10px' }}>
+          <Typography.Text type="secondary"><InlineText text={b.text ?? ''} /></Typography.Text>
         </blockquote>,
       )
     } else if (b.kind === 'table_row') {

@@ -1,7 +1,7 @@
 /* 术语速查提示: 内联文字后跟 "?" 图标, 悬浮展示术语卡。
    解释性文案在前端维护(非业务枚举, 不违反 /api/meta/constants 唯一来源约束)。 */
 import type { ReactNode } from 'react'
-import { Tooltip } from 'antd'
+import { Tooltip, Typography } from 'antd'
 import { QuestionCircleOutlined } from '@ant-design/icons'
 
 export const GLOSSARY: Record<string, { title: string; text: string }> = {
@@ -75,7 +75,9 @@ export default function GlossaryTip({ term, children }: { term: GlossaryTerm; ch
           </div>
         )}
       >
-        <QuestionCircleOutlined style={{ marginLeft: 4, color: '#999', cursor: 'help' }} />
+        <Typography.Text type="secondary" style={{ marginLeft: 4, cursor: 'help' }}>
+          <QuestionCircleOutlined />
+        </Typography.Text>
       </Tooltip>
     </span>
   )

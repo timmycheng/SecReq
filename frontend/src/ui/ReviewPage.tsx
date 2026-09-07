@@ -6,12 +6,13 @@ import {
   Alert, App, Button, Card, Descriptions, Empty, Input, Modal, Popconfirm,
   Radio, Space, Spin, Table, Tag, Timeline, Typography,
 } from 'antd'
-import { ArrowLeftOutlined, CheckCircleOutlined, DownloadOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined, DownloadOutlined } from '@ant-design/icons'
 import type { RequirementRow, RequirementTransitionRow, ReviewState } from '../types'
 import { api, type StoredUser } from '../api'
 import { getStoredUser } from '../api'
-import { GATE_STATUS_COLOR, PRIORITY_COLOR, REQUIREMENT_STATUS_COLOR } from './tokens'
+import { GATE_STATUS_COLOR, HEX, PRIORITY_COLOR, REQUIREMENT_STATUS_COLOR } from './tokens'
 import { navigate } from '../router'
+import PageHeader from './PageHeader'
 
 const REVIEW_STATUS_LABELS: Record<string, string> = {
   open: '待确认', confirmed: '已确认', reviewed: '评审通过', rectifying: '整改中',
@@ -140,16 +141,21 @@ export default function ReviewPage({ projectId }: { projectId: number }) {
   }
 
   return (
-    <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', padding: 16 }}>
+    <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', padding: 24 }}>
       {/* ── 左侧内容区 ── */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <Space style={{ marginBottom: 12 }}>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/')}>返回列表</Button>
-          <Typography.Title level={4} style={{ margin: 0 }}>评审中心</Typography.Title>
-          <Tag color={gate ? GATE_STATUS_COLOR[gate.status] ?? 'default' : 'default'}>
-            {gateStatusLabel(gate?.status_verb, gate?.status ?? null)}
-          </Tag>
-        </Space>
+        <PageHeader
+          title={(
+            <Space size={8}>
+              评审中心
+              <Tag color={gate ? GATE_STATUS_COLOR[gate.status] ?? 'default' : 'default'}>
+                {gateStatusLabel(gate?.status_verb, gate?.status ?? null)}
+              </Tag>
+            </Space>
+          )}
+          backLabel="返回列表"
+          onBack={() => navigate('/')}
+        />
 
         <Card
           size="small" title="门禁状态" style={{ marginBottom: 16 }}
@@ -303,7 +309,7 @@ export default function ReviewPage({ projectId }: { projectId: number }) {
       {/* ── 右侧固定评审操作面板(布局模式4) ── */}
       <Card
         size="small" title="评审操作面板"
-        style={{ width: 340, flexShrink: 0, position: 'sticky', top: 16 }}
+        style={{ width: 340, flexShrink: 0, position: 'sticky', top: 24 }}
       >
         {blocked !== null && blocked.length > 0 && (
           <Alert
@@ -340,7 +346,7 @@ export default function ReviewPage({ projectId }: { projectId: number }) {
         )}
         {canSubmit && gate?.status === 'passed' && (
           <Typography.Text type="secondary">
-            <CheckCircleOutlined style={{ color: '#52c41a' }} /> 评审已通过, 本轮归档。
+            <CheckCircleOutlined style={{ color: HEX.success }} /> 评审已通过, 本轮归档。
           </Typography.Text>
         )}
 

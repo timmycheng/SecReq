@@ -1,10 +1,11 @@
 /* 登录页: 账号+密码, 登录成功回调 App 进入主界面。 */
 import { useState } from 'react'
 import { Alert, Button, Card, Form, Input, Typography } from 'antd'
-import { LockOutlined, SafetyOutlined, UserOutlined } from '@ant-design/icons'
+import { LockOutlined, SafetyCertificateOutlined, UserOutlined } from '@ant-design/icons'
 
 import { api } from '../api'
 import type { LoginInfo } from '../types'
+import { BRAND_GRADIENT, PRIMARY } from './theme'
 
 export default function LoginPage({ onLogin }: { onLogin: (info: LoginInfo) => void }) {
   const [loading, setLoading] = useState(false)
@@ -27,12 +28,12 @@ export default function LoginPage({ onLogin }: { onLogin: (info: LoginInfo) => v
     <div
       style={{
         minHeight: '100vh', display: 'grid', placeItems: 'center',
-        background: 'linear-gradient(160deg, #10234a 0%, #2f5597 60%, #3d6db8 100%)',
+        background: BRAND_GRADIENT,
       }}
     >
       <Card style={{ width: 380, boxShadow: '0 12px 40px rgba(0,0,0,0.25)' }}>
         <div style={{ textAlign: 'center', marginBottom: 20 }}>
-          <SafetyOutlined style={{ fontSize: 40, color: '#2f5597' }} />
+          <SafetyCertificateOutlined style={{ fontSize: 40, color: PRIMARY }} />
           <Typography.Title level={4} style={{ margin: '10px 0 2px' }}>
             安全需求管理平台
           </Typography.Title>

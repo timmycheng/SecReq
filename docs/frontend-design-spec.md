@@ -18,6 +18,13 @@
 
 > 归属说明(#234): 系统管理(`ui/AdminPage.tsx`)是 Tab 容器外壳, 本身不属于四种布局模式; 每个 Tab 的内容区按其内容归入上述四种之一(如知识库/用户管理=列表页, 触发器编辑=表单页)。
 
+## 页头与容器(#268)
+
+- 页头一律用 `ui/PageHeader.tsx`(标题/描述/extra 操作区/可选返回), 不得再各页面自拼「返回按钮 + Typography.Title」; 列表页主操作按钮放 PageHeader 的 extra。
+- 页面容器统一 `padding: 24`; 品牌主题(ConfigProvider token、PRIMARY 常量、登录页渐变)唯一来源是 `ui/theme.ts`, 页面不得自建 ConfigProvider 或写品牌色字面量。
+- 正文次级文案用 `Typography` 语义色(`type="secondary"`), 不自造灰阶 hex; 排版用底色/边框灰(如代码块、表格斑马纹)不受 tokens 约束。
+- 数据表格行内操作列用链接按钮(`type="link" size="small"`, `Space split={<Divider type="vertical"/>}` 分隔), 危险操作(删除/停用)加 `danger`; 图标按钮(行内编辑 ✎ 等)可保留 `size="small"` 形态。
+
 ## 表格规则
 
 - 列数 > 8 或行高不定时: 表头吸顶 + 横向滚动, 禁止双滚动条嵌套
@@ -34,7 +41,8 @@
 
 ## 状态与文案 tokens(全局唯一来源, 不允许各页面自造)
 
-- 色值唯一来源是 `frontend/src/ui/tokens.ts`(Tag 用 antd 预设色名, style 场景用其 HEX 常量, CSS 场景用 index.css 顶部变量); 页面内不得再定义同义映射或写状态语义 hex(#234)
+- 色值唯一来源是 `frontend/src/ui/tokens.ts`(Tag 用 antd 预设色名, style 场景用其 HEX 常量, CSS 场景用 index.css 顶部变量); 页面内不得再定义同义映射或写状态语义 hex(#234); 角色标签色 `ROLE_COLOR` 同样在此(#268)
+- 品牌色唯一来源是 `frontend/src/ui/theme.ts`(PRIMARY/BRAND_GRADIENT/themeConfig), 与状态 tokens 分工: 品牌归 theme, 语义归 tokens(#268)
 - 等保定级(#234 定夺留痕): 一级=灰 / 二级=蓝 / 三级=黄, 与数据分级同 ramp——等保级别表达合规强度而非风险警示, 不用红色; 未来扩到四级/五级续接火山橙/红
 - 需求状态: open=灰 / confirmed=蓝 / reviewed=绿 / rectifying=橙(状态机见 v3.0 #217)
 - 门禁: pending=灰 / in_review=蓝 / blocked=红 / passed=绿 / rejected=红 / rectifying=橙(in_review/rejected 是 ReviewGate 既有枚举的补充, blocked 为提交校验返回态)

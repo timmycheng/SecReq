@@ -2,8 +2,8 @@
    台账是"看系统"的主入口: 同一系统多次评估在系统详情页形成时间线, 避免评估列表平行记录。 */
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Button, Card, Empty, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tabs, Tag,
-  Typography, message,
+  Button, Card, Divider, Empty, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table,
+  Tabs, Tag, Typography, message,
 } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 
@@ -12,6 +12,7 @@ import { optionsOf, useEnums } from '../enums'
 import { GRADING_LEVEL_COLOR } from './tokens'
 import { navigate } from '../router'
 import NetboxSystemImportModal from './NetboxSystemImportModal'
+import PageHeader from './PageHeader'
 import type { FilingRow, NetboxSystemRow, RoundSummary, SystemRow } from '../types'
 
 function LevelTag({ level }: { level?: string | null }) {
@@ -40,11 +41,14 @@ function RoundCell({ round }: { round?: RoundSummary | null }) {
 export default function SystemsPage() {
   return (
     <div style={{ padding: 24 }}>
-      <Card title="系统台账" variant="borderless">
-        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-          一个系统对应多轮评估: 系统详情页查看评估时间线与当前基线;
-          对外备案按"定级备案"维护, 实际系统以备案子系统形式挂靠并继承其定级。
-        </Typography.Text>
+      <PageHeader
+        title="系统台账"
+        description={
+          '一个系统对应多轮评估: 系统详情页查看评估时间线与当前基线; ' +
+          '对外备案按「定级备案」维护, 实际系统以备案子系统形式挂靠并继承其定级。'
+        }
+      />
+      <Card variant="borderless">
         <Tabs
           defaultActiveKey="systems"
           items={[
@@ -168,14 +172,14 @@ function SystemsTab() {
     { title: '负责人', dataIndex: 'owner_name', width: 100, render: (v: string | null) => v || '—' },
     { title: '最新评估', dataIndex: 'latest_round', width: 330, render: (_: unknown, r: SystemRow) => <RoundCell round={r.latest_round} /> },
     {
-      title: '操作', width: 260,
+      title: '操作', width: 250,
       render: (_: unknown, record: SystemRow) => (
-        <Space>
-          <Button size="small" onClick={() => navigate(`/system/${record.id}`)}>评估时间线</Button>
-          <Button size="small" onClick={() => setEditing(record)}>编辑</Button>
+        <Space size={0} split={<Divider type="vertical" />}>
+          <Button type="link" size="small" onClick={() => navigate(`/system/${record.id}`)}>评估时间线</Button>
+          <Button type="link" size="small" onClick={() => setEditing(record)}>编辑</Button>
           {isSecurity && !record.netbox_object_id && (
             <Button
-              size="small" loading={pushing === record.id}
+              type="link" size="small" loading={pushing === record.id}
               onClick={() => void handlePush(record)}
             >
               推送到 NetBox
@@ -194,7 +198,7 @@ function SystemsTab() {
               }
             }}
           >
-            <Button size="small" danger>删除</Button>
+            <Button type="link" size="small" danger>删除</Button>
           </Popconfirm>
         </Space>
       ),
@@ -371,10 +375,10 @@ function FilingsTab() {
           { title: '最新评估', dataIndex: 'latest_round', width: 300, render: (_: unknown, r: FilingRow) => <RoundCell round={r.latest_round} /> },
           ...(isSecurity
             ? [{
-                title: '操作', width: 150,
+                title: '操作', width: 120,
                 render: (_: unknown, record: FilingRow) => (
-                  <Space>
-                    <Button size="small" onClick={() => setEditing(record)}>编辑</Button>
+                  <Space size={0} split={<Divider type="vertical" />}>
+                    <Button type="link" size="small" onClick={() => setEditing(record)}>编辑</Button>
                     <Popconfirm
                       title="删除该备案?"
                       description="下挂系统需先解除关联"
@@ -388,7 +392,7 @@ function FilingsTab() {
                         }
                       }}
                     >
-                      <Button size="small" danger>删除</Button>
+                      <Button type="link" size="small" danger>删除</Button>
                     </Popconfirm>
                   </Space>
                 ),

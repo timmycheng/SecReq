@@ -286,7 +286,8 @@ export default function WizardPage({ projectId }: { projectId: number }) {
               第 6 步的组件与基础设施清单默认带出系统台账的已存版本, 可就地确认或修改(修改会同步系统台账);
               基本信息(规模/类型/公网)仍在系统台账维护。
               第 1 步完成定级后即可预览本评估的合规基线要求。
-              各步骤填什么, 看每步顶部说明与术语旁的 <QuestionCircleOutlined style={{ color: '#999' }} /> 图标。
+              各步骤填什么, 看每步顶部说明与术语旁的{' '}
+              <Typography.Text type="secondary"><QuestionCircleOutlined /></Typography.Text> 图标。
             </span>
           )}
         />

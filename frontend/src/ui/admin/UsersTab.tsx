@@ -1,16 +1,12 @@
 /* 用户管理: 新增 / 编辑 / 重置密码 / 启停。角色枚举取自 /api/meta/constants(#216)。 */
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Button, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
+  Button, Divider, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
 } from 'antd'
-import { EditOutlined, PlusOutlined } from '@ant-design/icons'
+import { PlusOutlined } from '@ant-design/icons'
 
 import { api, type AdminUserRow } from '../../api'
-
-// 角色徽标色: pm 蓝 / 安全侧橙 / 审计紫(等 #234 tokens 模块统一收敛)
-const ROLE_TAG_COLORS: Record<string, string> = {
-  pm: 'geekblue', security_reviewer: 'orange', security_lead: 'orange', auditor: 'purple',
-}
+import { ROLE_COLOR } from '../tokens'
 
 export default function UsersTab() {
   const [rows, setRows] = useState<AdminUserRow[]>([])
@@ -48,15 +44,15 @@ export default function UsersTab() {
           { title: '角色', dataIndex: 'role', width: 100,
             render: (v) => {
               const opt = roleOptions.find((o) => o.value === v)
-              return <Tag color={ROLE_TAG_COLORS[v] ?? 'default'}>{opt?.label ?? v}</Tag>
+              return <Tag color={ROLE_COLOR[v] ?? 'default'}>{opt?.label ?? v}</Tag>
             } },
           { title: '状态', dataIndex: 'active', width: 90,
             render: (v: boolean) => (v ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>) },
           {
-            title: '操作', width: 260,
+            title: '操作', width: 220,
             render: (_v, r) => (
-              <Space>
-                <Button size="small" icon={<EditOutlined />}
+              <Space size={0} split={<Divider type="vertical" />}>
+                <Button type="link" size="small"
                   onClick={() => { setEditing(r); editForm.setFieldsValue(r) }}>编辑</Button>
                 <Popconfirm
                   title={`重置 ${r.display_name} 的密码? 将生成随机密码。`}
@@ -69,9 +65,9 @@ export default function UsersTab() {
                     } catch (e) { message.error((e as Error).message) }
                   }}
                 >
-                  <Button size="small">重置密码</Button>
+                  <Button type="link" size="small">重置密码</Button>
                 </Popconfirm>
-                <Button size="small" danger={r.active} onClick={async () => {
+                <Button type="link" size="small" danger={r.active} onClick={async () => {
                   try {
                     const res = await api.adminToggleUser(r.username)
                     message.success(`${r.username} 已${res.active ? '启用' : '停用'}`)
