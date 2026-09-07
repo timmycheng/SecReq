@@ -361,8 +361,9 @@ function FilingsTab() {
         pagination={false}
         locale={{ emptyText: (
           <Empty description="还没有备案登记">
+            {/* #273: 必须给出非空 editing 才会挂载 FilingModal, 与工具栏新增按钮同参 */}
             {isSecurity && (
-              <Button type="primary" onClick={() => setEditing(null)}>新建备案</Button>
+              <Button type="primary" onClick={() => setEditing({ level: '二级' })}>新建备案</Button>
             )}
           </Empty>
 ) }}
