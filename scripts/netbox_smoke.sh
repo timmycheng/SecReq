@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# SecReq <-> NetBox 联动冒烟: 对着 scripts/netbox_dev.sh 拉起的真实 NetBox,
-# 走一遍 配置回填 -> 状态探测 -> 系统清单导入 -> 台账系统推送回填 -> 设备代理。
+# SecReq <-> NetBox 联动冒烟(#271 ETL): 对着 scripts/netbox_dev.sh 拉起的真实 NetBox,
+# 走一遍 配置回填 -> 状态探测 -> 一键同步(系统 upsert + netbox_object_id 回填)。
 #
 # 前置: NetBox 测试环境已就绪(scripts/netbox_dev.sh up), SecReq 后端已运行
 #       且存在安全角色账号(默认 sec_admin)。
