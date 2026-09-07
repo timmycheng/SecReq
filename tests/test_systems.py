@@ -334,3 +334,95 @@ def test_sbom_round_increment_marker(dev, sec):
     ws = dev.get(f"/api/projects/{project['id']}/wizard-state").json()
     flags = {c["name"]: c["is_round_increment"] for c in ws["components"]}
     assert flags == {"old-lib": False, "new-lib": True}
+
+
+# ── 系统详情分节(#272) ──────────────────────────────
+
+
+def _seed_baseline(db, system_id: int, project_id: int) -> None:
+    """直插一份最小基线快照: 覆盖资产/角色/资源/授权/接口五类。"""
+    from models import SystemBaseline
+    db.add(SystemBaseline(
+        system_id=system_id,
+        baseline_json={
+            "data_assets": [{
+                "uid": "uid-a1", "name": "交易流水", "classification": "3级_C2主要信息",
+                "tables": [{"table_name": "transactions", "fields": [
+                    {"field_name": "card_no", "field_type": "string",
+                     "need_encrypt": True, "need_mask": True, "mask_rule": "前3后4"},
+                ]}],
+            }],
+            "roles": [{"uid": "uid-r1", "name": "柜员", "role_type": "internal",
+                       "user_count_estimate": 100}],
+            "resources": [{"uid": "uid-res1", "name": "账户服务",
+                           "resource_type": "api", "criticality": "high"}],
+            "permission_entries": [{"role_uid": "uid-r1", "resource_uid": "uid-res1",
+                                    "action": "read", "requires_approval": False}],
+            "api_endpoints": [{"uid": "uid-api1", "name": "查询账单", "path": "/api/bills",
+                               "method": "get", "auth_required": True,
+                               "public_exposed": False, "rate_limit": "100 QPS/IP"}],
+        },
+        source_project_id=project_id,
+    ))
+    db.commit()
+
+
+def test_detail_section_features_reads_source_project(api):
+    """features 读基线来源轮次的功能清单(功能不进快照, #272)。"""
+    from models import Feature
+    system = _create_system(api, "详情功能系统")
+    project = api.post("/api/projects", json={
+        "name": "详情功能评估", "system_id": system["id"]}).json()
+    db = api.session_factory()
+    try:
+        db.add(Feature(project_id=project["id"], uid="uid-f1", name="转账",
+                       module="支付模块", categories=["payment"], sensitivity="confidential",
+                       involves_payment=True, exposed_to_internet=False))
+        db.commit()
+    finally:
+        db.close()
+    _seed_baseline(api.session_factory(), system["id"], project["id"])
+
+    resp = api.get(f"/api/systems/{system['id']}/detail-section?section=features")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["has_baseline"] is True
+    assert body["source_project_id"] == project["id"]
+    assert [r["name"] for r in body["rows"]] == ["转账"]
+    assert body["rows"][0]["involves_payment"] is True
+
+
+def test_detail_section_snapshot_sections(api):
+    """data_assets/permissions/apis 读基线快照并按原形态返回(#272)。"""
+    system = _create_system(api, "详情快照系统")
+    project = api.post("/api/projects", json={
+        "name": "详情快照评估", "system_id": system["id"]}).json()
+    _seed_baseline(api.session_factory(), system["id"], project["id"])
+
+    assets = api.get(f"/api/systems/{system['id']}/detail-section?section=data_assets").json()
+    assert assets["rows"][0]["name"] == "交易流水"
+    assert assets["rows"][0]["tables"][0]["fields"][0]["mask_rule"] == "前3后4"
+
+    perm = api.get(f"/api/systems/{system['id']}/detail-section?section=permissions").json()
+    assert perm["rows"]["roles"][0]["name"] == "柜员"
+    assert perm["rows"]["permission_entries"][0]["action"] == "read"
+
+    apis = api.get(f"/api/systems/{system['id']}/detail-section?section=apis").json()
+    assert apis["rows"][0]["path"] == "/api/bills"
+
+
+def test_detail_section_without_baseline_and_bad_section(api):
+    """未写回基线: rows 为空且 has_baseline=False; 未知 section 400(#272)。"""
+    system = _create_system(api, "详情空基线系统")
+
+    body = api.get(f"/api/systems/{system['id']}/detail-section?section=data_assets").json()
+    assert body["has_baseline"] is False
+    assert body["rows"] == []
+    assert api.get(f"/api/systems/{system['id']}/detail-section?section=nope").status_code == 400
+
+
+def test_detail_section_access_guard(dev, sec):
+    """数据权限随系统: 开发不可见他人系统时按 404 处理(与系统详情同口径)。"""
+    system = _create_system(sec, "安全侧专属系统")
+    assert dev.get(
+        f"/api/systems/{system['id']}/detail-section?section=apis").status_code == 404
