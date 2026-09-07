@@ -163,15 +163,30 @@ class NetboxClient:
         """custom-objects 插件系统清单: /api/plugins/custom-objects/<slug>/。"""
         return self._list(f"/api/plugins/custom-objects/{slug}/", keyword, limit, offset)
 
+    def get_system_object(self, slug: str, object_id: str | int) -> dict:
+        return self._request("GET", f"/api/plugins/custom-objects/{slug}/{object_id}/")
+
     def get_system_object_type(self, slug: str) -> dict:
         """custom-objects 类型定义(字段映射对照用): object-types/<slug>/。"""
         return self._request("GET", f"/api/plugins/custom-objects/object-types/{slug}/")
 
+    def list_manufacturers(self, limit: int = 100) -> list[dict]:
+        data = self._list("/api/dcim/manufacturers/", None, limit, 0)
+        return [_trim(m, ("id", None), ("name", None), ("slug", None))
+                for m in self._results(data)]
+
     # ────────────────────────── 写回 ──────────────────────────
+
+    def get_device(self, device_id: str | int) -> dict:
+        return self._request("GET", f"/api/dcim/devices/{device_id}/")
 
     def create_device(self, payload: dict) -> dict:
         """建设备(NetBox 4.x 角色字段为 role); 4xx 由 _request 转 NetboxApiError。"""
         return self._request("POST", "/api/dcim/devices/", json_body=payload)
+
+    def patch_device(self, device_id: str | int, payload: dict) -> dict:
+        """更新设备字段(#271 同步 ETL 幂等更新)。"""
+        return self._request("PATCH", f"/api/dcim/devices/{device_id}/", json_body=payload)
 
     def create_ip_address(self, payload: dict) -> dict:
         return self._request("POST", "/api/ipam/ip-addresses/", json_body=payload)
@@ -179,3 +194,23 @@ class NetboxClient:
     def create_system_object(self, slug: str, payload: dict) -> dict:
         return self._request(
             "POST", f"/api/plugins/custom-objects/{slug}/", json_body=payload)
+
+    def patch_system_object(self, slug: str, object_id: str | int,
+                            payload: dict) -> dict:
+        """更新 custom-objects 系统对象(#271): 按 id PATCH 指定字段。"""
+        return self._request(
+            "PATCH", f"/api/plugins/custom-objects/{slug}/{object_id}/", json_body=payload)
+
+    # ────────────────────────── 引导对象(#271 同步用, 全部幂等创建) ──
+
+    def create_site(self, payload: dict) -> dict:
+        return self._request("POST", "/api/dcim/sites/", json_body=payload)
+
+    def create_device_role(self, payload: dict) -> dict:
+        return self._request("POST", "/api/dcim/device-roles/", json_body=payload)
+
+    def create_manufacturer(self, payload: dict) -> dict:
+        return self._request("POST", "/api/dcim/manufacturers/", json_body=payload)
+
+    def create_device_type(self, payload: dict) -> dict:
+        return self._request("POST", "/api/dcim/device-types/", json_body=payload)

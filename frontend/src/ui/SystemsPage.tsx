@@ -8,13 +8,12 @@ import {
 } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 
-import { api, getStoredUser, isSecuritySideRole } from '../api'
+import { api } from '../api'
 import { optionsOf, useEnums } from '../enums'
 import { GRADING_LEVEL_COLOR } from './tokens'
 import { navigate } from '../router'
-import NetboxSystemImportModal from './NetboxSystemImportModal'
 import PageHeader from './PageHeader'
-import type { FilingRow, NetboxSystemRow, RoundSummary, SystemRow } from '../types'
+import type { FilingRow, RoundSummary, SystemRow } from '../types'
 
 export function LevelTag({ level }: { level?: string | null }) {
   if (!level) return <Tag>未备案</Tag>
@@ -44,11 +43,7 @@ export default function SystemsPage() {
   const [rows, setRows] = useState<SystemRow[]>([])
   const [filings, setFilings] = useState<FilingRow[]>([])
   const [loading, setLoading] = useState(false)
-  const [importOpen, setImportOpen] = useState(false)
   const [editing, setEditing] = useState<Partial<SystemRow> | null>(null)
-  const [pushing, setPushing] = useState<number | null>(null)
-  // NetBox 收敛为安全侧数据通道(#196): 开发界面不出现任何 NetBox 入口
-  const isSecurity = isSecuritySideRole(getStoredUser()?.role)
 
   const reload = useCallback(() => {
     setLoading(true)
@@ -60,81 +55,12 @@ export default function SystemsPage() {
   useEffect(reload, [reload])
   useEffect(() => { api.listFilings().then(setFilings).catch(() => undefined) }, [])
 
-  /** 导入所选(#154): 按名称/netbox_object_id 查重后逐个登记, 重复行跳过 */
-  const handleImported = async (selected: NetboxSystemRow[]) => {
-    let created = 0
-    const failures: string[] = []
-    for (const row of selected) {
-      const refId = String(row.id)
-      const dup = rows.some((r) => r.netbox_object_id === refId
-        || r.name.toLowerCase() === (row.name || '').toLowerCase())
-      if (dup) { continue }
-      try {
-        await api.createSystem({
-          name: row.name || `NetBox#${row.id}`,
-          code: row.code ?? undefined,
-          owner_name: row.owner ?? undefined,
-          netbox_object_id: refId,
-        })
-        created += 1
-      } catch (e) {
-        failures.push(`${row.name || refId}: ${(e as Error).message}`)
-      }
-    }
-    setImportOpen(false)
-    message.success(`已导入 ${created} 个系统${failures.length ? `; ${failures.length} 个失败` : ''}`)
-    if (failures.length) Modal.info({
-      title: '导入失败明细', width: 560,
-      content: failures.map((f, i) => <div key={i} style={{ fontSize: 12 }}>{f}</div>),
-    })
-    reload()
-  }
-
-  /** 推送到 NetBox(#154): 仅未关联行; 失败不回滚可重试 */
-  const handlePush = async (record: SystemRow) => {
-    setPushing(record.id)
-    try {
-      const res = await api.pushNetboxSystem({
-        system_id: record.id, name: record.name,
-        code: record.code ?? undefined, owner: record.owner_name ?? undefined,
-      })
-      message.success(`已推送到 NetBox${res.url ? ', 可点击名称旁徽标查看' : ''}`)
-      reload()
-    } catch (e) {
-      message.error((e as Error).message)
-    } finally {
-      setPushing(null)
-    }
-  }
-
-  /** 外链地址: 清单页挂载时拉一次 base_url(未配置静默; 仅安全角色, #196) */
-  const [nbBaseUrl, setNbBaseUrl] = useState<string | undefined>(undefined)
-  useEffect(() => {
-    if (!isSecurity) return
-    api.getNetboxStatus()
-      .then((s) => { if (s.configured) setNbBaseUrl(s.base_url) })
-      .catch(() => undefined)
-  }, [])
-
   const columns = [
     { title: '系统名称', dataIndex: 'name',
       // 最小宽度防竖排(#235 走查): 名称列过窄时中文逐字换行不可读
       onCell: () => ({ style: { whiteSpace: 'nowrap' as const } }),
-      render: (v: string, record: SystemRow) => {
-        const link = nbBaseUrl && record.netbox_object_id
-          ? `${nbBaseUrl}/api/plugins/custom-objects/object-types/system/objects/${record.netbox_object_id}`
-          : undefined
-        return (
-          <Space size={6}>
-            <span>{v}</span>
-            {isSecurity && record.netbox_object_id && (
-              <Tag color="blue" style={{ marginRight: 0 }}>
-                {link ? <a href={link} target="_blank" rel="noreferrer">NetBox</a> : 'NetBox'}
-              </Tag>
-            )}
-          </Space>
-        )
-      } },
+      render: (v: string) => v,
+    },
     { title: '系统编号', dataIndex: 'code', width: 140, render: (v: string | null) => v || '—' },
     {
       title: '所属备案 / 定级', dataIndex: 'filing_name', width: 220,
@@ -153,14 +79,6 @@ export default function SystemsPage() {
         <Space size={0} split={<Divider type="vertical" />}>
           <Button type="link" size="small" onClick={() => navigate(`/system/${record.id}`)}>系统详情</Button>
           <Button type="link" size="small" onClick={() => setEditing(record)}>编辑</Button>
-          {isSecurity && !record.netbox_object_id && (
-            <Button
-              type="link" size="small" loading={pushing === record.id}
-              onClick={() => void handlePush(record)}
-            >
-              推送到 NetBox
-            </Button>
-          )}
           <Popconfirm
             title="删除该系统?"
             description="仅当下挂评估已清空才可删除"
@@ -197,11 +115,6 @@ export default function SystemsPage() {
             >
               新建系统
             </Button>
-            {isSecurity && (
-              <Button icon={<PlusOutlined />} onClick={() => setImportOpen(true)}>
-                从 NetBox 导入
-              </Button>
-            )}
           </>
         )}
       />
@@ -223,13 +136,6 @@ export default function SystemsPage() {
           columns={columns}
         />
       </Card>
-      {isSecurity && (
-        <NetboxSystemImportModal
-          open={importOpen}
-          onClose={() => setImportOpen(false)}
-          onSelected={(sel) => void handleImported(sel)}
-        />
-      )}
       {editing !== null && (
         <SystemFormModal
           value={editing}

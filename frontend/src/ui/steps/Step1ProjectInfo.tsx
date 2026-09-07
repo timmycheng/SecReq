@@ -8,15 +8,14 @@ import {
 } from 'antd'
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 
-import { api, getStoredUser, isSecuritySideRole } from '../../api'
+import { api } from '../../api'
 import type { GradingBaseline } from '../../api'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
 import type {
   AuthConfigRow, ExternalSystemRow, FilingRow, GradingQuestion, ProjectInfo,
-  NetboxSystemRow, SurveyAnswer, SystemRow,
+  SurveyAnswer, SystemRow,
 } from '../../types'
 import GlossaryTip from '../GlossaryTip'
-import NetboxSystemImportModal from '../NetboxSystemImportModal'
 import { useRegisterStepHandle, useStepDwell } from './stepContext'
 import type { StepProps } from '../WizardPage'
 
@@ -35,7 +34,6 @@ const EMPTY_EXT: ExternalSystemRow = {
 
 export default function Step1ProjectInfo({ ws, patch }: StepProps) {
   const enums = useEnums()
-  const isSecurity = isSecuritySideRole(getStoredUser()?.role)
   const [form] = Form.useForm<ProjectInfo>()
 
   // ── 外部系统 ──
@@ -60,7 +58,6 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
   const [systems, setSystems] = useState<SystemRow[]>([])
   const [filings, setFilings] = useState<FilingRow[]>([])
   const [sysCreating, setSysCreating] = useState(false)
-  const [sysImporting, setSysImporting] = useState(false)
   const watchedSystemId = Form.useWatch('system_id', form)
   const selectedSystem = systems.find((s) => s.id === watchedSystemId) ?? null
   const latestRound = selectedSystem?.latest_round ?? selectedSystem?.rounds?.[0] ?? null
@@ -241,11 +238,6 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
                     就地新建系统
                   </Button>
                   <span>(登记系统并挂靠定级备案; 规模/类型等基本信息在系统清单维护)</span>
-                  {isSecurity && (
-                    <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setSysImporting(true)}>
-                      从 NetBox 导入
-                    </Button>
-                  )}
                 </>
               )}
               {selectedSystem && (
@@ -498,40 +490,6 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
 
       {sysCreating && (
         <>
-        {isSecurity && (
-        <NetboxSystemImportModal
-          open={sysImporting}
-          onClose={() => setSysImporting(false)}
-          onSelected={(selected: NetboxSystemRow[]) => {
-            void (async () => {
-              let firstId: number | undefined
-              for (const row of selected) {
-                const refId = String(row.id)
-                const dup = systems.some((sy) => sy.netbox_object_id === refId
-                  || sy.name.toLowerCase() === (row.name || '').toLowerCase())
-                if (dup) continue
-                try {
-                  const created = await api.createSystem({
-                    name: row.name || `NetBox#${row.id}`,
-                    code: row.code ?? undefined,
-                    owner_name: row.owner ?? undefined,
-                    netbox_object_id: refId,
-                  })
-                  firstId ??= created.id
-                } catch (e) {
-                  message.error(`${row.name || refId}: ${(e as Error).message}`)
-                }
-              }
-              setSysImporting(false)
-              if (firstId !== undefined) {
-                api.listSystems().then(setSystems).catch(() => undefined)
-                form.setFieldValue('system_id', firstId)
-                message.success('已从 NetBox 导入并选中系统')
-              }
-            })()
-          }}
-        />
-        )}
         <SystemQuickCreateModal
           filings={filings}
           onClose={() => setSysCreating(false)}

@@ -69,6 +69,20 @@ def get_netbox_config(session: Session) -> dict:
     }
 
 
+#: 定时同步默认周期(小时): 默认每天一次
+DEFAULT_NETBOX_SYNC_INTERVAL_HOURS = 24
+
+
+def get_netbox_schedule(session: Session) -> dict:
+    """读取定时同步调度配置(#271): {enabled, interval_hours}。未配置时关闭。"""
+    cfg = get_setting(session, NETBOX_KEY)
+    raw_interval = cfg.get("sync_interval_hours")
+    interval = raw_interval if isinstance(raw_interval, int) else None
+    if not interval or not (1 <= interval <= 720):
+        interval = DEFAULT_NETBOX_SYNC_INTERVAL_HOURS
+    return {"enabled": bool(cfg.get("sync_enabled")), "interval_hours": interval}
+
+
 PROJECT_CODE_RULE_KEY = "project_code_rule"#: 与前端预览一致的默认格式: XM2026-001(#85)
 DEFAULT_PROJECT_CODE_RULE = {"prefix": "XM", "include_year": True, "digits": 3}
 

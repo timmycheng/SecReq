@@ -362,27 +362,6 @@ export interface InfraAssetRow {
   netbox_ref_id?: string | null
 }
 
-export interface NetboxSystemRow {
-  id: number
-  name?: string | null
-  code?: string | null
-  owner?: string | null
-  url?: string | null
-}
-
-export interface NetboxAssetRow {
-  id: number
-  name?: string | null
-  primary_ip?: string | null
-  site?: string | null
-  role?: string | null
-  device_type?: string | null
-  platform?: string | null
-  dns_name?: string | null
-  address?: string | null
-  status?: string | null
-  url?: string | null
-}
 
 export interface InfraArchImageRow {
   env: string
