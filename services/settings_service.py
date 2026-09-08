@@ -83,7 +83,8 @@ def get_netbox_schedule(session: Session) -> dict:
     return {"enabled": bool(cfg.get("sync_enabled")), "interval_hours": interval}
 
 
-PROJECT_CODE_RULE_KEY = "project_code_rule"#: 与前端预览一致的默认格式: XM2026-001(#85)
+PROJECT_CODE_RULE_KEY = "project_code_rule"
+#: 与前端预览一致的默认格式: XM2026-001(#85)
 DEFAULT_PROJECT_CODE_RULE = {"prefix": "XM", "include_year": True, "digits": 3}
 
 
@@ -100,3 +101,33 @@ def get_project_code_rule(session: Session) -> dict:
     if not isinstance(digits, int) or not (1 <= digits <= 6):
         digits = DEFAULT_PROJECT_CODE_RULE["digits"]
     return {"prefix": prefix, "include_year": include_year, "digits": digits}
+
+
+INFRA_ENVS_KEY = "infra_envs"
+#: 基础资源环境默认值(DESIGN: 分环境可配置); 存量库无此配置时零影响
+DEFAULT_INFRA_ENVS = [
+    {"code": "dev", "name": "开发环境"},
+    {"code": "test", "name": "测试环境"},
+    {"code": "prod", "name": "生产环境"},
+]
+
+
+def get_infra_envs(session: Session) -> list[dict]:
+    """基础资源环境列表(code+name), 未配置或配置非法时回退默认三环境。"""
+    raw = get_setting(session, INFRA_ENVS_KEY).get("envs")
+    if not isinstance(raw, list):
+        return [dict(e) for e in DEFAULT_INFRA_ENVS]
+    envs: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        code = item.get("code")
+        name = item.get("name")
+        if not (isinstance(code, str) and code.strip() and len(code) <= 20):
+            continue
+        if not (isinstance(name, str) and name.strip() and len(name) <= 30):
+            continue
+        if any(e["code"] == code for e in envs):
+            continue
+        envs.append({"code": code.strip(), "name": name.strip()})
+    return envs or [dict(e) for e in DEFAULT_INFRA_ENVS]

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 import shared.constants as C
 from pydantic import BaseModel
 
-from models import Filing, Feature, InfraAsset, PlatformUser, SbomComponent, System, SystemBaseline
+from models import Filing, ExternalSystem, Feature, InfraAsset, PlatformUser, SbomComponent, System, SystemBaseline
 from routers.common import (
     client_ip, component_to_out, get_db, read_upload_limited, require_login,
     require_write_roles,
@@ -36,7 +36,11 @@ router = APIRouter(prefix="/api/systems", tags=["systems"])
 
 _writable = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES))
 
-_ARCH_ENVS = ("test", "prod", "dev")
+
+def _arch_envs(db: Session) -> list[str]:
+    """架构图可用环境(#289): 由系统设置 infra_envs 动态决定, 不再硬编码。"""
+    from services.settings_service import get_infra_envs
+    return [e["code"] for e in get_infra_envs(db)]
 
 
 def _get_accessible_system(system_id: int, db: Session, user: PlatformUser) -> System:
@@ -200,7 +204,7 @@ def upload_arch_image(system_id: int, env: str, payload: InfraArchImageIn, reque
                       db: Session = Depends(get_db),
                       user: PlatformUser = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES))):
     system = _writable_system(system_id, db, user)
-    if env not in _ARCH_ENVS:
+    if env not in _arch_envs(db):
         raise HTTPException(status_code=404, detail=f"未知环境: {env}")
     try:
         row = upsert_arch_image(db, system.id, env, payload.image_data_url)
@@ -216,7 +220,7 @@ def remove_arch_image(system_id: int, env: str, request: Request,
                       db: Session = Depends(get_db),
                       user: PlatformUser = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES))):
     system = _writable_system(system_id, db, user)
-    if env not in _ARCH_ENVS:
+    if env not in _arch_envs(db):
         raise HTTPException(status_code=404, detail=f"未知环境: {env}")
     if delete_arch_image(db, system.id, env):
         audit(db, user.username, "system_arch_image_delete",
@@ -317,4 +321,13 @@ def detail_section(system_id: int, section: str,
         }}
     if section == "apis":
         return {**meta, "rows": data.get("api_endpoints") or []}
+    if section == "external_systems":
+        pid = meta["source_project_id"]
+        rows = ([] if pid is None
+                else db.query(ExternalSystem).filter_by(project_id=pid)
+                .order_by(ExternalSystem.id).all())
+        return {**meta, "rows": [{
+            "uid": e.uid, "name": e.name, "purpose": e.purpose,
+            "direction": e.direction, "involves_sensitive": bool(e.involves_sensitive),
+        } for e in rows]}
     raise HTTPException(status_code=400, detail=f"未知 section: {section}")

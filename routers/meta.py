@@ -49,9 +49,11 @@ _ENUMS = {
 
 
 @router.get("/constants")
-def get_constants() -> dict:
+def get_constants(db: Session = Depends(get_db)) -> dict:
     """全部枚举(code→label 映射 + 数组型常量)。"""
     payload: dict = {key: dict(value) for key, value in _ENUMS.items()}
+    from services.settings_service import get_infra_envs
+    payload["infra_envs"] = {e["code"]: e["name"] for e in get_infra_envs(db)}
     payload.update(
         {
             "grading_levels": list(C.GRADING_LEVELS),

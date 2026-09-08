@@ -18,10 +18,11 @@ import { DIFF_FIELD_FALLBACK_LABELS } from './common'
 import { LevelTag, RoundCell } from './tags'
 import { SystemFormModal } from './SystemsPage'
 import PageHeader from './PageHeader'
-import { SystemComponentsCard, SystemInfraCard } from './system/SystemInventoryCards'
+import { SystemComponentsCard } from './system/SystemComponentsCard'
+import { SystemInfraCard } from './system/SystemInfraCard'
 import type {
   BaselineApiEndpoint, BaselineDataAsset, BaselineDataTable, BaselinePermissionBundle,
-  DetailSectionMeta, DiffRow, FilingRow, RoundSummary, SystemDetailFeature,
+  DetailSectionMeta, DiffRow, ExternalSystemRow, FilingRow, RoundSummary, SystemDetailFeature,
   SystemRow,
 } from '../types'
 
@@ -84,6 +85,10 @@ function BasicSection({ system, enums, onEdit }: {
 }) {
   const typeLabels = labelMapOf(enums, 'project_types')
   const scaleLabels = labelMapOf(enums, 'user_scales')
+  const directionLabels = labelMapOf(enums, 'external_system_directions')
+  // 外部连接系统清单(#289, DESIGN TAB1): 与功能清单同口径读基线来源轮次
+  const { meta, rows, loading, error, reload } = useSection<ExternalSystemRow[]>(useCallback(
+    () => api.systemDetailExternalSystems(system.id), [system.id]))
   return (
     <Section
       id="basic" title="基本信息"
@@ -113,6 +118,34 @@ function BasicSection({ system, enums, onEdit }: {
           定级来源: 备案「{system.filing_name}」(等保{system.filing_level}); 评估后人工调整定级会在产物页提示与备案不一致。
         </Typography.Text>
       )}
+
+      <Typography.Title level={5} style={{ marginTop: 20, marginBottom: 8 }}>外部连接系统清单</Typography.Title>
+      {error
+        ? <SectionError error={error} onRetry={reload} />
+        : (
+          <Table<ExternalSystemRow>
+            rowKey={(r) => r.uid || r.name}
+            size="small" loading={loading} dataSource={rows ?? []}
+            pagination={false}
+            locale={{ emptyText: meta?.has_baseline
+              ? <Empty description="基线来源轮次没有外部系统连接记录" />
+              : <Empty description="完成评估并终审通过后, 这里展示基线轮次维护的外部连接系统" /> }}
+            columns={[
+              { title: '系统名称', dataIndex: 'name' },
+              { title: '对接用途', dataIndex: 'purpose', render: (v: string | null) => v || '—' },
+              { title: '数据方向', dataIndex: 'direction', width: 160,
+                render: (v: string) => directionLabels[v] ?? v },
+              { title: '是否涉敏', dataIndex: 'involves_sensitive', width: 100,
+                render: (v: boolean) => (v ? <Tag color="red">涉敏</Tag> : <Tag>否</Tag>) },
+              {
+                title: '操作', width: 100,
+                render: () => meta?.source_project_id
+                  ? <a onClick={() => navigate(`/evaluations/${meta.source_project_id}/wizard`)}>去维护</a>
+                  : <Typography.Text type="secondary">—</Typography.Text>,
+              },
+            ]}
+          />
+        )}
     </Section>
   )
 }
