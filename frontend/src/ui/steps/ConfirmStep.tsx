@@ -1,8 +1,9 @@
 /* 确认页: 汇总全部输入(附各步「去修改」链接) → 完整性检查 →
    规则引擎试算预览触发规模 → 生成安全基线。生成读取的是各步"已保存"的数据。 */
-import { useState } from 'react'
+import { useContext, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
-  Alert, App, Button, Card, Descriptions, Radio, Space, Spin, Tag, Typography,
+  Alert, App, Button, Card, Descriptions, Radio, Space, Tag, Typography,
 } from 'antd'
 import { PlayCircleOutlined } from '@ant-design/icons'
 
@@ -11,13 +12,14 @@ import { labelMapOf, useEnums } from '../../enums'
 import { navigate } from '../../router'
 import type { PreviewResult } from '../../types'
 import GlossaryTip from '../GlossaryTip'
-import { useRegisterStepHandle } from './stepContext'
+import { StepFooterSlotContext, useRegisterStepHandle } from './stepContext'
 import { HEX, PRIORITY_COLOR } from '../tokens'
 import type { StepProps } from '../WizardPage'
 
 export default function ConfirmStep({ ws, goto }: StepProps) {
   const { message } = App.useApp()
   const enums = useEnums()
+  const footerSlotEl = useContext(StepFooterSlotContext)
   const [preview, setPreview] = useState<PreviewResult | null>(null)
   const [previewing, setPreviewing] = useState(false)
   const [generating, setGenerating] = useState(false)
@@ -209,16 +211,13 @@ export default function ConfirmStep({ ws, goto }: StepProps) {
         </div>
       </div>
 
-      {/* 生成按钮(DESIGN): 右下角, 与其他页面主操作位置一致 */}
-      <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
-        {generating
-          ? <Spin tip="正在执行规则引擎与文档生成…"><div style={{ height: 60 }} /></Spin>
-          : (
-            <Button type="primary" size="large" onClick={doGenerate}>
-              生成安全基线(安全需求 + SBOM + 漏洞清单)
-            </Button>
-          )}
-      </div>
+      {/* 生成按钮(#287): 经 Portal 长在吸底导航右下角, loading 态随本步状态联动 */}
+      {footerSlotEl && createPortal(
+        <Button type="primary" loading={generating} onClick={doGenerate}>
+          生成安全基线(安全需求 + SBOM + 漏洞清单)
+        </Button>,
+        footerSlotEl,
+      )}
     </div>
   )
 }
