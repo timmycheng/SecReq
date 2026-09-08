@@ -1,6 +1,6 @@
 /* 评估清单(#280 新布局): PageHeader + 筛选卡 + 表格卡; 全部项目表格(按角色过滤)。
    新建弹窗强制先选系统(可按上一轮复制, #195); 业务逻辑与角色可见性不变。 */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   Alert, Button, Card, Divider, Empty, Modal, Popconfirm, Radio, Select, Space, Table, Tag,
   Typography, message,
@@ -13,7 +13,6 @@ import { HEX } from './tokens'
 import { labelMapOf, useEnums } from '../enums'
 import { navigate } from '../router'
 import PageHeader from './PageHeader'
-import { TABLE_PAGINATION } from './common'
 import { clearWizardStepStorage } from './WizardPage'
 import { GateStatusTag, LevelTag, ProjectStatusTag } from './tags'
 import type { ProjectDetail, RoundSummary, SystemRow } from '../types'
@@ -21,6 +20,9 @@ import type { ProjectDetail, RoundSummary, SystemRow } from '../types'
 export default function ProjectListPage() {
   const enums = useEnums()
   const [projects, setProjects] = useState<ProjectDetail[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
   const [systems, setSystems] = useState<SystemRow[]>([])
   const [systemFilter, setSystemFilter] = useState<number | null>(null)
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
@@ -32,22 +34,23 @@ export default function ProjectListPage() {
   const [createSystemId, setCreateSystemId] = useState<number | undefined>()
   const isFullView = isFullVisibilityRole(getStoredUser()?.role)
 
-  const reload = useCallback(() => {
+  // 清单改服务端过滤分页(#283 item9): 筛选/翻页即时下推查询
+  const loadProjects = useCallback(() => {
     setLoading(true)
-    api.listProjects()
-      .then(setProjects)
+    api.listProjectsPaged({ page, pageSize, systemId: systemFilter, status: statusFilter })
+      .then((r) => { setProjects(r.items); setTotal(r.total) })
       .catch((e: Error) => message.error(e.message))
       .finally(() => setLoading(false))
+  }, [page, pageSize, systemFilter, statusFilter])
+  useEffect(loadProjects, [loadProjects])
+
+  const reload = useCallback(() => {
     api.listSystems().then(setSystems).catch(() => undefined)
-  }, [])
+    loadProjects()
+  }, [loadProjects])
   useEffect(reload, [reload])
 
-  const visibleProjects = useMemo(
-    () => projects.filter((p) =>
-      (!systemFilter || p.system_id === systemFilter)
-      && (!statusFilter || p.status === statusFilter)),
-    [projects, systemFilter, statusFilter],
-  )
+  const resetPage = (apply: () => void) => { apply(); setPage(1) }
 
   const copySystem = systems.find((s) => s.id === createSystemId)
   const latestRound: RoundSummary | undefined =
@@ -162,7 +165,7 @@ export default function ProjectListPage() {
               value={systemFilter ?? undefined}
               optionFilterProp="label"
               options={systems.map((s) => ({ value: s.id, label: s.name }))}
-              onChange={(v) => setSystemFilter(v ?? null)}
+              onChange={(v) => resetPage(() => setSystemFilter(v ?? null))}
             />
             <Select
               allowClear
@@ -170,7 +173,7 @@ export default function ProjectListPage() {
               placeholder="状态"
               value={statusFilter ?? undefined}
               options={Object.entries(labelMapOf(enums, 'project_status')).map(([value, label]) => ({ value, label }))}
-              onChange={(v) => setStatusFilter(v ?? null)}
+              onChange={(v) => resetPage(() => setStatusFilter(v ?? null))}
             />
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
               发起新评估
@@ -182,10 +185,15 @@ export default function ProjectListPage() {
         <Table<ProjectDetail>
           rowKey="id"
           loading={loading}
-          dataSource={visibleProjects}
+          dataSource={projects}
           scroll={{ x: 1200 }}
           sticky
-          pagination={TABLE_PAGINATION}
+          pagination={{
+            current: page, pageSize, total,
+            showSizeChanger: true, pageSizeOptions: [10, 20, 50],
+            showTotal: (t) => `共 ${t} 条`,
+            onChange: (p, ps) => { setPage(p); setPageSize(ps) },
+          }}
           locale={{
             emptyText: (
               <Empty

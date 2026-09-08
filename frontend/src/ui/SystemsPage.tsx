@@ -1,7 +1,7 @@
 /* 系统清单(#280 新布局): PageHeader + 筛选卡 + 表格卡。系统 × 所属备案/定级 × 最新评估;
    清单是"看系统"的主入口: 同一系统多次评估在系统详情页形成时间线;
    备案的维护入口在 平台设置 → 备案管理(安全侧权威维护 #192)。 */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   Button, Card, Divider, Empty, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table,
   Tag, Typography, message,
@@ -23,10 +23,14 @@ import type { FilingRow, SystemRow } from '../types'
 export default function SystemsPage() {
   const enums = useEnums()
   const [rows, setRows] = useState<SystemRow[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
   const [filings, setFilings] = useState<FilingRow[]>([])
   const [loading, setLoading] = useState(false)
   const [editing, setEditing] = useState<Partial<SystemRow> | null>(null)
-  // 筛选: 关键词(名称/编号) + 备案 + 重要程度 + 标签(#283)
+  // 筛选: 关键词(名称/编号) + 备案 + 重要程度 + 标签(#283); 服务端过滤分页(item9)
+  const [kwInput, setKwInput] = useState('')
   const [kw, setKw] = useState('')
   const [filingId, setFilingId] = useState<number | null>(null)
   const [importance, setImportance] = useState<string | undefined>()
@@ -34,20 +38,18 @@ export default function SystemsPage() {
 
   const reload = useCallback(() => {
     setLoading(true)
-    api.systemLedger()
-      .then(setRows)
+    api.systemLedgerPaged({
+      page, pageSize, keyword: kw, filingId, importance, tag: tagFilter,
+    })
+      .then((r) => { setRows(r.items); setTotal(r.total) })
       .catch((e: Error) => message.error(e.message))
       .finally(() => setLoading(false))
-  }, [])
+  }, [page, pageSize, kw, filingId, importance, tagFilter])
   useEffect(reload, [reload])
   useEffect(() => { api.listFilings().then(setFilings).catch(() => undefined) }, [])
 
-  const list = useMemo(() => rows.filter((r) =>
-    (!kw || r.name.includes(kw) || (r.code ?? '').includes(kw))
-    && (!filingId || r.filing_id === filingId)
-    && (!importance || r.importance === importance)
-    && (!tagFilter || (r.tags ?? []).includes(tagFilter))),
-  [rows, kw, filingId, importance, tagFilter])
+  const resetPage = (apply: () => void) => { apply(); setPage(1) }
+  const list = rows
 
   const typeLabels = labelMapOf(enums, 'project_types')
 
@@ -130,27 +132,32 @@ export default function SystemsPage() {
       />
       <Card size="small" style={{ marginBottom: 16 }}>
         <Space wrap>
-          <Input
-            allowClear placeholder="名称 / 编号" style={{ width: 200 }}
-            onChange={(e) => setKw(e.target.value)}
+          <Input.Search
+            allowClear placeholder="名称 / 编号(回车查询)" style={{ width: 220 }}
+            value={kwInput}
+            onChange={(e) => {
+              setKwInput(e.target.value)
+              if (!e.target.value) resetPage(() => setKw(''))
+            }}
+            onSearch={(v) => resetPage(() => setKw(v.trim()))}
           />
           <Select
             allowClear placeholder="所属备案" style={{ width: 200 }}
             value={filingId ?? undefined}
             options={filings.map((f) => ({ value: f.id, label: f.name }))}
-            onChange={(v) => setFilingId(v ?? null)}
+            onChange={(v) => resetPage(() => setFilingId(v ?? null))}
           />
           <Select
             allowClear placeholder="重要程度" style={{ width: 120 }}
             value={importance}
             options={IMPORTANCE_LEVELS.map((v) => ({ value: v, label: v }))}
-            onChange={(v) => setImportance(v)}
+            onChange={(v) => resetPage(() => setImportance(v))}
           />
           <Select
             allowClear placeholder="标签" style={{ width: 160 }}
             value={tagFilter}
             options={(enums['system_tags'] as string[] | undefined ?? []).map((v) => ({ value: v, label: v }))}
-            onChange={(v) => setTagFilter(v)}
+            onChange={(v) => resetPage(() => setTagFilter(v))}
           />
           <Typography.Text type="secondary">共 {list.length} 个系统</Typography.Text>
         </Space>
@@ -160,7 +167,12 @@ export default function SystemsPage() {
           rowKey="id"
           loading={loading}
           dataSource={list}
-          pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50], showTotal: (t) => `共 ${t} 条` }}
+          pagination={{
+            current: page, pageSize, total,
+            showSizeChanger: true, pageSizeOptions: [10, 20, 50],
+            showTotal: (t) => `共 ${t} 条`,
+            onChange: (p, ps) => { setPage(p); setPageSize(ps) },
+          }}
           scroll={{ x: 1700 }}
           locale={{ emptyText: (
             <Empty description="还没有系统登记">

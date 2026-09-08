@@ -3,14 +3,15 @@
    pm=提交评审/整改后重新提交, 评审员=逐条批注+整体裁定, 负责人=终审会签。 */
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Alert, App, Button, Card, Descriptions, Empty, Input, Modal, Popconfirm,
-  Radio, Space, Spin, Table, Tag, Timeline, Typography,
+  Alert, App, Button, Card, Descriptions, Empty, Input, Modal,
+  Space, Spin, Table, Tag, Timeline, Typography,
 } from 'antd'
-import { CheckCircleOutlined, DownloadOutlined } from '@ant-design/icons'
+import { DownloadOutlined } from '@ant-design/icons'
 import type { RequirementRow, RequirementTransitionRow, ReviewState } from '../types'
+import ReviewPanel from './ReviewPanel'
 import { api, type StoredUser } from '../api'
 import { getStoredUser } from '../api'
-import { GATE_STATUS_COLOR, HEX, PRIORITY_COLOR, REQUIREMENT_STATUS_COLOR } from './tokens'
+import { GATE_STATUS_COLOR, PRIORITY_COLOR, REQUIREMENT_STATUS_COLOR } from './tokens'
 import { navigate } from '../router'
 import PageHeader from './PageHeader'
 
@@ -305,104 +306,44 @@ export default function ReviewPage({ projectId }: { projectId: number }) {
         </Card>
       </div>
 
-      {/* ── 右侧固定评审操作面板(布局模式4) ── */}
-      <Card
-        size="small" title="评审操作面板"
+      {/* ── 右侧固定评审操作面板(布局模式4, #283 item8 共享 ReviewPanel) ── */}
+      <ReviewPanel
         style={{ width: 340, flexShrink: 0, position: 'sticky', top: 24 }}
-      >
-        {blocked !== null && blocked.length > 0 && (
-          <Alert
-            type="error" showIcon style={{ marginBottom: 12 }}
-            message="门禁校验未通过"
-            description={
-              <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
-                {blocked.map((m) => <li key={m}><Typography.Text style={{ fontSize: 12 }}>{m}</Typography.Text></li>)}
-              </ul>
-            }
-          />
+        blocked={blocked}
+        canSubmit={canSubmit}
+        gateStatus={gate?.status ?? null}
+        acting={acting}
+        disableSubmit={requirements.length === 0}
+        submitConfirmTitle="提交评审后将进入评审队列, 确认提交?"
+        onSubmit={() => void onSubmit()}
+        canDecide={canDecide}
+        decideTitle="整体裁定(评审员)"
+        decide={decide}
+        onDecideChange={setDecide}
+        decideComment={decideComment}
+        onDecideCommentChange={setDecideComment}
+        onDecideSubmit={() => {
+          if (!decide) return
+          void run(() => api.reviewDecide(projectId, decide, decideComment), '裁定已记录').then((ok) => {
+            if (ok) { setDecide(null); setDecideComment('') }
+          })
+        }}
+        canFinalize={canFinalize}
+        finalizeComment={finalizeComment}
+        onFinalizeCommentChange={setFinalizeComment}
+        onFinalizeClick={() => setFinalizeOpen(true)}
+        leadHint={isLead && inReview && gate?.reviewer_conclusion !== 'approve' && !isSubmitter && (
+          <Typography.Text type="secondary">评审员裁定通过后可终审会签。</Typography.Text>
         )}
-
+        auditorHint={user?.role === 'auditor' ? '审计视角: 只读查看门禁与留痕。' : undefined}
+      >
         <Descriptions size="small" column={1} style={{ marginBottom: 12 }}>
           <Descriptions.Item label="待确认">{summary.open ?? 0}</Descriptions.Item>
           <Descriptions.Item label="已确认">{summary.confirmed ?? 0}</Descriptions.Item>
           <Descriptions.Item label="评审通过">{summary.reviewed ?? 0}</Descriptions.Item>
           <Descriptions.Item label="整改中">{summary.rectifying ?? 0}</Descriptions.Item>
         </Descriptions>
-
-        {canSubmit && gate?.status !== 'in_review' && gate?.status !== 'passed' && (
-          <Popconfirm
-            title="提交评审后将进入评审队列, 确认提交?"
-            onConfirm={() => void onSubmit()}
-          >
-            <Button type="primary" block loading={acting}
-              disabled={requirements.length === 0}>
-              {gate?.status === 'rectifying' || gate?.status === 'rejected' ? '整改后重新提交评审' : '提交评审'}
-            </Button>
-          </Popconfirm>
-        )}
-        {canSubmit && gate?.status === 'in_review' && (
-          <Typography.Text type="secondary">评审进行中, 如需修改请等待评审结论。</Typography.Text>
-        )}
-        {canSubmit && gate?.status === 'passed' && (
-          <Typography.Text type="secondary">
-            <CheckCircleOutlined style={{ color: HEX.success }} /> 评审已通过, 本轮归档。
-          </Typography.Text>
-        )}
-
-        {canDecide && (
-          <div>
-            <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-              整体裁定(评审员)
-            </Typography.Paragraph>
-            <Radio.Group
-              value={decide} onChange={(e) => setDecide(e.target.value)}
-              options={[
-                { value: 'approve', label: '通过' },
-                { value: 'request_change', label: '退回整改' },
-                { value: 'reject', label: '否决' },
-              ]}
-              style={{ marginBottom: 8 }}
-            />
-            <Input.TextArea
-              rows={2} placeholder="裁定意见(可空)" value={decideComment}
-              onChange={(e) => setDecideComment(e.target.value)} style={{ marginBottom: 8 }}
-            />
-            <Button
-              type="primary" block disabled={!decide} loading={acting}
-              onClick={() => {
-                if (!decide) return
-                void run(() => api.reviewDecide(projectId, decide, decideComment), '裁定已记录').then((ok) => {
-                  if (ok) { setDecide(null); setDecideComment('') }
-                })
-              }}
-            >
-              提交裁定
-            </Button>
-          </div>
-        )}
-
-        {isLead && inReview && gate?.reviewer_conclusion !== 'approve' && !isSubmitter && (
-          <Typography.Text type="secondary">评审员裁定通过后可终审会签。</Typography.Text>
-        )}
-        {canFinalize && (
-          <div>
-            <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-              终审会签(负责人): 评审员已通过
-            </Typography.Paragraph>
-            <Input.TextArea
-              rows={2} placeholder="终审意见(可空)" value={finalizeComment}
-              onChange={(e) => setFinalizeComment(e.target.value)} style={{ marginBottom: 8 }}
-            />
-            <Button type="primary" block loading={acting} onClick={() => setFinalizeOpen(true)}>
-              终审会签(复审通过)
-            </Button>
-          </div>
-        )}
-
-        {user?.role === 'auditor' && (
-          <Typography.Text type="secondary">审计视角: 只读查看门禁与留痕。</Typography.Text>
-        )}
-      </Card>
+      </ReviewPanel>
 
       {/* ── 批注弹窗 ── */}
       <Modal

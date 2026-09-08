@@ -159,12 +159,26 @@ def reset_wizard(project_id: int, request: Request,
     return _detail(db, project)
 
 
-@router.get("", response_model=list[ProjectDetail])
-def list_all(db: Session = Depends(get_db), user: PlatformUser = Depends(require_login)):
-    items: list[ProjectDetail] = []
-    for project in visible_projects_query(db, user).all():
-        items.append(_detail(db, project))
-    return items
+@router.get("")
+def list_all(db: Session = Depends(get_db), user: PlatformUser = Depends(require_login),
+             system_id: int | None = None, status: str | None = None,
+             keyword: str | None = None,
+             page: int | None = Query(default=None, ge=1),
+             page_size: int = Query(default=20, ge=1, le=100)):
+    """评估清单(DESIGN): 不带 page 时返回全量列表(存量调用口径);
+    带 page 时返回 {items, total} 信封, 过滤在服务端完成(#283 item9)。"""
+    query = visible_projects_query(db, user)
+    if system_id is not None:
+        query = query.filter(Project.system_id == system_id)
+    if status:
+        query = query.filter(Project.status == status)
+    if keyword:
+        query = query.filter(Project.name.contains(keyword) | Project.code.contains(keyword))
+    if page is None:
+        return [_detail(db, project) for project in query.all()]
+    total = query.count()
+    rows = query.offset((page - 1) * page_size).limit(page_size).all()
+    return {"items": [_detail(db, project) for project in rows], "total": total}
 
 
 @router.get("/{project_id}", response_model=ProjectDetail)
