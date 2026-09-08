@@ -62,6 +62,21 @@ export interface ReviewGateInfo {
   version_hash: string | null
 }
 
+export interface ReviewOverviewRow {
+  project_id: number
+  project_name: string
+  project_code: string | null
+  system_name: string | null
+  gate_status: string
+  status_verb: string
+  submitted_at: string | null
+  submitter_name: string | null
+  reviewer_name: string | null
+  final_reviewer_name: string | null
+  requirement_summary: Record<string, number>
+  last_activity_at: string | null
+}
+
 export interface ReviewState {
   gate: ReviewGateInfo | null
   evidences: ReviewEvidenceRow[]
