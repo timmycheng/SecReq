@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Key, ReactNode } from 'react'
 import {
-  Alert, Button, Card, Descriptions, Dropdown, Input, Modal, Popconfirm, Progress, Radio, Select,
+  Alert, Button, Card, Descriptions, Dropdown, Modal, Popconfirm, Progress, Select,
   Space, Spin, Table, Tabs, Tag, Tooltip, Typography, message,
 } from 'antd'
 import {
@@ -20,6 +20,7 @@ import type {
 } from '../types'
 import { batchConfirm, confirmOne, unconfirmedAll, unconfirmedRegulatory } from './assist'
 import GlossaryTip from './GlossaryTip'
+import ReviewPanel from './ReviewPanel'
 import { DIFF_FIELD_FALLBACK_LABELS, isGateLocked } from './common'
 import { PRIMARY } from './theme'
 import PageHeader from './PageHeader'
@@ -699,8 +700,48 @@ export default function ResultPage({ projectId }: { projectId: number }) {
       </Modal>
         </div>
 
-        {/* ── 右侧固定评审操作面板(#280): 状态流转逻辑采用新页面框架 ── */}
-        <Card size="small" title="评审操作面板" style={{ width: 320, flex: 'none', position: 'sticky', top: 16 }}>
+        {/* ── 右侧固定评审操作面板(#280/#283 item8: 共享 ReviewPanel) ── */}
+        <ReviewPanel
+          style={{ width: 320, flex: 'none', position: 'sticky', top: 16 }}
+          blocked={reviewBlocked}
+          canSubmit={canSubmit}
+          gateStatus={gate?.status ?? null}
+          acting={acting}
+          hideSubmit={hitAll.length === 0}
+          onSubmit={() => void doSubmitReview()}
+          canDecide={canDecide}
+          decideTitle="整体裁定(安全侧)"
+          decide={decide}
+          onDecideChange={setDecide}
+          decideComment={decideComment}
+          onDecideCommentChange={setDecideComment}
+          onDecideSubmit={() => {
+            if (!decide) return
+            void runReviewAction(
+              () => api.reviewDecide(projectId, decide, decideComment), '裁定已记录',
+            ).then((ok) => { if (ok) { setDecide(null); setDecideComment('') } })
+          }}
+          canFinalize={canFinalize}
+          finalizeComment={finalizeComment}
+          onFinalizeCommentChange={setFinalizeComment}
+          onFinalizeClick={() => setFinalizeOpen(true)}
+          auditorHint={user?.role === 'auditor' ? '审计视角: 只读查看。' : undefined}
+          withdrawSlot={canSubmit && gateSubmitter && (
+            <Popconfirm
+              title="撤回本次评审提交?"
+              description="门禁回到待提交, 各项数据保留, 可继续编辑评估。"
+              onConfirm={() => void runReviewAction(
+                () => api.reviewWithdraw(projectId), '已撤回, 可继续编辑评估')}
+            >
+              <Button block danger style={{ marginTop: 8 }} loading={acting}>撤回评审</Button>
+            </Popconfirm>
+          )}
+          footer={(
+            <Button block onClick={() => navigate(`/evaluations/${projectId}/review`)}>
+              评审中心(批注 / 留痕)
+            </Button>
+          )}
+        >
           <Descriptions column={1} size="small" style={{ marginBottom: 8 }}>
             <Descriptions.Item label="评估状态">
               <Space size={4} wrap>
@@ -722,102 +763,10 @@ export default function ResultPage({ projectId }: { projectId: number }) {
               size="small" strokeColor={PRIMARY} style={{ marginBottom: 12 }}
             />
           )}
-
-          {reviewBlocked !== null && reviewBlocked.length > 0 && (
-            <Alert
-              type="error" showIcon style={{ marginBottom: 12 }}
-              message="门禁校验未通过"
-              description={
-                <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
-                  {reviewBlocked.map((m) => <li key={m}><Typography.Text style={{ fontSize: 12 }}>{m}</Typography.Text></li>)}
-                </ul>
-              }
-            />
-          )}
-
           {hitAll.length === 0 && (
             <Alert type="info" showIcon style={{ marginBottom: 12 }} message="尚未生成安全需求" description="先在向导完成信息采集并生成。" />
           )}
-
-          {canSubmit && gate?.status !== 'in_review' && gate?.status !== 'passed' && hitAll.length > 0 && (
-            <Button type="primary" block loading={acting} onClick={() => void doSubmitReview()}>
-              {gate?.status === 'rectifying' || gate?.status === 'rejected' ? '整改后重新提交评审' : '提交评审'}
-            </Button>
-          )}
-          {canSubmit && inReview && (
-            <>
-              <Typography.Text type="secondary">评审进行中, 各项信息已锁定为只读。</Typography.Text>
-              {/* 撤回(DESIGN 状态机): 审批中提交人可撤回, 门禁回待提交, 数据全保留 */}
-              {gateSubmitter && (
-                <Popconfirm
-                  title="撤回本次评审提交?"
-                  description="门禁回到待提交, 各项数据保留, 可继续编辑评估。"
-                  onConfirm={() => void runReviewAction(
-                    () => api.reviewWithdraw(projectId), '已撤回, 可继续编辑评估')}
-                >
-                  <Button block danger style={{ marginTop: 8 }} loading={acting}>撤回评审</Button>
-                </Popconfirm>
-              )}
-            </>
-          )}
-          {canSubmit && gate?.status === 'passed' && (
-            <Typography.Text type="secondary">评审已通过, 本轮归档。</Typography.Text>
-          )}
-
-          {canDecide && (
-            <div>
-              <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>整体裁定(安全侧)</Typography.Paragraph>
-              <Radio.Group
-                value={decide}
-                onChange={(e) => setDecide(e.target.value)}
-                options={[
-                  { value: 'approve', label: '通过' },
-                  { value: 'request_change', label: '退回整改' },
-                  { value: 'reject', label: '否决' },
-                ]}
-                style={{ marginBottom: 8 }}
-              />
-              <Input.TextArea
-                rows={2} placeholder="裁定意见(可空)" value={decideComment}
-                onChange={(e) => setDecideComment(e.target.value)} style={{ marginBottom: 8 }}
-              />
-              <Button
-                type="primary" block disabled={!decide} loading={acting}
-                onClick={() => {
-                  if (!decide) return
-                  void runReviewAction(
-                    () => api.reviewDecide(projectId, decide, decideComment), '裁定已记录',
-                  ).then((ok) => { if (ok) { setDecide(null); setDecideComment('') } })
-                }}
-              >
-                提交裁定
-              </Button>
-            </div>
-          )}
-
-          {canFinalize && (
-            <div>
-              <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-                终审会签(负责人): 评审员已通过
-              </Typography.Paragraph>
-              <Input.TextArea
-                rows={2} placeholder="终审意见(可空)" value={finalizeComment}
-                onChange={(e) => setFinalizeComment(e.target.value)} style={{ marginBottom: 8 }}
-              />
-              <Button type="primary" block loading={acting} onClick={() => setFinalizeOpen(true)}>
-                终审会签(复审通过)
-              </Button>
-            </div>
-          )}
-
-          {user?.role === 'auditor' && (
-            <Typography.Text type="secondary">审计视角: 只读查看。</Typography.Text>
-          )}
-
-          <Button block style={{ marginTop: 12 }} onClick={() => navigate(`/evaluations/${projectId}/review`)}>
-            评审中心(批注 / 留痕)
-          </Button>
-        </Card>
+        </ReviewPanel>
       </div>
 
       {/* ── 终审确认弹窗 ── */}

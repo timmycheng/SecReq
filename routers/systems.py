@@ -5,7 +5,7 @@
 越权访问按 404 处理, 不泄露存在性。#194 起基础设施/组件/架构图挂系统维护,
 与向导内的项目路由(/api/projects/{id}/...)同源同权限, 只是入口不同。
 """
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from sqlalchemy.orm import Session
 
 import shared.constants as C
@@ -53,9 +53,17 @@ def _get_accessible_system(system_id: int, db: Session, user: PlatformUser) -> S
 
 
 @router.get("/ledger")
-def ledger(db: Session = Depends(get_db), user: PlatformUser = Depends(require_login)):
-    """系统视角台账: 系统 × 所属备案/定级 × 最新轮次结论 × 遗留未闭环 × 当前基线。"""
-    return systems_ledger(db, user)
+def ledger(db: Session = Depends(get_db), user: PlatformUser = Depends(require_login),
+           keyword: str | None = None, filing_id: int | None = None,
+           importance: str | None = None, tag: str | None = None,
+           page: int | None = Query(default=None, ge=1),
+           page_size: int = Query(default=20, ge=1, le=100)):
+    """系统视角台账: 系统 × 所属备案/定级 × 最新轮次结论 × 遗留未闭环 × 当前基线。
+
+    带 page 时返回 {items, total} 信封(#283 item9), 不带 page 返回全量列表。
+    """
+    return systems_ledger(db, user, keyword=keyword, filing_id=filing_id,
+                          importance=importance, tag=tag, page=page, page_size=page_size)
 
 
 @router.get("", response_model=list[SystemDetail])

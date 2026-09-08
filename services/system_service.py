@@ -6,6 +6,7 @@
 """
 from datetime import datetime
 
+from sqlalchemy import false
 from sqlalchemy.orm import Session
 
 import shared.constants as C
@@ -190,37 +191,63 @@ def current_baseline_id(db: Session, system_id: int) -> int | None:
     return project[0] if project else None
 
 
-def systems_ledger(db: Session, user) -> list[dict]:
-    """系统视角台账: 系统 × 所属备案/定级 × 最新轮次结论 × 遗留未闭环数 × 当前基线。"""
-    items = []
-    for system in visible_systems_query(db, user).all():
-        filing = db.get(Filing, system.filing_id) if system.filing_id else None
-        latest = latest_round_of(db, system.id)
-        items.append({
-            "id": system.id,
-            "name": system.name,
-            "code": system.code,
-            "owner_name": system.owner_name,
-            "netbox_object_id": system.netbox_object_id,
-            # 基本信息三件套随行返回(#258): 台账页「编辑」以整行回填 SystemFormModal
-            "user_scale": system.user_scale,
-            "types": system.types or [],
-            "is_public": bool(system.is_public),
-            # 清单画像(#283 item1/2): 台账页列展示与「编辑」整行回填
-            "department": system.department,
-            "importance": system.importance,
-            "owner_dev_name": system.owner_dev_name,
-            "owner_ops_name": system.owner_ops_name,
-            "owner_biz_name": system.owner_biz_name,
-            "tags": system.tags or [],
-            "filing_id": system.filing_id,
-            "filing_name": filing.name if filing else None,
-            "filing_level": filing.level if filing else None,
-            "latest_round": latest,
-            "current_baseline_project_id": current_baseline_id(db, system.id),
-            "created_at": format_created_at(system.created_at),
-        })
-    return items
+def systems_ledger(db: Session, user, *, keyword: str | None = None,
+                   filing_id: int | None = None, importance: str | None = None,
+                   tag: str | None = None, page: int | None = None,
+                   page_size: int = 20) -> list[dict] | dict:
+    """系统视角台账: 系统 × 所属备案/定级 × 最新轮次结论 × 遗留未闭环数 × 当前基线。
+
+    带 page 时返回 {items, total} 信封并把过滤下推到查询(#283 item9);
+    不带 page 返回全量列表(存量调用口径)。
+    """
+    query = visible_systems_query(db, user)
+    if keyword:
+        query = query.filter(System.name.contains(keyword) | System.code.contains(keyword))
+    if filing_id is not None:
+        query = query.filter(System.filing_id == filing_id)
+    if importance:
+        query = query.filter(System.importance == importance)
+    if tag:
+        # tags 为 JSON 列, 各方言文本 LIKE 不可靠(unicode 转义), 先按 Python 精确匹配
+        # 收敛候选 id 再下推查询; 系统数量级小, 可接受
+        matched_ids = [
+            row.id for row in db.query(System.id, System.tags).all()
+            if tag in (row.tags or [])
+        ]
+        query = query.filter(System.id.in_(matched_ids) if matched_ids else false())
+    if page is None:
+        return [_ledger_row(db, system) for system in query.all()]
+    total = query.count()
+    rows = query.offset((page - 1) * page_size).limit(page_size).all()
+    return {"items": [_ledger_row(db, system) for system in rows], "total": total}
+
+
+def _ledger_row(db: Session, system: System) -> dict:
+    filing = db.get(Filing, system.filing_id) if system.filing_id else None
+    return {
+        "id": system.id,
+        "name": system.name,
+        "code": system.code,
+        "owner_name": system.owner_name,
+        "netbox_object_id": system.netbox_object_id,
+        # 基本信息三件套随行返回(#258): 台账页「编辑」以整行回填 SystemFormModal
+        "user_scale": system.user_scale,
+        "types": system.types or [],
+        "is_public": bool(system.is_public),
+        # 清单画像(#283 item1/2): 台账页列展示与「编辑」整行回填
+        "department": system.department,
+        "importance": system.importance,
+        "owner_dev_name": system.owner_dev_name,
+        "owner_ops_name": system.owner_ops_name,
+        "owner_biz_name": system.owner_biz_name,
+        "tags": system.tags or [],
+        "filing_id": system.filing_id,
+        "filing_name": filing.name if filing else None,
+        "filing_level": filing.level if filing else None,
+        "latest_round": latest_round_of(db, system.id),
+        "current_baseline_project_id": current_baseline_id(db, system.id),
+        "created_at": format_created_at(system.created_at),
+    }
 
 
 def baseline_summary(baseline: SystemBaseline | None) -> dict | None:

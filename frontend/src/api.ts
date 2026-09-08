@@ -188,6 +188,19 @@ export const api = {
     }),
 
   listProjects: () => request<ProjectDetail[]>('/api/projects'),
+  /** 分页信封(#283 item9): 服务端过滤分页; 不传 page 的全量口径见 listProjects */
+  listProjectsPaged: (params: {
+    page: number; pageSize: number; systemId?: number | null;
+    status?: string | null; keyword?: string | null
+  }) => {
+    const q = new URLSearchParams()
+    q.set('page', String(params.page))
+    q.set('page_size', String(params.pageSize))
+    if (params.systemId) q.set('system_id', String(params.systemId))
+    if (params.status) q.set('status', params.status)
+    if (params.keyword) q.set('keyword', params.keyword)
+    return request<{ items: ProjectDetail[]; total: number }>(`/api/projects?${q.toString()}`)
+  },
   getProject: (id: number) => request<ProjectDetail>(`/api/projects/${id}`),
   createProject: (payload: Partial<ProjectInfo>) =>
     request<ProjectDetail>('/api/projects', { method: 'POST', body: JSON.stringify(payload) }),
@@ -240,6 +253,20 @@ export const api = {
     request<SystemRow>(`/api/systems/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteSystem: (id: number) => request<void>(`/api/systems/${id}`, { method: 'DELETE' }),
   systemLedger: () => request<SystemRow[]>('/api/systems/ledger'),
+  /** 分页信封(#283 item9): 服务端过滤分页的台账 */
+  systemLedgerPaged: (params: {
+    page: number; pageSize: number; keyword?: string | null;
+    filingId?: number | null; importance?: string | null; tag?: string | null
+  }) => {
+    const q = new URLSearchParams()
+    q.set('page', String(params.page))
+    q.set('page_size', String(params.pageSize))
+    if (params.keyword) q.set('keyword', params.keyword)
+    if (params.filingId) q.set('filing_id', String(params.filingId))
+    if (params.importance) q.set('importance', params.importance)
+    if (params.tag) q.set('tag', params.tag)
+    return request<{ items: SystemRow[]; total: number }>(`/api/systems/ledger?${q.toString()}`)
+  },
 
   /* ── 系统清单(#194): 基础设施/组件/架构图挂系统, 多轮共享 ── */
   getSystemInfraAssets: (systemId: number) =>
