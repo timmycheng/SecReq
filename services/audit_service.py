@@ -36,6 +36,7 @@ ACTION_LABELS: dict[str, str] = {
     "step_save": "保存向导步骤",
     "generate": "生成审查材料",
     "confirm": "确认需求",
+    "mark_invalid": "标记需求不属实",
     "confirm_batch": "批量确认需求",
     "export": "导出材料",
     "kb_create": "新建知识库模板",
@@ -115,6 +116,8 @@ def summarize_detail(action: str, detail: dict) -> str | None:
         return f"项目 #{get('project_id')} 生成需求 {get('requirements')} 条"
     if action == "confirm":
         return f"项目 #{get('project_id')} 确认需求 {get('req_id')}"
+    if action == "mark_invalid":
+        return f"项目 #{get('project_id')} 需求 {get('req_id')} 标记不属实"
     if action == "confirm_batch":
         return f"项目 #{get('project_id')} 批量确认 {get('count')} 条需求"
     if action == "export":

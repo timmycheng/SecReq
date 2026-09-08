@@ -181,7 +181,7 @@ def test_backfill_review_statuses_mapping():
             " 'feature', 4, 'r', 'open', 0)"))
     init_db(engine)
     added = ensure_schema_upgrade(engine)
-    assert added == {"security_requirements": ["review_status"]}
+    assert added == {"security_requirements": ["review_status", "invalid_reason"]}
 
     factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     db = factory()
@@ -289,3 +289,70 @@ def test_batch_confirm_reports_skipped(api):
     body = resp.json()
     assert body["confirmed"] == len(others)
     assert body["skipped"] == [reviewed_id]
+
+# ── 属实性确认(#310): invalid 流转 ────────────────────
+
+
+def test_mark_invalid_requires_reason(session):
+    """mark_invalid 不带原因 → RequirementTransitionError; 带原因落 invalid_reason。"""
+    from models import SecurityRequirement
+    from services.requirement_lifecycle import (
+        RequirementTransitionError, transition_requirement,
+    )
+
+    operator = _operator(session)
+    req = SecurityRequirement(
+        project_id=1, req_id="SEC-INV-001", template_id="SEC-INV", title="t",
+        description="d", category="auth", priority="high", acceptance_criteria="a",
+        suggested_phase="design", source_entity_type="feature", source_entity_id=1,
+        trigger_reason="r", status="open", review_status="open",
+    )
+    session.add(req)
+    session.flush()
+
+    try:
+        transition_requirement(session, req, "mark_invalid", operator, opinion="  ")
+        assert False, "空原因应被拒绝"
+    except RequirementTransitionError:
+        pass
+
+    record = transition_requirement(session, req, "mark_invalid", operator,
+                                    opinion="该功能本期不上线")
+    assert record is not None and record.to_status == "invalid"
+    assert req.review_status == "invalid"
+    assert req.invalid_reason == "该功能本期不上线"
+    session.flush()
+
+
+def test_invalid_roundtrip_and_not_finalized(session):
+    """invalid → confirmed 恢复: 行上原因清空, 留痕保留; invalid 不可直接 review_pass。"""
+    from services.requirement_lifecycle import (
+        RequirementTransitionError, can_transition, transition_requirement,
+    )
+
+    operator = _operator(session)
+    from models import SecurityRequirement
+    req = SecurityRequirement(
+        project_id=1, req_id="SEC-INV-002", template_id="SEC-INV", title="t",
+        description="d", category="auth", priority="high", acceptance_criteria="a",
+        suggested_phase="design", source_entity_type="feature", source_entity_id=2,
+        trigger_reason="r", status="open", review_status="invalid",
+        invalid_reason="误判", reg_confirmed=False,
+    )
+    session.add(req)
+    session.flush()
+
+    # invalid 是终态之外的状态: 不能直接评审通过
+    assert not can_transition(req, "review_pass")
+    try:
+        transition_requirement(session, req, "review_pass", operator)
+        assert False, "invalid 不允许直接 review_pass"
+    except RequirementTransitionError:
+        pass
+
+    # 恢复确认: 原因清空, reg_confirmed 回 True
+    assert can_transition(req, "confirm")
+    transition_requirement(session, req, "confirm", operator)
+    assert req.review_status == "confirmed"
+    assert req.invalid_reason is None
+    assert req.reg_confirmed is True

@@ -383,6 +383,10 @@ export const api = {
   listVulnerabilities: (id: number) => request<VulnerabilityRow[]>(`/api/projects/${id}/vulnerabilities`),
   confirmRegulatory: (id: number, reqId: string) =>
     request<RequirementRow>(`/api/projects/${id}/requirements/${reqId}/confirm`, { method: 'POST' }),
+  /** 标记需求不属实(#310 属实性确认): 必填原因, 保留记录不删除 */
+  markRequirementInvalid: (id: number, reqId: string, reason: string) =>
+    request<RequirementRow>(`/api/projects/${id}/requirements/${reqId}/invalid`,
+      { method: 'POST', body: JSON.stringify({ reason }) }),
 
   /* ── 平台设置(仅安全角色) ── */
   listKb: (keyword?: string) =>

@@ -20,8 +20,8 @@ from models import (
 # 监管报送类需求的中文名(需求行 category 存展示标签, 与列表筛选口径一致)
 _REGULATORY_LABEL = C.label(C.TRIGGER_CATEGORY_LABELS, "regulatory_trigger")
 
-# 视为"已确认"的生命周期状态
-_CONFIRMED_STATUSES = ("confirmed", "reviewed")
+# 视为"已处理"的生命周期状态(确认属实/评审通过/标记不属实均算开发侧已处理, #310)
+_RESOLVED_STATUSES = ("confirmed", "reviewed", "invalid")
 
 
 def _active_requirements(db: Session, project: Project) -> list[SecurityRequirement]:
@@ -133,7 +133,11 @@ def _sod_requirement_generated(db: Session, project: Project,
 
 
 def requirement_gate_checks(db: Session, project: Project) -> list[str]:
-    """需求门禁 4 条硬校验(#220): 数量/溯源/关键确认/报送确认。"""
+    """需求门禁硬校验(#220, #310 属实性确认口径): 数量/溯源/全部已处理。
+
+    #310 起开发侧对每条需求给出属实性结论(确认属实或标记不属实), 提交评审前
+    不允许残留「待确认」; 不属实的条目由安全管理员在评审中复核(整体退回兜底)。
+    """
     missing: list[str] = []
     reqs = _active_requirements(db, project)
     if not reqs:
@@ -146,16 +150,12 @@ def requirement_gate_checks(db: Session, project: Project) -> list[str]:
             missing.append(
                 f"需求 {req.req_id}「{req.title}」缺少来源实体, 无法追溯")
 
-    # 2) critical 需求必须已确认(高风险项不允许带未确认状态上会)
-    for req in reqs:
-        if req.priority == "critical" and req.review_status not in _CONFIRMED_STATUSES:
-            missing.append(
-                f"critical 需求 {req.req_id}「{req.title}」尚未确认")
-
-    # 3) 监管报送类需求必须全部确认
-    for req in reqs:
-        if req.category == _REGULATORY_LABEL and req.review_status not in _CONFIRMED_STATUSES:
-            missing.append(
-                f"监管报送类需求 {req.req_id}「{req.title}」尚未确认")
+    # 2) 全部需求必须已处理(确认属实或标记不属实), 不允许带着待确认上会
+    unresolved = [r for r in reqs if r.review_status not in _RESOLVED_STATUSES]
+    for req in unresolved[:5]:
+        missing.append(
+            f"需求 {req.req_id}「{req.title}」尚未确认属实性(确认或标记不属实)")
+    if len(unresolved) > 5:
+        missing.append(f"……另有 {len(unresolved) - 5} 条需求未确认属实性")
 
     return missing

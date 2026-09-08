@@ -32,6 +32,12 @@ def _system_id_of(api, pid: int) -> int:
     return api.get(f"/api/projects/{pid}").json()["system_id"]
 
 
+def _security_client(api):
+    """安全管理员客户端(#309 单步评审)。"""
+    from conftest import api_as
+    return api_as(api, "sec_admin")
+
+
 def _submit(api, pid):
     resp = api.post(f"/api/projects/{pid}/review/submit")
     assert resp.status_code == 200, resp.text
@@ -69,19 +75,56 @@ def _add_req(api, pid: int, req_id: str, **fields) -> None:
 
 
 def test_submit_blocked_lists_all_missing_items(api, generated):
-    """一次给全缺项: critical 未确认 + 报送类未确认 同时出现在 missing。"""
+    """一次给全缺项(#310 属实性口径): 未确认属实性的需求统一列在 missing。"""
     pid, reqs = generated
-    # 挑两条未确认需求: 一条升为 critical, 一条改为监管报送类
+    # 挑两条未处理需求: 一条升为 critical, 一条改为监管报送类
     _patch_req(api, pid, reqs[0]["req_id"], priority="critical")
     _patch_req(api, pid, reqs[1]["req_id"], category="监管报送")
 
     body = _submit(api, pid)
     assert body["status"] == "blocked"
-    assert any(reqs[0]["req_id"] in m and "critical" in m for m in body["missing"])
-    assert any(reqs[1]["req_id"] in m and "监管报送" in m for m in body["missing"])
+    assert any(reqs[0]["req_id"] in m and "属实性" in m for m in body["missing"])
+    assert any(reqs[1]["req_id"] in m and "属实性" in m for m in body["missing"])
     # 门禁未推进
     state = api.get(f"/api/projects/{pid}/review/state").json()
     assert state["gate"] is None or state["gate"]["status"] == "pending"
+
+
+def test_invalid_requirements_satisfy_gate_but_not_finalized(api, generated):
+    """#310: 标记不属实的需求可过门禁提交评审; 裁定通过后不落盘(保持不属实)。"""
+    pid, reqs = generated
+    # 第一条标记不属实, 其余全部确认
+    resp = api.post(f"/api/projects/{pid}/requirements/{reqs[0]['req_id']}/invalid",
+                    json={"reason": "该功能本期不上线, 不涉及此风险"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["review_status"] == "invalid"
+    assert resp.json()["invalid_reason"] == "该功能本期不上线, 不涉及此风险"
+    others = [r["req_id"] for r in reqs[1:]]
+    api.post(f"/api/projects/{pid}/requirements/batch-confirm", json={"req_ids": others})
+
+    # 不属实 + 已确认组合可以过门禁提交
+    body = _submit(api, pid)
+    assert body["status"] == "submitted", body
+
+    seca = _security_client(api)
+    resp = seca.post(f"/api/projects/{pid}/review/decide", json={"conclusion": "approve"})
+    assert resp.status_code == 200, resp.text
+
+    after = {r["req_id"]: r for r in api.get(f"/api/projects/{pid}/requirements").json()}
+    assert after[reqs[0]["req_id"]]["review_status"] == "invalid"  # 不属实不落盘
+    assert all(r["review_status"] == "reviewed" for k, r in after.items() if k != reqs[0]["req_id"])
+
+    # 恢复确认: invalid → confirmed, 行上原因清空
+    resp = api.post(f"/api/projects/{pid}/requirements/{reqs[0]['req_id']}/confirm")
+    assert resp.status_code == 409  # 门禁已 passed, 内容锁定, 不能再改
+
+
+def test_invalid_reason_required(api, generated):
+    """标记不属实必须填原因; 空原因 422/409 拒绝。"""
+    pid, reqs = generated
+    resp = api.post(f"/api/projects/{pid}/requirements/{reqs[0]['req_id']}/invalid",
+                    json={"reason": "  "})
+    assert resp.status_code in (409, 422), resp.text
 
 
 def test_submit_blocked_when_no_requirements(api):

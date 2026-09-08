@@ -43,7 +43,7 @@ class SecurityRequirement(Base):
     status: Mapped[str] = mapped_column(String(20), default="open", comment="open/in_progress/done/risk_accepted")
     review_status: Mapped[str] = mapped_column(
         String(20), default="open",
-        comment="评审生命周期: open/confirmed/reviewed/rectifying, 见 REQUIREMENT_REVIEW_STATUSES")
+        comment="评审生命周期: open/confirmed/reviewed/rectifying/invalid, 见 REQUIREMENT_REVIEW_STATUSES")
     regulatory_ref: Mapped[list] = mapped_column(
         JSON, default=list,
         comment="合规出处[{file, clause, summary, note?}], 取自知识库模板 regulatory_ref",
@@ -54,6 +54,8 @@ class SecurityRequirement(Base):
     )
     confirmed_by: Mapped[str | None] = mapped_column(String(50), comment="确认人")
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, comment="确认时间")
+    invalid_reason: Mapped[str | None] = mapped_column(
+        Text, comment="不属实原因(#310: 标记不属实时必填, 恢复确认时清空)")
 
     project: Mapped[Project] = relationship(back_populates="requirements")
     transitions: Mapped[list["RequirementTransition"]] = relationship(

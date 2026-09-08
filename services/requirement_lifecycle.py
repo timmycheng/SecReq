@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
-"""需求评审生命周期(#217): 需求条目级状态机与流转留痕。
+"""需求评审生命周期(#217, #310 属实性确认): 需求条目级状态机与流转留痕。
 
 与任务型 status(开卷开发进度)分离; 项目级整体评审见 models/review.py 的 ReviewGate。
-状态机(open → confirmed → reviewed; 退回 rectifying → 重新确认)在
+状态机(open → confirmed/invalid → reviewed; 退回 rectifying → 重新确认)在
 shared.constants.REQUIREMENT_REVIEW_TRANSITIONS 集中声明, 本层只执行与留痕。
+#310: 开发侧确认语义为「属实性确认」—— 属实确认(confirmed) / 不属实标记(invalid,
+必填原因, 保留记录不删除); 评审全部通过后仅 confirmed 落盘为 reviewed。
 """
 from datetime import datetime
 
@@ -34,6 +36,8 @@ def transition_requirement(
     """执行一次生命周期流转: 校验合法性 → 改状态 → 写流转记录。
 
     - confirm 对已确认需求幂等(仅刷新确认人/时间, 不重复留痕), 返回 None;
+    - mark_invalid 必须携带不属实原因(opinion), 落 invalid_reason 字段;
+      恢复确认(invalid → confirmed)时清空 invalid_reason(原因留痕在流转记录);
     - 非法跳转(如 open 直接到 reviewed、reviewed 终态再流转)抛 RequirementTransitionError;
     - 不在此处 commit, 由调用方决定事务边界。
     """
@@ -47,6 +51,8 @@ def transition_requirement(
         req.confirmed_by = operator.display_name
         req.confirmed_at = datetime.now()
         return None
+    if action == "mark_invalid" and not (opinion or "").strip():
+        raise RequirementTransitionError("标记不属实必须填写原因")
     if target not in allowed:
         raise RequirementTransitionError(
             f"需求 {req.req_id} 当前状态「{C.label(C.REQUIREMENT_REVIEW_STATUSES, req.review_status)}」"
@@ -66,6 +72,11 @@ def transition_requirement(
         req.reg_confirmed = True
         req.confirmed_by = operator.display_name
         req.confirmed_at = datetime.now()
+        if req.invalid_reason:
+            req.invalid_reason = None  # 恢复确认: 行上原因清空, 历史留痕在流转记录
+    if target == "invalid":
+        req.invalid_reason = opinion
+        req.reg_confirmed = False
     return record
 
 

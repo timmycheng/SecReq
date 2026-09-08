@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   Alert, App, Button, Card, Descriptions, Empty, Input, Modal,
-  Space, Spin, Table, Tag, Timeline, Typography,
+  Space, Spin, Table, Tag, Timeline, Tooltip, Typography,
 } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
 import type { RequirementRow, RequirementTransitionRow, ReviewState } from '../types'
@@ -16,7 +16,8 @@ import { navigate } from '../router'
 import PageHeader from './PageHeader'
 
 const REVIEW_STATUS_LABELS: Record<string, string> = {
-  open: '待确认', confirmed: '已确认', reviewed: '评审通过', rectifying: '整改中',
+  open: '待确认', confirmed: '已确认', reviewed: '评审通过',
+  rectifying: '整改中', invalid: '不属实',
 }
 
 const ACTION_LABELS: Record<string, string> = {
@@ -241,14 +242,25 @@ export default function ReviewPage({ projectId }: { projectId: number }) {
                 render: (v) => <Tag color={REQUIREMENT_STATUS_COLOR[v] ?? 'default'}>{REVIEW_STATUS_LABELS[v] ?? v}</Tag>,
               },
               {
-                title: '操作', width: 210,
+                title: '属实性', dataIndex: 'review_status', width: 110,
+                render: (v: string | undefined, r) => (
+                  <Tooltip title={r.review_status === 'invalid' && r.invalid_reason
+                    ? `不属实原因: ${r.invalid_reason}` : undefined}>
+                    <Tag color={REQUIREMENT_STATUS_COLOR[v ?? ''] ?? 'default'}>
+                      {REVIEW_STATUS_LABELS[v ?? ''] ?? v ?? '待确认'}
+                    </Tag>
+                  </Tooltip>
+                ),
+              },
+              {
+                title: '操作', width: 180,
                 render: (_, r) => {
-                  if (canAnnotate && r.review_status === 'confirmed') {
+                  // 批注=意见留痕(#310): 认可/异议只记录意见, 状态变化由整体裁定驱动
+                  if (canAnnotate) {
                     return (
                       <Space size={4}>
-                        <Button size="small" type="link" onClick={() => { setAnnotate({ req: r, disposition: 'approve' }); setAnnotateComment('') }}>通过</Button>
+                        <Button size="small" type="link" onClick={() => { setAnnotate({ req: r, disposition: 'approve' }); setAnnotateComment('') }}>认可</Button>
                         <Button size="small" type="link" onClick={() => { setAnnotate({ req: r, disposition: 'object' }); setAnnotateComment('') }}>异议</Button>
-                        <Button size="small" type="link" danger onClick={() => { setAnnotate({ req: r, disposition: 'return' }); setAnnotateComment('') }}>退回</Button>
                       </Space>
                     )
                   }
@@ -267,6 +279,24 @@ export default function ReviewPage({ projectId }: { projectId: number }) {
                           }
                         }}>
                         确认
+                      </Button>
+                    )
+                  }
+                  if (canSubmit && r.review_status === 'invalid') {
+                    return (
+                      <Button size="small" type="link" loading={confirming === r.id}
+                        onClick={async () => {
+                          setConfirming(r.id)
+                          try {
+                            await api.confirmRegulatory(projectId, r.req_id)
+                            await reload()
+                          } catch (e) {
+                            message.error((e as Error).message)
+                          } finally {
+                            setConfirming(null)
+                          }
+                        }}>
+                        恢复确认
                       </Button>
                     )
                   }
@@ -333,28 +363,26 @@ export default function ReviewPage({ projectId }: { projectId: number }) {
         </Descriptions>
       </ReviewPanel>
 
-      {/* ── 批注弹窗 ── */}
+      {/* ── 批注弹窗(意见留痕, #310): 状态变化由整体裁定驱动 ── */}
       <Modal
-        title={`批注: ${annotate?.req.req_id ?? ''}`}
+        title={`批注意见: ${annotate?.req.req_id ?? ''}`}
         open={annotate !== null}
         onCancel={() => setAnnotate(null)}
         onOk={async () => {
           if (!annotate) return
           const ok = await run(
             () => api.reviewAnnotate(projectId, annotate.req.req_id, annotate.disposition, annotateComment),
-            annotate.disposition === 'approve' ? '已批注通过' : annotate.disposition === 'return' ? '已退回整改' : '已记录异议')
+            annotate.disposition === 'approve' ? '已记录认可意见' : '已记录异议')
           if (ok) setAnnotate(null)
         }}
-        okText={annotate?.disposition === 'approve' ? '确认通过' : annotate?.disposition === 'return' ? '确认退回' : '记录异议'}
+        okText={annotate?.disposition === 'approve' ? '记录认可' : '记录异议'}
       >
         <Typography.Paragraph type="secondary">{annotate?.req.title}</Typography.Paragraph>
-        {annotate?.disposition === 'return' && (
-          <Typography.Paragraph type="warning" style={{ marginBottom: 8 }}>
-            退回后该需求进入整改中, PM 整改后重新确认方可复审。
-          </Typography.Paragraph>
-        )}
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+          批注仅记录意见, 不改变需求状态; 需求是否通过由右侧「整体裁定」决定。
+        </Typography.Paragraph>
         <Input.TextArea
-          rows={3} placeholder="批注意见(退回建议必填)"
+          rows={3} placeholder="批注意见(可填)"
           value={annotateComment} onChange={(e) => setAnnotateComment(e.target.value)}
         />
       </Modal>
