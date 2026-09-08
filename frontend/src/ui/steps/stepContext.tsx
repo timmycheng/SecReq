@@ -16,6 +16,10 @@ export const StepHandleContext = createContext<{ set: (h: StepHandle | null) => 
   set: () => {},
 })
 
+/** 吸底导航右槽容器(#287): 最后一步(确认页)经 Portal 把主操作按钮挂进吸底栏,
+   按钮仍由步骤自身渲染 —— loading/禁用态随步骤状态自然联动, 无需提升状态。 */
+export const StepFooterSlotContext = createContext<HTMLElement | null>(null)
+
 /** 每次渲染后重新注册(句柄闭包始终指向最新状态), 卸载时注销。 */
 export function useRegisterStepHandle(handle: StepHandle) {
   const ctx = useContext(StepHandleContext)

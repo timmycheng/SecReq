@@ -17,7 +17,7 @@ import { api } from '../api'
 import type { WizardState } from '../types'
 import { navigate } from '../router'
 import { setLeaveAsker } from './dirtyGuard'
-import { StepHandleContext, type StepHandle } from './steps/stepContext'
+import { StepFooterSlotContext, StepHandleContext, type StepHandle } from './steps/stepContext'
 import PageHeader from './PageHeader'
 
 import Step1ProjectInfo from './steps/Step1ProjectInfo'
@@ -72,6 +72,8 @@ export default function WizardPage({ projectId }: { projectId: number }) {
   const [resetOpen, setResetOpen] = useState(false)
   const [resetCode, setResetCode] = useState('')
   const [resetting, setResetting] = useState(false)
+  // 吸底导航右槽 DOM(#287): 确认页经 Portal 把「生成安全基线」挂进吸底栏
+  const [footerSlotEl, setFooterSlotEl] = useState<HTMLDivElement | null>(null)
   // 清空后整卷换新, 递增 key 强制各步骤组件重挂载(避免表单残留旧值)
   const [resetEpoch, setResetEpoch] = useState(0)
   // 草稿恢复提示(#228): 打开向导时已有填报数据则提示一次
@@ -306,38 +308,41 @@ export default function WizardPage({ projectId }: { projectId: number }) {
 
       <Card>
         <StepHandleContext.Provider value={{ set: register }}>
-          <div key={resetEpoch} style={{ minHeight: 240 }}>
-            {renderers[current]({ ws, patch, goto: (idx) => guardLeave(() => switchTo(idx)) })}
-          </div>
-          <div style={footerStyle}>
-            <div style={{ justifySelf: 'start' }}>
-              <Button
-                icon={<ArrowLeftOutlined />}
-                disabled={current === 0}
-                onClick={() => guardLeave(() => switchTo(current - 1))}
-              >
-                上一步
-              </Button>
+          <StepFooterSlotContext.Provider value={footerSlotEl}>
+            <div key={resetEpoch} style={{ minHeight: 240 }}>
+              {renderers[current]({ ws, patch, goto: (idx) => guardLeave(() => switchTo(idx)) })}
             </div>
-            {/* 一键清空(DESIGN): 独占底部中间, 不与下一步/提交按钮贴着 */}
-            <Button danger disabled={resetting} onClick={() => { setResetCode(''); setResetOpen(true) }}>
-              一键清空
-            </Button>
-            <Space size={12} style={{ justifySelf: 'end' }}>
-              {autosavedAt && (
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  草稿已自动保存 {autosavedAt}
-                </Typography.Text>
-              )}
-              {current < LAST ? (
-                <Button type="primary" loading={advancing} onClick={saveAndNext}>
-                  保存并下一步 <ArrowRightOutlined />
+            <div style={footerStyle}>
+              <div style={{ justifySelf: 'start' }}>
+                <Button
+                  icon={<ArrowLeftOutlined />}
+                  disabled={current === 0}
+                  onClick={() => guardLeave(() => switchTo(current - 1))}
+                >
+                  上一步
                 </Button>
+              </div>
+              {/* 一键清空(DESIGN): 独占底部中间, 不与下一步/提交按钮贴着 */}
+              <Button danger disabled={resetting} onClick={() => { setResetCode(''); setResetOpen(true) }}>
+                一键清空
+              </Button>
+              {current < LAST ? (
+                <Space size={12} style={{ justifySelf: 'end' }}>
+                  {autosavedAt && (
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      草稿已自动保存 {autosavedAt}
+                    </Typography.Text>
+                  )}
+                  <Button type="primary" loading={advancing} onClick={saveAndNext}>
+                    保存并下一步 <ArrowRightOutlined />
+                  </Button>
+                </Space>
               ) : (
-                <Typography.Text type="secondary">确认无误后, 点击本页右下角「生成安全基线」按钮</Typography.Text>
+                /* 最后一步(确认页): 主操作经 Portal 挂进此插槽, 长在吸底栏右下角(#287) */
+                <div ref={setFooterSlotEl} style={{ justifySelf: 'end', display: 'flex' }} />
               )}
-            </Space>
-          </div>
+            </div>
+          </StepFooterSlotContext.Provider>
         </StepHandleContext.Provider>
       </Card>
 
