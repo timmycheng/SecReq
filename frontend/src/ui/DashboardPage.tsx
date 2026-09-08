@@ -9,7 +9,7 @@ import {
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 
-import { api, getStoredUser, isSecuritySideRole } from '../api'
+import { api, getStoredUser, isPlatformAdminRole } from '../api'
 import { navigate } from '../router'
 import PageHeader from './PageHeader'
 import { LevelTag, ProjectStatusTag } from './tags'
@@ -68,7 +68,8 @@ function StackChart({ data }: { data: DashboardData['req_trend'] }) {
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const isSecurity = isSecuritySideRole(getStoredUser()?.role)
+  // 快捷入口的管理项(#309): 安全管理员/系统管理员可见
+  const isSecurity = isPlatformAdminRole(getStoredUser()?.role)
 
   const reload = useCallback(() => {
     api.getDashboard().then(setData).catch((e: Error) => setError(e.message))

@@ -34,7 +34,7 @@ from services.system_service import (
 
 router = APIRouter(prefix="/api/systems", tags=["systems"])
 
-_writable = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES))
+_writable = Depends(require_write_roles(*C.SYSTEM_WRITE_ROLES))
 
 
 def _arch_envs(db: Session) -> list[str]:
@@ -77,7 +77,7 @@ def list_all(db: Session = Depends(get_db), user: PlatformUser = Depends(require
 
 @router.post("", response_model=SystemDetail, status_code=201, dependencies=[_writable])
 def create(payload: SystemCreate, request: Request, db: Session = Depends(get_db),
-           user: PlatformUser = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES))):
+           user: PlatformUser = Depends(require_write_roles(*C.SYSTEM_WRITE_ROLES))):
     try:
         system = create_system(db, payload.model_dump(), owner_user_id=user.id)
     except NameConflictError as exc:
@@ -97,7 +97,7 @@ def get_one(system_id: int, db: Session = Depends(get_db),
 @router.patch("/{system_id}", response_model=SystemDetail, dependencies=[_writable])
 def patch(payload: SystemUpdate, system_id: int, request: Request,
           db: Session = Depends(get_db),
-          user: PlatformUser = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES))):
+          user: PlatformUser = Depends(require_write_roles(*C.SYSTEM_WRITE_ROLES))):
     system = _get_accessible_system(system_id, db, user)
     try:
         system = update_system(db, system, payload.model_dump(exclude_unset=True))
@@ -111,7 +111,7 @@ def patch(payload: SystemUpdate, system_id: int, request: Request,
 @router.delete("/{system_id}", status_code=204, dependencies=[_writable])
 def remove(system_id: int, request: Request,
            db: Session = Depends(get_db),
-           user: PlatformUser = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES))):
+           user: PlatformUser = Depends(require_write_roles(*C.SYSTEM_WRITE_ROLES))):
     system = _get_accessible_system(system_id, db, user)
     try:
         delete_system(db, system.id)
@@ -140,7 +140,7 @@ def get_infra_assets(system_id: int, db: Session = Depends(get_db),
 @router.post("/{system_id}/infra-assets", response_model=list[InfraAssetOut])
 def save_infra_assets(system_id: int, payload: InfraAssetListIn, request: Request,
                       db: Session = Depends(get_db),
-                      user: PlatformUser = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES))):
+                      user: PlatformUser = Depends(require_write_roles(*C.SYSTEM_WRITE_ROLES))):
     system = _writable_system(system_id, db, user)
     try:
         replace_infra_assets(db, system.id, payload.assets)
@@ -165,7 +165,7 @@ def get_components(system_id: int, db: Session = Depends(get_db),
 @router.post("/{system_id}/components", response_model=list[ComponentOut])
 def save_components(system_id: int, payload: ComponentsSaveIn, request: Request,
                     db: Session = Depends(get_db),
-                    user: PlatformUser = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES))):
+                    user: PlatformUser = Depends(require_write_roles(*C.SYSTEM_WRITE_ROLES))):
     system = _writable_system(system_id, db, user)
     try:
         replace_components(db, system.id, payload.components)
@@ -182,7 +182,7 @@ def save_components(system_id: int, payload: ComponentsSaveIn, request: Request,
 async def import_sbom(system_id: int, request: Request,
                       db: Session = Depends(get_db),
                       file: UploadFile = File(...),
-                      user: PlatformUser = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES))):
+                      user: PlatformUser = Depends(require_write_roles(*C.SYSTEM_WRITE_ROLES))):
     """上传 CycloneDX/SPDX 或构建文件(pom.xml/package.json/requirements.txt)批量导入。"""
     system = _writable_system(system_id, db, user)
     if not file.filename or not file.filename.lower().endswith(
@@ -210,7 +210,7 @@ def get_arch_images(system_id: int, db: Session = Depends(get_db),
 @router.put("/{system_id}/arch-images/{env}", response_model=InfraArchImageOut)
 def upload_arch_image(system_id: int, env: str, payload: InfraArchImageIn, request: Request,
                       db: Session = Depends(get_db),
-                      user: PlatformUser = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES))):
+                      user: PlatformUser = Depends(require_write_roles(*C.SYSTEM_WRITE_ROLES))):
     system = _writable_system(system_id, db, user)
     if env not in _arch_envs(db):
         raise HTTPException(status_code=404, detail=f"未知环境: {env}")
@@ -226,7 +226,7 @@ def upload_arch_image(system_id: int, env: str, payload: InfraArchImageIn, reque
 @router.delete("/{system_id}/arch-images/{env}")
 def remove_arch_image(system_id: int, env: str, request: Request,
                       db: Session = Depends(get_db),
-                      user: PlatformUser = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES))):
+                      user: PlatformUser = Depends(require_write_roles(*C.SYSTEM_WRITE_ROLES))):
     system = _writable_system(system_id, db, user)
     if env not in _arch_envs(db):
         raise HTTPException(status_code=404, detail=f"未知环境: {env}")

@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""平台认证与数据权限(#216 四类角色):
+"""平台认证与数据权限(#309 五角色):
 
 1. 登录: 账密错误 401 / 正确签发 token / 登出后 token 失效;
 2. 全局认证: 无 token 访问业务接口 401(读写都拦), 开放路径放行;
-3. 数据权限: pm 只见/只改自己创建的项目, 安全侧/审计全量可见, 越权一律 404;
-4. 角色权限矩阵: auditor 任何写 403, pm 进系统管理 403, 存量角色迁移;
+3. 数据权限: pm 只见自己创建的项目, 开发管理员/安全管理员/系统管理员/审计全量可见, 越权一律 404;
+4. 角色权限矩阵: auditor 任何写 403, pm 进平台管理 403, 安全管理员评估只读, 存量角色迁移;
 5. 项目创建: code 缺省自动生成且唯一, owner 自动写入创建人。
 """
 import uuid
@@ -57,7 +57,7 @@ def test_login_success_returns_token_and_role(api):
     assert resp.status_code == 200
     body = resp.json()
     assert body["role"] == "pm"
-    assert body["role_label"] == "项目管理"
+    assert body["role_label"] == "项目经理"
     assert isinstance(body["id"], int)  # #219 前端按 id 判定提交人
     assert body["token"]
 
@@ -66,7 +66,7 @@ def test_me_and_logout_flow(api):
     client = login_as(TestClient(api.app), "sec_admin")
     me = client.get("/api/auth/me")
     assert me.status_code == 200
-    assert me.json()["role"] == "security_lead"
+    assert me.json()["role"] == "security_admin"
 
     # 换一个新 token 登出后, 原 token 不可再用
     fresh = login_as(TestClient(api.app), "sec_admin")
@@ -117,7 +117,7 @@ def test_create_project_auto_code_and_owner(api):
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert body["code"].startswith("XM")
-    assert body["owner_name"] == "开发管理员"
+    assert body["owner_name"] == "项目经理"
     # 编码唯一: 第二次自动生成不冲突
     resp2 = _create_project(dev, "自动编码项目2")
     assert resp2.status_code == 201
@@ -159,9 +159,11 @@ def test_pm_cannot_touch_others_project(api, dev_b):
     assert dev_admin.delete(f"/api/projects/{theirs}").status_code == 404
     assert dev_admin.get(f"/api/projects/{theirs}/wizard-state").status_code == 404
     assert dev_admin.post(f"/api/projects/{theirs}/features", json=[]).status_code == 404
-    # 安全负责人可以改
+    # 安全管理员评估只读: 不能代改(#309); 开发管理员全量可改
     sec = api_as(api, "sec_admin")
-    assert sec.patch(f"/api/projects/{theirs}", json={"name": "安全代改"}).status_code == 200
+    assert sec.patch(f"/api/projects/{theirs}", json={"name": "安全代改"}).status_code == 403
+    lead = api_as(api, "dev_lead")
+    assert lead.patch(f"/api/projects/{theirs}", json={"name": "开发管理员代改"}).status_code == 200
 
 
 # ── 角色权限矩阵(#216) ────────────────────────────────
@@ -195,18 +197,30 @@ def test_pm_blocked_from_admin_and_review_side(api):
     assert client.get("/api/admin/audit-logs").status_code == 403
 
 
-def test_review_side_roles_split(api):
-    """评审员/负责人同属安全侧: 系统管理与业务写可用, 都能看全量评审队列。"""
+def test_security_admin_scope(api):
+    """安全管理员(#309): 系统可全量管理, 平台管理可进, 评估只读不可创建。"""
     sec = api_as(api, "sec_admin")
     dev_admin = api_as(api, "dev_admin")
     _create_project(dev_admin, "待评审项目")
 
-    for username, role in (("reviewer_a", "security_reviewer"), ("lead_a", "security_lead")):
-        client = login_as(TestClient(api.app), _create_user(sec, username, role))
-        assert client.get("/api/projects").status_code == 200
-        assert client.get("/api/admin/users").status_code == 200
-        # 业务写(向导/项目)可用 —— 评审动作端点的细粒度白名单在 #218 落地
-        assert client.post("/api/systems", json={"name": f"系统-{username}"}).status_code == 201
+    client = login_as(TestClient(api.app), _create_user(sec, "seca_a", "security_admin"))
+    assert client.get("/api/projects").status_code == 200  # 全量可见
+    assert client.get("/api/admin/users").status_code == 200  # 平台管理可进
+    assert client.post("/api/systems", json={"name": "系统-seca_a"}).status_code == 201  # 系统同开发管理员
+    assert client.post("/api/projects", json={"name": "x"}).status_code == 403  # 评估不可操作
+
+
+def test_sys_admin_scope(api):
+    """系统管理员(#309): 平台管理可进, 业务数据全量可见。"""
+    dev_admin = api_as(api, "dev_admin")
+    pid = _create_project(dev_admin, "被管理项目").json()["id"]
+
+    client = login_as(TestClient(api.app), "sysadmin")
+    assert client.get("/api/admin/users").status_code == 200
+    assert client.get("/api/projects").status_code == 200
+    assert client.get(f"/api/projects/{pid}").status_code == 200
+    # 评估写操作同样不可(非开发侧)
+    assert client.post("/api/projects", json={"name": "x"}).status_code == 403
 
 
 def test_auditor_blocked_from_admin(api):
@@ -216,16 +230,16 @@ def test_auditor_blocked_from_admin(api):
     assert client.get("/api/admin/users").status_code == 403
 
 
-def test_meta_constants_expose_four_roles(api):
+def test_meta_constants_expose_five_roles(api):
     roles = api.get("/api/meta/constants").json()["platform_roles"]
     assert roles == {
-        "pm": "项目管理", "security_reviewer": "安全评审员",
-        "security_lead": "安全负责人", "auditor": "审计员",
+        "pm": "项目经理", "dev_admin": "开发管理员", "security_admin": "安全管理员",
+        "sys_admin": "系统管理员", "auditor": "审计员",
     }
 
 
-def test_legacy_role_migration_to_four_roles(session):
-    """存量库迁移(#216): developer→pm, security→security_lead, 权限不回退。"""
+def test_legacy_role_migration_to_five_roles(session):
+    """存量库迁移(#309): developer→pm, security_reviewer/security_lead→security_admin。"""
     from models import PlatformUser
     from services.auth_service import ensure_seed_users
 
@@ -234,6 +248,10 @@ def test_legacy_role_migration_to_four_roles(session):
                      password_hash="legacy-hash"),
         PlatformUser(username="old_sec", display_name="老安全", role="security",
                      password_hash="legacy-hash"),
+        PlatformUser(username="old_reviewer", display_name="老评审", role="security_reviewer",
+                     password_hash="legacy-hash"),
+        PlatformUser(username="old_lead", display_name="老负责", role="security_lead",
+                     password_hash="legacy-hash"),
     ])
     session.flush()
 
@@ -241,15 +259,21 @@ def test_legacy_role_migration_to_four_roles(session):
 
     users = {u.username: u for u in session.query(PlatformUser).all()}
     assert users["old_dev"].role == "pm" and users["old_dev"].active is True
-    assert users["old_sec"].role == "security_lead" and users["old_sec"].active is True
-    # 种子账号本身按新角色落库/迁移
+    assert users["old_sec"].role == "security_admin" and users["old_sec"].active is True
+    # v3.0~3.2 两步评审的两类安全角色都并入 security_admin, 账号不停用
+    assert users["old_reviewer"].role == "security_admin" and users["old_reviewer"].active is True
+    assert users["old_lead"].role == "security_admin" and users["old_lead"].active is True
+    # 种子账号本身按新角色落库/迁移(五角色各一)
     assert users["dev_admin"].role == "pm"
-    assert users["sec_admin"].role == "security_lead"
+    assert users["dev_lead"].role == "dev_admin"
+    assert users["sec_admin"].role == "security_admin"
+    assert users["sysadmin"].role == "sys_admin"
+    assert users["auditor"].role == "auditor"
 
 
 def test_migrated_accounts_can_login(api, session=None):
     """存量 developer/security 账号升级后可正常登录(dev_admin 即存量迁移路径)。"""
-    for username, role in (("dev_admin", "pm"), ("sec_admin", "security_lead")):
+    for username, role in (("dev_admin", "pm"), ("sec_admin", "security_admin")):
         resp = TestClient(api.app).post(
             "/api/auth/login", json={"username": username, "password": SEED_DEFAULT_PASSWORD})
         assert resp.status_code == 200, resp.text

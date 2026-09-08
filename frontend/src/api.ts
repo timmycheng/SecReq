@@ -33,12 +33,20 @@ export function getStoredToken(): string | null {
   return localStorage.getItem(AUTH_STORAGE_KEY)
 }
 
-// 平台角色分组(#216): 安全侧可维护 NetBox/定级备案; 全量可见角色再含审计(只读)。
+// 平台角色分组(#309 五角色): 安全业务侧=安全管理员(评审裁定等);
+// 平台管理端(平台设置)=安全管理员+系统管理员; 全量可见再含开发管理员与审计(只读)。
 export function isSecuritySideRole(role: string | undefined | null): boolean {
-  return role === 'security_reviewer' || role === 'security_lead'
+  return role === 'security_admin'
+}
+export function isPlatformAdminRole(role: string | undefined | null): boolean {
+  return isSecuritySideRole(role) || role === 'sys_admin'
 }
 export function isFullVisibilityRole(role: string | undefined | null): boolean {
-  return isSecuritySideRole(role) || role === 'auditor'
+  return isPlatformAdminRole(role) || role === 'dev_admin' || role === 'auditor'
+}
+/** 评估写操作(新建/填写/提交/撤回/删除)仅开发侧可用; 安全管理员/系统管理员/审计只读。 */
+export function isDevSideRole(role: string | undefined | null): boolean {
+  return role === 'pm' || role === 'dev_admin'
 }
 
 export function getStoredUser(): StoredUser | null {
@@ -157,10 +165,6 @@ export const api = {
     request<{ status: string; gate_status: string }>(
       `/api/projects/${projectId}/review/decide`,
       { method: 'POST', body: JSON.stringify({ conclusion, comment: comment || null }) }),
-  reviewFinalize: (projectId: number, comment?: string) =>
-    request<{ status: string; gate_status: string }>(
-      `/api/projects/${projectId}/review/finalize`,
-      { method: 'POST', body: JSON.stringify({ comment: comment || null }) }),
   /** 撤回评审(DESIGN 状态机): 审批中提交人可撤回, 回到新建阶段, 数据保留 */
   reviewWithdraw: (projectId: number) =>
     request<{ status: string; gate_status: string }>(

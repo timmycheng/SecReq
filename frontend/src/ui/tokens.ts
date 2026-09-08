@@ -39,9 +39,10 @@ export const PRIORITY_COLOR: Record<string, string> = {
 }
 export const SEVERITY_COLOR = PRIORITY_COLOR
 
-// ── 平台角色标签(#216 四类角色; 原散落在 App/UsersTab 的行内映射收敛于此)
+// ── 平台角色标签(#309 五角色; 原散落在 App/UsersTab 的行内映射收敛于此)
 export const ROLE_COLOR: Record<string, string> = {
-  pm: 'geekblue', security_reviewer: 'orange', security_lead: 'orange', auditor: 'purple',
+  pm: 'geekblue', dev_admin: 'cyan', security_admin: 'orange',
+  sys_admin: 'purple', auditor: 'default',
 }
 
 // ── 语义 hex(antd 预设色值, 供 style 场景引用)

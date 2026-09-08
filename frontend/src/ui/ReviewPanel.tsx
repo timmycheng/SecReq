@@ -1,7 +1,8 @@
 /* 评审操作面板共享组件(#283 item8): 产物页与评审中心的右侧固定面板
    (布局模式4「内容区 + 右侧固定评审操作面板」的唯一实现)。
-   提交/裁定/终审/门禁拦截提示/审批中与通过提示一套实现, 状态与回调由页面持有;
-   页面特有区块经 children(顶部状态区)/withdrawSlot/leadHint/footer 注入。 */
+   提交/裁定/门禁拦截提示/审批中与通过提示一套实现, 状态与回调由页面持有;
+   #309 单步评审: 安全管理员裁定通过即 passed, 不再有独立终审块。
+   页面特有区块经 children(顶部状态区)/withdrawSlot/footer 注入。 */
 import type { ReactNode } from 'react'
 import { Alert, Button, Card, Input, Popconfirm, Radio, Typography } from 'antd'
 import { CheckCircleOutlined } from '@ant-design/icons'
@@ -28,12 +29,6 @@ export interface ReviewPanelProps {
   decideComment: string
   onDecideCommentChange: (v: string) => void
   onDecideSubmit: () => void
-  canFinalize: boolean
-  finalizeComment: string
-  onFinalizeCommentChange: (v: string) => void
-  onFinalizeClick: () => void
-  /** 评审员已通过前的负责人提示(评审中心)。 */
-  leadHint?: ReactNode
   /** 审批中的附加块(产物页提交人撤回按钮)。 */
   withdrawSlot?: ReactNode
   /** 顶部状态区: 页面自有描述/进度/汇总。 */
@@ -48,8 +43,7 @@ export default function ReviewPanel({
   blocked, canSubmit, gateStatus, acting, onSubmit, hideSubmit, disableSubmit,
   submitConfirmTitle,
   canDecide, decideTitle, decide, onDecideChange, decideComment, onDecideCommentChange,
-  onDecideSubmit, canFinalize, finalizeComment, onFinalizeCommentChange, onFinalizeClick,
-  leadHint, withdrawSlot, children, footer, auditorHint, style,
+  onDecideSubmit, withdrawSlot, children, footer, auditorHint, style,
 }: ReviewPanelProps) {
   const inReview = gateStatus === 'in_review'
   const submitButton = (
@@ -116,22 +110,6 @@ export default function ReviewPanel({
             onClick={onDecideSubmit}
           >
             提交裁定
-          </Button>
-        </div>
-      )}
-
-      {leadHint}
-      {canFinalize && (
-        <div style={{ marginTop: 12 }}>
-          <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-            终审会签(负责人): 评审员已通过
-          </Typography.Paragraph>
-          <Input.TextArea
-            rows={2} placeholder="终审意见(可空)" value={finalizeComment}
-            onChange={(e) => onFinalizeCommentChange(e.target.value)}
-          />
-          <Button type="primary" block loading={acting} onClick={onFinalizeClick} style={{ marginTop: 8 }}>
-            终审会签(复审通过)
           </Button>
         </div>
       )}

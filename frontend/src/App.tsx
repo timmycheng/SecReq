@@ -14,7 +14,7 @@ import {
 import type { MenuProps } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 
-import { api, AUTH_EXPIRED_EVENT, clearAuth, getStoredToken, getStoredUser, isSecuritySideRole, storeAuth } from './api'
+import { api, AUTH_EXPIRED_EVENT, clearAuth, getStoredToken, getStoredUser, isPlatformAdminRole, storeAuth } from './api'
 import type { StoredUser } from './api'
 import { USER_STORAGE_KEY } from './api'
 import { EnumsProvider } from './enums'
@@ -132,7 +132,8 @@ function AppBody() {
   const [user, setUser] = useState<StoredUser | null>(getStoredUser())
   const [pwdOpen, setPwdOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
-  const isSecurity = isSecuritySideRole(user?.role)
+  // 平台设置组(#309): 安全管理员+系统管理员可见
+  const isSecurity = isPlatformAdminRole(user?.role)
 
   // token 已过期时(任何请求 401)回到登录页
   useEffect(() => {

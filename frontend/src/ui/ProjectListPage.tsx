@@ -8,7 +8,7 @@ import {
 import { PlusOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 
-import { api, getStoredUser, isFullVisibilityRole } from '../api'
+import { api, getStoredUser, isDevSideRole, isFullVisibilityRole } from '../api'
 import { HEX } from './tokens'
 import { labelMapOf, useEnums } from '../enums'
 import { navigate } from '../router'
@@ -32,7 +32,10 @@ export default function ProjectListPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [createMode, setCreateMode] = useState<'blank' | 'copy'>('copy')
   const [createSystemId, setCreateSystemId] = useState<number | undefined>()
-  const isFullView = isFullVisibilityRole(getStoredUser()?.role)
+  const userRole = getStoredUser()?.role
+  const isFullView = isFullVisibilityRole(userRole)
+  // 评估写操作仅开发侧(#309): 安全管理员/系统管理员/审计只读
+  const canManage = isDevSideRole(userRole)
 
   // 清单改服务端过滤分页(#283 item9): 筛选/翻页即时下推查询
   const loadProjects = useCallback(() => {
@@ -131,25 +134,27 @@ export default function ProjectListPage() {
     {
       title: '操作', key: 'ops', width: 110, fixed: 'right',
       render: (_, record) => (
-        <Space size={0} split={<Divider type="vertical" />}>
+        <Space size={0} split={canManage ? <Divider type="vertical" /> : undefined}>
           <Button type="link" size="small" onClick={() => navigate(entryPath(record))}>
-            {record.status === 'draft' ? '继续填写' : '进入'}
+            {record.status === 'draft' ? (canManage ? '继续填写' : '查看') : '进入'}
           </Button>
-          <Popconfirm
-            title="删除该评估及其全部数据?"
-            onConfirm={async () => {
-              try {
-                await api.deleteProject(record.id)
-                clearWizardStepStorage(record.id)
-                message.success('已删除')
-              } catch (e) {
-                message.error((e as Error).message)
-              }
-              reload()
-            }}
-          >
-            <Button type="link" size="small" danger>删除</Button>
-          </Popconfirm>
+          {canManage && (
+            <Popconfirm
+              title="删除该评估及其全部数据?"
+              onConfirm={async () => {
+                try {
+                  await api.deleteProject(record.id)
+                  clearWizardStepStorage(record.id)
+                  message.success('已删除')
+                } catch (e) {
+                  message.error((e as Error).message)
+                }
+                reload()
+              }}
+            >
+              <Button type="link" size="small" danger>删除</Button>
+            </Popconfirm>
+          )}
         </Space>
       ),
     },
@@ -181,9 +186,11 @@ export default function ProjectListPage() {
               options={Object.entries(labelMapOf(enums, 'project_status')).map(([value, label]) => ({ value, label }))}
               onChange={(v) => resetPage(() => setStatusFilter(v ?? null))}
             />
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-              发起新评估
-            </Button>
+            {canManage && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+                发起新评估
+              </Button>
+            )}
           </>
         )}
       />

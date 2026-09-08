@@ -71,7 +71,7 @@ def reviewed_baseline(api):
     sec = api_as(api, "sec_admin")
     sec.post("/api/admin/users", json={
         "username": "ie_reviewer", "display_name": "ie_reviewer",
-        "role": "security_reviewer"})
+        "role": "security_admin"})
     sid = create_system_api(api, "外部连接系统")["id"]
     pid = api.post("/api/projects", json={"name": "外部连接项目", "system_id": sid}).json()["id"]
     resp = api.post(f"/api/projects/{pid}/features",
@@ -94,8 +94,8 @@ def reviewed_baseline(api):
     for r in reqs:
         reviewer.post(f"/api/projects/{pid}/review/requirements/{r['req_id']}/annotate",
                       json={"disposition": "approve"})
-    reviewer.post(f"/api/projects/{pid}/review/decide", json={"conclusion": "approve"})
-    resp = sec.post(f"/api/projects/{pid}/review/finalize", json={})
+    # #309 单步评审: 安全管理员裁定通过即 passed(基线写回随裁定触发)
+    resp = reviewer.post(f"/api/projects/{pid}/review/decide", json={"conclusion": "approve"})
     assert resp.status_code == 200, resp.text
     return sid, pid
 
