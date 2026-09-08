@@ -42,3 +42,6 @@ frontend/playwright-report/
 
 # NetBox 本地测试环境(netbox-docker 克隆/卷/令牌, 见 scripts/netbox_dev.sh)
 /netbox/
+
+# 知识库手工备份(rules/*.bak-*): 历史版本已由 git 追踪, 备份文件不入库(#316)
+rules/knowledge_base.bak*
