@@ -186,7 +186,8 @@ export default function ProjectListPage() {
           rowKey="id"
           loading={loading}
           dataSource={projects}
-          scroll={{ x: 1200 }}
+          /* max-content: 随「创建人」条件列自适应总宽, 保证表头/表体同宽不错位(#303) */
+          scroll={{ x: 'max-content' }}
           sticky
           pagination={{
             current: page, pageSize, total,
