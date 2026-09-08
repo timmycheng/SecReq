@@ -3,8 +3,8 @@
    备案的维护入口在 平台设置 → 备案管理(安全侧权威维护 #192)。 */
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Button, Card, Divider, Empty, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table,
-  Tag, Typography, message,
+  Button, Card, Col, Divider, Empty, Form, Input, Modal, Popconfirm, Row, Select, Space,
+  Switch, Table, Tag, Typography, message,
 } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 
@@ -208,12 +208,13 @@ export function SystemFormModal({ value, filings, enums, onSaved, onClose }: {
   return (
     <Modal
       title={isEdit ? '编辑系统' : '新建系统'}
+      width={720}
       open
       onCancel={onClose}
       onOk={() => form.validateFields()
         .then(async (v) => {
           try {
-            if (isEdit) await api.updateSystem(value.id!, v)
+            if (isEdit && value.id != null) await api.updateSystem(value.id, v)
             else await api.createSystem(v)
             message.success('已保存')
             onSaved()
@@ -224,43 +225,77 @@ export function SystemFormModal({ value, filings, enums, onSaved, onClose }: {
         .catch(() => { /* 校验失败留在弹窗 */ })}
     >
       <Form form={form} layout="vertical" initialValues={value}>
-        <Form.Item name="name" label="系统名称" rules={[{ required: true, message: '请输入系统名称' }]}>
-          <Input placeholder="如: 个人网银系统" />
-        </Form.Item>
-        <Form.Item name="code" label="系统编号">
-          <Input placeholder="内部台账编号, 选填" />
-        </Form.Item>
+        <Row gutter={16}>
+          <Col span={12}>
+            <Form.Item name="name" label="系统名称" rules={[{ required: true, message: '请输入系统名称' }]}>
+              <Input placeholder="如: 个人网银系统" />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="code" label="系统编号">
+              <Input placeholder="内部台账编号, 选填" />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="owner_name" label="系统负责人">
+              <Input placeholder="选填" />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="department" label="归属部门">
+              <Input placeholder="选填, 如: 个人金融部" />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="importance" label="重要程度">
+              <Select allowClear placeholder="选择重要程度" options={IMPORTANCE_LEVELS.map((v) => ({ value: v, label: v }))} />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="user_scale" label="用户规模" rules={[{ required: true, message: '请选择' }]}>
+              <Select options={optionsOf(enums, 'user_scales')} placeholder="选择规模" />
+            </Form.Item>
+          </Col>
+          <Col span={24}>
+            <Form.Item
+              name="filing_id" label="挂靠定级备案"
+              extra="挂靠后系统继承备案定级; 备案在 平台设置 → 备案管理 维护, 暂无合适项可先跳过"
+            >
+              <Select
+                allowClear placeholder="选择备案(选填)"
+                options={filings.map((f) => ({
+                  value: f.id, label: `${f.name}(${f.code ? `${f.code} / ` : ''}等保${f.level})`,
+                }))}
+              />
+            </Form.Item>
+          </Col>
+        </Row>
+        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+          三方责任人(选填)
+        </Typography.Text>
+        <Row gutter={16}>
+          <Col span={8}>
+            <Form.Item name="owner_dev_name" label="开发侧">
+              <Input placeholder="选填" />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="owner_ops_name" label="运维侧">
+              <Input placeholder="选填" />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="owner_biz_name" label="业务侧">
+              <Input placeholder="选填" />
+            </Form.Item>
+          </Col>
+        </Row>
         <Form.Item
-          name="filing_id" label="挂靠定级备案"
-          extra="挂靠后系统继承备案定级; 备案在 平台设置 → 备案管理 维护, 暂无合适项可先跳过"
+          name="types" label="业务类型(可多选)"
+          extra="一个系统可能同时包含多种形态, 如 App + 后台管理; 驱动移动应用类安全需求"
         >
-          <Select
-            allowClear placeholder="选择备案(选填)"
-            options={filings.map((f) => ({
-              value: f.id, label: `${f.name}(${f.code ? `${f.code} / ` : ''}等保${f.level})`,
-            }))}
-          />
+          <Select mode="multiple" options={optionsOf(enums, 'project_types')} placeholder="选择全部适用类型" />
         </Form.Item>
-        <Form.Item name="owner_name" label="系统负责人">
-          <Input placeholder="选填" />
-        </Form.Item>
-        <Form.Item name="department" label="归属部门">
-          <Input placeholder="选填, 如: 个人金融部" />
-        </Form.Item>
-        <Form.Item name="importance" label="重要程度">
-          <Select allowClear placeholder="选择重要程度" options={IMPORTANCE_LEVELS.map((v) => ({ value: v, label: v }))} />
-        </Form.Item>
-        <Space size={12} style={{ display: 'flex' }}>
-          <Form.Item name="owner_dev_name" label="开发侧责任人" style={{ width: '33%' }}>
-            <Input placeholder="选填" />
-          </Form.Item>
-          <Form.Item name="owner_ops_name" label="运维侧责任人" style={{ width: '33%' }}>
-            <Input placeholder="选填" />
-          </Form.Item>
-          <Form.Item name="owner_biz_name" label="业务侧责任人" style={{ width: '33%' }}>
-            <Input placeholder="选填" />
-          </Form.Item>
-        </Space>
         <Form.Item
           name="tags" label="标签(可多选/自定义)"
           extra="标签字典在 平台设置 → 系统设置 维护; 直接输入可临时自定义"
@@ -269,15 +304,6 @@ export function SystemFormModal({ value, filings, enums, onSaved, onClose }: {
             mode="tags" placeholder="如 重要信息系统 / 人行上报"
             options={(enums['system_tags'] as string[] | undefined ?? []).map((v) => ({ value: v, label: v }))}
           />
-        </Form.Item>
-        <Form.Item name="user_scale" label="用户规模" rules={[{ required: true, message: '请选择' }]}>
-          <Select options={optionsOf(enums, 'user_scales')} placeholder="选择规模" />
-        </Form.Item>
-        <Form.Item
-          name="types" label="业务类型(可多选)"
-          extra="一个系统可能同时包含多种形态, 如 App + 后台管理; 驱动移动应用类安全需求"
-        >
-          <Select mode="multiple" options={optionsOf(enums, 'project_types')} placeholder="选择全部适用类型" />
         </Form.Item>
         <Form.Item name="is_public" label="是否涉及公网访问" valuePropName="checked">
           <Switch checkedChildren="是" unCheckedChildren="否" />
