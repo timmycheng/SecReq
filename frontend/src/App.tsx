@@ -6,9 +6,10 @@ import {
   Space, Tag,
 } from 'antd'
 import {
-  ApartmentOutlined, BookOutlined, CheckCircleOutlined, ClusterOutlined, FileDoneOutlined,
-  FileTextOutlined, HistoryOutlined, HomeOutlined, LinkOutlined, LogoutOutlined,
-  RobotOutlined, SafetyCertificateOutlined, SettingOutlined, TeamOutlined, UserOutlined,
+  ApartmentOutlined, BookOutlined, CheckCircleOutlined, ClusterOutlined, DatabaseOutlined,
+  FileDoneOutlined, FileTextOutlined, HistoryOutlined, HomeOutlined, LinkOutlined,
+  LogoutOutlined, RobotOutlined, SafetyCertificateOutlined, SettingOutlined, TeamOutlined,
+  UserOutlined,
 } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
@@ -31,7 +32,8 @@ import ProjectListPage from './ui/ProjectListPage'
 import WizardPage from './ui/WizardPage'
 import ResultPage from './ui/ResultPage'
 import ReviewPage from './ui/ReviewPage'
-import AdminPage from './ui/AdminPage'
+import SystemSettingsPage from './ui/SystemSettingsPage'
+import VulnDbPage from './ui/VulnDbPage'
 import FilingsPage from './ui/FilingsPage'
 import KnowledgePage from './ui/KnowledgePage'
 import UsersPage from './ui/UsersPage'
@@ -68,7 +70,8 @@ const MENUS: MenuGroup[] = [
     label: '平台设置',
     securityOnly: true,
     items: [
-      { key: '/admin', label: '系统管理', icon: <SettingOutlined /> },
+      { key: '/admin', label: '系统设置', icon: <SettingOutlined /> },
+      { key: '/vulndb', label: '漏洞库', icon: <DatabaseOutlined /> },
       { key: '/filings', label: '备案管理', icon: <FileDoneOutlined /> },
       { key: '/knowledge', label: '知识库管理', icon: <BookOutlined /> },
       { key: '/users', label: '用户管理', icon: <TeamOutlined /> },
@@ -83,14 +86,15 @@ const MENUS: MenuGroup[] = [
 
 /** 菜单 key → 面包屑名。 */
 const CRUMB: Record<string, string> = {
-  systems: '系统清单', evaluations: '评估清单', admin: '系统管理', filings: '备案管理',
-  knowledge: '知识库管理', users: '用户管理', ldap: 'LDAP/AD 对接', llm: 'LLM 管理',
-  netbox: 'Netbox 管理', audit: '日志审计', changelog: '更新日志',
+  systems: '系统清单', evaluations: '评估清单', admin: '系统设置', vulndb: '漏洞库',
+  filings: '备案管理', knowledge: '知识库管理', users: '用户管理', ldap: 'LDAP/AD 对接',
+  llm: 'LLM 管理', netbox: 'Netbox 管理', audit: '日志审计', changelog: '更新日志',
 }
 
 /** 平台设置组路由 → 页面组件(安全角色专用, 外壳统一 403 兜底)。 */
 const SECURITY_ROUTES: Partial<Record<Route['name'], React.ReactNode>> = {
-  admin: <AdminPage />,
+  admin: <SystemSettingsPage />,
+  vulndb: <VulnDbPage />,
   filings: <FilingsPage />,
   knowledge: <KnowledgePage />,
   users: <UsersPage />,

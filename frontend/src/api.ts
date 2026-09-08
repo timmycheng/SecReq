@@ -347,7 +347,7 @@ export const api = {
   confirmRegulatory: (id: number, reqId: string) =>
     request<RequirementRow>(`/api/projects/${id}/requirements/${reqId}/confirm`, { method: 'POST' }),
 
-  /* ── 系统管理(仅安全角色) ── */
+  /* ── 平台设置(仅安全角色) ── */
   listKb: (keyword?: string) =>
     request<{ total: number; templates: KbTemplateRow[] }>(
       `/api/admin/knowledge-base${keyword ? `?keyword=${encodeURIComponent(keyword)}` : ''}`),

@@ -1,7 +1,7 @@
 /* 自研 hash 路由(#280 改版): #/ 工作台, #/systems 系统清单, #/systems/:id 系统详情,
    #/evaluations 评估清单, #/evaluations/:id/wizard 问卷, #/evaluations/:id/result 产物页,
-   #/evaluations/:id/review 评审中心; 平台设置组: /admin /filings /knowledge /users /ldap
-   /llm /netbox /audit /changelog。 */
+   #/evaluations/:id/review 评审中心; 平台设置组: /admin(系统设置) /vulndb(漏洞库)
+   /filings /knowledge /users /ldap /llm /netbox /audit /changelog。 */
 import { useEffect, useState } from 'react'
 
 export type Route =
@@ -13,6 +13,7 @@ export type Route =
   | { name: 'result'; projectId: number }
   | { name: 'review'; projectId: number }
   | { name: 'admin' }
+  | { name: 'vulndb' }
   | { name: 'filings' }
   | { name: 'knowledge' }
   | { name: 'users' }
@@ -26,6 +27,7 @@ const NAMED_SEGMENTS: Record<string, Route> = {
   systems: { name: 'systems' },
   evaluations: { name: 'evaluations' },
   admin: { name: 'admin' },
+  vulndb: { name: 'vulndb' },
   filings: { name: 'filings' },
   knowledge: { name: 'knowledge' },
   users: { name: 'users' },

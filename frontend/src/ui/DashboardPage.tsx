@@ -114,7 +114,8 @@ export default function DashboardPage() {
       { label: '新建备案', path: '/filings' },
       { label: '知识库管理', path: '/knowledge' },
       { label: '日志审计', path: '/audit' },
-      { label: '系统管理', path: '/admin' },
+      { label: '系统设置', path: '/admin' },
+      { label: '漏洞库', path: '/vulndb' },
     ] : []),
   ]
 

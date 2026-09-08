@@ -233,7 +233,7 @@ def run_sync(db: Session, trigger: str,
     cfg = get_netbox_config(db)
     if not cfg:
         log.status = "failed"
-        log.errors = ["NetBox 尚未配置, 请在 系统管理 → NetBox 互通 先填写地址与 Token"]
+        log.errors = ["NetBox 尚未配置, 请在 平台设置 → Netbox 管理 先填写地址与 Token"]
         log.finished_at = datetime.now()
         db.commit()
         return log
