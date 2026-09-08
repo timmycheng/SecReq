@@ -104,7 +104,6 @@ function BasicSection({ system, enums, onEdit }: {
               ? <Space size={6}>{system.filing_name}<LevelTag level={system.filing_level} /></Space>
               : <Typography.Text type="secondary">未挂备案(定级走评估问卷)</Typography.Text>,
           },
-          { key: 'owner', label: '负责人', children: system.owner_name || '—' },
           { key: 'department', label: '归属部门', children: system.department || '—' },
           { key: 'scale', label: '用户规模', children: scaleLabels[system.user_scale ?? ''] ?? (system.user_scale || '—') },
           { key: 'types', label: '业务类型', children: (system.types ?? []).map((t) => typeLabels[t] ?? t).join('、') || '—' },
@@ -733,7 +732,7 @@ export default function SystemDetailPage({ systemId }: { systemId: number }) {
       <PageHeader
         onBack={() => navigate('/systems')}
         title={system.name}
-        description={[system.code, system.filing_name, system.owner_name]
+        description={[system.code, system.filing_name]
           .filter(Boolean).join(' · ') || undefined}
         extra={(
           <Button

@@ -515,7 +515,10 @@ function SystemQuickCreateModal({ filings, onClose, onCreated }: {
   onClose: () => void
   onCreated: (s: SystemRow) => void
 }) {
-  const [form] = Form.useForm<{ name: string; filing_id?: number; owner_name?: string }>()
+  const [form] = Form.useForm<{
+    name: string; filing_id?: number
+    owner_dev_name?: string; owner_ops_name?: string; owner_biz_name?: string
+  }>()
   return (
     <Modal
       title="就地新建系统" open onCancel={onClose}
@@ -546,9 +549,23 @@ function SystemQuickCreateModal({ filings, onClose, onCreated }: {
             }))}
           />
         </Form.Item>
-        <Form.Item name="owner_name" label="系统负责人">
-          <Input placeholder="选填" />
-        </Form.Item>
+        <Row gutter={12}>
+          <Col span={8}>
+            <Form.Item name="owner_dev_name" label="开发侧责任人">
+              <Input placeholder="选填" />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="owner_ops_name" label="运维侧责任人">
+              <Input placeholder="选填" />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="owner_biz_name" label="业务侧责任人">
+              <Input placeholder="选填" />
+            </Form.Item>
+          </Col>
+        </Row>
       </Form>
     </Modal>
   )
