@@ -110,11 +110,13 @@ test('建系统 → 建项目 → 7步向导 → 生成 → 批量确认 → 导
   await expect(activeStep).toContainText('权限矩阵', { timeout: 20_000 })
   await page.getByRole('button', { name: '添加' }).nth(1).click()  // 资源编辑器的「添加」
   await page.getByPlaceholder('资源名, 如 交易流水记录').fill('E2E 客户数据')
-  // ── 第 5~6 步: API接口 → 组件与基础设施(#259 内嵌系统清单卡, 空清单直接推进) ──
+  // ── 第 5~7 步: API接口 → 基础设施 → 组件与许可证(#289 拆步, 内嵌系统清单卡, 空清单直接推进) ──
   await advanceTo('API接口')
+  await advanceTo('基础设施')
+  await advanceTo('组件与许可证')
   await advanceTo('确认生成')
 
-  // ── 第 7 步: 确认生成(默认本地离线库, 保持用例封闭) ──
+  // ── 第 8 步: 确认生成(默认本地离线库, 保持用例封闭) ──
   await expect(page.locator('.ant-steps-item-active')).toContainText('确认生成', { timeout: 20_000 })
   await page.getByRole('button', { name: /生成安全基线/ }).click()
 

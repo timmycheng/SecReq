@@ -352,6 +352,40 @@ def put_netbox(payload: NetboxConfigIn, request: Request,
     return {"status": "ok"}
 
 
+@router.get("/infra-envs")
+def get_infra_envs_route(db: Session = Depends(get_db),
+                         _: PlatformUser = Depends(require_security)):
+    """基础资源环境配置(DESIGN: 分环境可配置)。未配置时返回默认三环境。"""
+    from services.settings_service import get_infra_envs
+    return {"envs": get_infra_envs(db)}
+
+
+class InfraEnvIn(BaseModel):
+    code: str = Field(min_length=1, max_length=20, pattern=r"^[a-z0-9_-]+$",
+                      description="环境 code(小写字母/数字/中划线), 架构图与资产行按此存储")
+    name: str = Field(min_length=1, max_length=30)
+
+
+class InfraEnvsIn(BaseModel):
+    envs: list[InfraEnvIn] = Field(min_length=1, max_length=20)
+
+
+@router.put("/infra-envs")
+def put_infra_envs(payload: InfraEnvsIn, request: Request,
+                   db: Session = Depends(get_db),
+                   user: PlatformUser = Depends(require_security)):
+    from services.settings_service import set_setting
+    envs = [{"code": e.code, "name": e.name} for e in payload.envs]
+    codes = [e["code"] for e in envs]
+    if len(codes) != len(set(codes)):
+        raise HTTPException(status_code=400, detail="环境 code 重复")
+    set_setting(db, "infra_envs", {"envs": envs})
+    audit(db, user.username, "infra_envs_update",
+          {"count": len(envs), "codes": "、".join(codes)},
+          client_ip(request))
+    return {"envs": envs}
+
+
 @router.get("/netbox-config/system-fields")
 def get_netbox_system_fields(_: PlatformUser = Depends(require_security),
                              db: Session = Depends(get_db)):

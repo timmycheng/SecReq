@@ -1,6 +1,7 @@
-/* 7 步向导容器(#280 新框架): 页头 + 步骤卡 + 吸底导航, 步骤内容组件沿用原业务逻辑。
-   #194 基础设施/组件上收系统; #259 恢复「组件与基础设施」步骤(内嵌系统清单卡,
-   默认带出系统已存版本, 修改写穿系统清单), 基本信息仍在系统详情页维护。
+/* 8 步向导容器(#280 新框架): 页头 + 步骤卡 + 吸底导航, 步骤内容组件沿用原业务逻辑。
+   #194 基础设施/组件上收系统; #259 恢复「组件与基础设施」步骤; #289 按 DESIGN 拆为
+   「基础设施」与「组件与许可证」两步(内嵌系统清单卡, 默认带出系统已存版本,
+   修改写穿系统清单), 基本信息仍在系统详情页维护。
 
 职责划分: 各步骤组件通过 StepHandleContext 注册 save/isDirty(内聚各自的 API 调用与校验),
 本容器负责状态装载、统一吸底导航(保存并下一步/上一步)、未保存修改的离开拦截、
@@ -25,17 +26,19 @@ import Step3Features from './steps/Step3Features'
 import Step4DataAssets from './steps/Step4DataAssets'
 import Step5PermissionMatrix from './steps/Step5PermissionMatrix'
 import Step6ApiList from './steps/Step6ApiList'
-import Step7Inventory from './steps/Step7Inventory'
+import StepInfraAssets from './steps/StepInfraAssets'
+import StepSbomComponents from './steps/StepSbomComponents'
 import ConfirmStep from './steps/ConfirmStep'
 
-// 标题/描述保持短句, 避免 7 步并排时在窄屏被挤成竖排
+// 标题/描述保持短句, 避免多步并排时在窄屏被挤成竖排
 const STEPS: { title: string; description: string }[] = [
   { title: '评估定级', description: '基本信息/外部系统' },
   { title: '功能清单', description: '功能安全' },
   { title: '数据字典', description: '分级与脱敏' },
   { title: '权限矩阵', description: '越权与SoD' },
   { title: 'API接口', description: '匿名/公网' },
-  { title: '组件与基础设施', description: 'SBOM/资产·架构图' },
+  { title: '基础设施', description: '资产/架构图' },
+  { title: '组件与许可证', description: 'SBOM' },
   { title: '确认生成', description: '预览/生成' },
 ]
 const LAST = STEPS.length - 1
@@ -231,7 +234,8 @@ export default function WizardPage({ projectId }: { projectId: number }) {
     ws.data_assets.length > 0,
     ws.roles.length > 0 && ws.resources.length > 0,
     ws.api_endpoints.length > 0,
-    ws.components.length > 0 || ws.infra_assets.length > 0,
+    ws.infra_assets.length > 0,
+    ws.components.length > 0,
     false,
   ]
   const statusOf = (i: number): 'process' | 'finish' | 'wait' =>
@@ -243,7 +247,8 @@ export default function WizardPage({ projectId }: { projectId: number }) {
     (p) => <Step4DataAssets {...p} />,
     (p) => <Step5PermissionMatrix {...p} />,
     (p) => <Step6ApiList {...p} />,
-    (p) => <Step7Inventory {...p} />,
+    (p) => <StepInfraAssets {...p} />,
+    (p) => <StepSbomComponents {...p} />,
     (p) => <ConfirmStep {...p} />,
   ]
 

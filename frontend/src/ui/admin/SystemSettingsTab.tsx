@@ -3,6 +3,7 @@
    编号规则未配置时后端回退历史格式 XM<年份>-<三位序号>, 老评估编号不受影响。 */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, Card, Checkbox, Form, Input, InputNumber, Space, Spin, Tag, Typography, message } from 'antd'
+import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 
 import { api, type PolicyBaselines, type QuestionBank } from '../../api'
 import { NumField } from './shared'
@@ -14,6 +15,7 @@ export default function SystemSettingsTab() {
       <CodeRuleCard />
       <PolicyBaselineCard />
       <QuestionBankCard />
+      <InfraEnvsCard />
     </Space>
   )
 }
@@ -194,6 +196,82 @@ function QuestionBankCard() {
       >
         保存题库
       </Button>
+    </Card>
+  )
+}
+
+/* ── 基础资源环境(#289, DESIGN 分环境可配置) ────────── */
+
+interface InfraEnv {
+  code: string
+  name: string
+}
+
+function InfraEnvsCard() {
+  const [envs, setEnvs] = useState<InfraEnv[] | null>(null)
+  const [initialCodes, setInitialCodes] = useState<Set<string>>(new Set())
+  const save = useAsyncAction()
+
+  useEffect(() => {
+    api.getInfraEnvs().then((r) => {
+      setEnvs(r.envs)
+      setInitialCodes(new Set(r.envs.map((e) => e.code)))
+    }).catch((e: Error) => message.error(e.message))
+  }, [])
+
+  if (!envs) return <Spin style={{ display: 'block', margin: '24px auto' }} />
+
+  const update = (index: number, patch: Partial<InfraEnv>) => {
+    setEnvs(envs.map((e, i) => (i === index ? { ...e, ...patch } : e)))
+  }
+
+  return (
+    <Card
+      size="small" title="基础资源环境" style={{ width: 680 }}
+      extra={<Typography.Text type="secondary">评估向导与系统详情的基础设施环境列表</Typography.Text>}
+    >
+      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+        环境 code 存入资产与架构图数据, 已有环境的 code 不可改; 移除环境不会删除已有数据, 重新添加同 code 环境即可恢复展示。
+      </Typography.Text>
+      <Space direction="vertical" size={8} style={{ width: '100%', marginBottom: 12 }}>
+        {envs.map((e, i) => (
+          <Space key={initialCodes.has(e.code) ? e.code : `new-${i}`} size={8} style={{ display: 'flex' }}>
+            <Input
+              style={{ width: 180 }} placeholder="code(如 sit)"
+              disabled={initialCodes.has(e.code)}
+              value={e.code} maxLength={20}
+              onChange={(ev) => update(i, { code: ev.target.value.toLowerCase() })}
+            />
+            <Input
+              style={{ width: 240 }} placeholder="名称(如 SIT 环境)"
+              value={e.name} maxLength={30}
+              onChange={(ev) => update(i, { name: ev.target.value })}
+            />
+            <Button
+              size="small" danger icon={<DeleteOutlined />} disabled={envs.length <= 1}
+              onClick={() => setEnvs(envs.filter((_, idx) => idx !== i))}
+            />
+          </Space>
+        ))}
+      </Space>
+      <Space>
+        <Button size="small" icon={<PlusOutlined />} onClick={() => setEnvs([...envs, { code: '', name: '' }])}>
+          添加环境
+        </Button>
+        <Button
+          type="primary" size="small" loading={save.busy}
+          onClick={() => void save.run(async () => {
+            const bad = envs.find((e) => !/^[a-z0-9_-]{1,20}$/.test(e.code) || !e.name.trim())
+            if (bad) throw new Error(`环境配置不合法: code 需为小写字母/数字且非空, 名称非空(问题在「${bad.code || '未填写 code'}」)`)
+            const dup = envs.find((e, i) => envs.findIndex((x) => x.code === e.code) !== i)
+            if (dup) throw new Error(`环境 code 重复: ${dup.code}`)
+            setEnvs((await api.saveInfraEnvs(envs)).envs)
+            setInitialCodes(new Set(envs.map((e) => e.code)))
+          }, '基础资源环境已保存')}
+        >
+          保存环境
+        </Button>
+      </Space>
     </Card>
   )
 }

@@ -230,6 +230,10 @@ export const api = {
   systemDetailApis: (id: number) =>
     request<DetailSectionMeta & { rows: BaselineApiEndpoint[] }>(
       `/api/systems/${id}/detail-section?section=apis`),
+  /** 外部连接系统清单(#289): 读基线来源轮次, 与 features 分节同口径 */
+  systemDetailExternalSystems: (id: number) =>
+    request<DetailSectionMeta & { rows: ExternalSystemRow[] }>(
+      `/api/systems/${id}/detail-section?section=external_systems`),
   createSystem: (data: Partial<SystemRow>) =>
     request<SystemRow>('/api/systems', { method: 'POST', body: JSON.stringify(data) }),
   updateSystem: (id: number, data: Partial<SystemRow>) =>
@@ -381,6 +385,12 @@ export const api = {
     request<{ ok: boolean; latency_ms?: number; version?: string; reason?: string }>(
       '/api/admin/netbox-config/test', { method: 'POST', body: JSON.stringify(data) }),
   /** 拉取 system 对象类型字段, 供 field_map 对照; 未配置返回 409 */
+  /** 基础资源环境配置(#289, DESIGN 分环境可配置) */
+  getInfraEnvs: () => request<{ envs: { code: string; name: string }[] }>('/api/admin/infra-envs'),
+  saveInfraEnvs: (envs: { code: string; name: string }[]) =>
+    request<{ envs: { code: string; name: string }[] }>('/api/admin/infra-envs', {
+      method: 'PUT', body: JSON.stringify({ envs }),
+    }),
   getNetboxSystemFields: () =>
     request<{ slug: string; fields: { name: string; type?: string | null }[] }>(
       '/api/admin/netbox-config/system-fields'),

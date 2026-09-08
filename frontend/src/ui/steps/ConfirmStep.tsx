@@ -85,8 +85,9 @@ export default function ConfirmStep({ ws, goto }: StepProps) {
   if (!ws.components.length) gaps.push('组件清单为空')
   if (!ws.infra_assets.length) gaps.push('基础设施未维护')
 
-  // 组件与基础设施(#259): 向导第 6 步内嵌系统清单卡, 就地确认/修改(默认带出系统已存版本)
-  const withFixInventory = (text: string, empty: boolean) => withFix(5, text, empty)
+  // 基础设施/组件与许可证(#289 拆步后): 向导第 6/7 步内嵌系统清单卡, 就地确认/修改
+  const withFixInfra = (text: string, empty: boolean) => withFix(5, text, empty)
+  const withFixSbom = (text: string, empty: boolean) => withFix(6, text, empty)
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>
@@ -143,9 +144,9 @@ export default function ConfirmStep({ ws, goto }: StepProps) {
             label: '认证方式',
             children: ws.auth_config?.auth_methods.map((m) => labelMapOf(enums, 'auth_methods')[m] ?? m).join('、') || '未设置(按基线)',
           },
-          { key: 'sbom', label: <GlossaryTip term="sbom">组件与许可证</GlossaryTip>, children: withFixInventory(`${ws.components.length} 个组件`, !ws.components.length) },
           { key: 'apis', label: 'API 接口', children: withFix(4, `${ws.api_endpoints.length} 个接口`, false) },
-          { key: 'infra', label: '基础设施', children: withFixInventory(`${ws.infra_assets.length} 项资产`, !ws.infra_assets.length) },
+          { key: 'infra', label: '基础设施', children: withFixInfra(`${ws.infra_assets.length} 项资产`, !ws.infra_assets.length) },
+          { key: 'sbom', label: <GlossaryTip term="sbom">组件与许可证</GlossaryTip>, children: withFixSbom(`${ws.components.length} 个组件`, !ws.components.length) },
           {
             key: 'compliance',
             label: '合规目标',

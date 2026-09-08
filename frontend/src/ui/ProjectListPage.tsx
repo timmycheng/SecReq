@@ -151,8 +151,8 @@ export default function ProjectListPage() {
       <PageHeader
         title="评估清单"
         description={isFullView
-          ? '全部评估: 7 步向导采集信息, 生成安全需求清单与交付文档'
-          : '我的评估: 7 步向导采集信息, 生成安全需求清单与交付文档'}
+          ? '全部评估: 8 步向导采集信息, 生成安全需求清单与交付文档'
+          : '我的评估: 8 步向导采集信息, 生成安全需求清单与交付文档'}
         extra={(
           <>
             <Select
