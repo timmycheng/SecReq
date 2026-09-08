@@ -461,8 +461,10 @@ export interface RequirementRow {
   reg_confirmed?: boolean
   confirmed_by?: string | null
   confirmed_at?: string | null
-  /** 评审生命周期(#217): open/confirmed/reviewed/rectifying */
+  /** 评审生命周期(#217/#310): open/confirmed/reviewed/rectifying/invalid */
   review_status?: string
+  /** 不属实原因(#310: 标记不属实时填写, 恢复确认后清空) */
+  invalid_reason?: string | null
 }
 
 export interface VulnerabilityRow {

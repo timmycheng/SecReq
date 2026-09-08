@@ -37,6 +37,7 @@ class RequirementOut(BaseModel):
     reg_confirmed: bool = False
     confirmed_by: str | None = None
     confirmed_at: datetime | None = None
+    invalid_reason: str | None = None
 
 
 class VulnerabilityOut(BaseModel):

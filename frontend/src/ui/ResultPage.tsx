@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Key, ReactNode } from 'react'
 import {
-  Alert, Button, Card, Descriptions, Dropdown, Modal, Popconfirm, Progress, Select,
+  Alert, Button, Card, Descriptions, Dropdown, Input, Modal, Popconfirm, Progress, Select,
   Space, Spin, Table, Tabs, Tag, Tooltip, Typography, message,
 } from 'antd'
 import {
@@ -18,7 +18,8 @@ import { navigate } from '../router'
 import type {
   ComponentRow, DiffRow, ProjectDetail, RequirementDiff, RequirementRow, VulnerabilityRow,
 } from '../types'
-import { batchConfirm, confirmOne, unconfirmedAll, unconfirmedRegulatory } from './assist'
+import type { RequirementGroup } from './assist'
+import { batchConfirm, confirmOne, groupByTemplate, needsDevAction, unconfirmedAll, unconfirmedRegulatory } from './assist'
 import GlossaryTip from './GlossaryTip'
 import ReviewPanel from './ReviewPanel'
 import { DIFF_FIELD_FALLBACK_LABELS, isGateLocked } from './common'
@@ -28,7 +29,7 @@ import { GateStatusTag, LevelTag, ProjectStatusTag } from './tags'
 import {
   copyRichHtml, docShell, executiveSummarySection, requirementsSection, vulnsSection,
 } from './wordExport'
-import { HEX, PRIORITY_COLOR, SEVERITY_COLOR } from './tokens'
+import { HEX, PRIORITY_COLOR, REQUIREMENT_STATUS_COLOR, SEVERITY_COLOR } from './tokens'
 
 /** 漏洞严重度数值序(小=严重), 供汇聚取最高严重度(#95)。 */
 const SEVERITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
@@ -61,6 +62,11 @@ interface VulnGroup {
 
 type PwdDefaults = NonNullable<Awaited<ReturnType<typeof api.getGradingBaseline>>['pwd_defaults']>
 
+const REVIEW_STATUS_LABELS: Record<string, string> = {
+  open: '待确认', confirmed: '已确认', reviewed: '评审通过',
+  rectifying: '整改中', invalid: '不属实',
+}
+
 export default function ResultPage({ projectId }: { projectId: number }) {
   const enums = useEnums()
   const [project, setProject] = useState<ProjectDetail | null>(null)
@@ -82,6 +88,9 @@ export default function ResultPage({ projectId }: { projectId: number }) {
   const [categoryFilter, setCategoryFilter] = useState<string | undefined>()
   const [priorityFilter, setPriorityFilter] = useState<string | undefined>()
   const [selectedKeys, setSelectedKeys] = useState<Key[]>([])
+  // 标记不属实弹窗(#310 属实性确认)
+  const [invalidTarget, setInvalidTarget] = useState<RequirementRow | null>(null)
+  const [invalidReason, setInvalidReason] = useState('')
   const [confirming, setConfirming] = useState(false)
   // 执行摘要(#156/#171)并入 Tabs 作第一页, 摘要与明细同屏相邻; 点击摘要条目切 Tab 并带筛选, 反馈在视口内可见
   const [tab, setTab] = useState('summary')
@@ -137,6 +146,11 @@ export default function ResultPage({ projectId }: { projectId: number }) {
     && (!priorityFilter || r.priority === priorityFilter)),
     [hitAll, categoryFilter, priorityFilter, categoryLabels])
 
+  // 按知识库规则聚合展示(#310): 同一规则命中多个功能/数据项合并为一组, 减少开发侧理解负担
+  const grouped = useMemo(() => groupByTemplate(filtered), [filtered])
+  // 评估写操作仅开发侧(#309): 确认/标记不属实按钮只对 pm/开发管理员可见
+  const canManageEvaluations = isDevSideRole(user?.role)
+
   if (!project || requirements === null) {
     return <div style={{ display: 'grid', placeItems: 'center', height: 300 }}><Spin size="large" /></div>
   }
@@ -150,11 +164,31 @@ export default function ResultPage({ projectId }: { projectId: number }) {
     }
   }
 
+  // 标记不属实(#310): 必填原因, 保留记录不删除; 安全管理员评审时复核
+  const doMarkInvalid = async () => {
+    if (!invalidTarget) return
+    if (!invalidReason.trim()) { message.warning('请填写不属实原因'); return }
+    try {
+      await api.markRequirementInvalid(projectId, invalidTarget.req_id, invalidReason.trim())
+      message.success('已标记不属实, 评审时安全管理员将复核')
+      setInvalidTarget(null)
+      setInvalidReason('')
+      reload()
+    } catch (e) {
+      message.error((e as Error).message)
+    }
+  }
+
   const doBatchConfirm = async () => {
     if (!selectedKeys.length) { message.warning('请先勾选需求'); return }
     setConfirming(true)
     try {
-      const body = await batchConfirm(projectId, selectedKeys.map(String))
+      const selected = new Set(selectedKeys.map(String))
+      const reqIds = grouped
+        .filter((g) => selected.has(g.templateId))
+        .flatMap((g) => g.instances.filter(needsDevAction).map((r) => r.req_id))
+      if (!reqIds.length) { message.warning('选中分组里没有待确认的需求'); setConfirming(false); return }
+      const body = await batchConfirm(projectId, reqIds)
       message.success(`已确认 ${body.confirmed} 条${body.missing.length ? `, 未找到 ${body.missing.length} 条` : ''}`)
       setSelectedKeys([])
       reload()
@@ -423,9 +457,10 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                     本清单复制到 Word
                   </Button>
                 </Space>
-                <Table<RequirementRow>
-                  rowKey="req_id"
-                  dataSource={filtered}
+                {/* #310 需求展示以内容为聚合: 一行 = 一条知识库规则, 组内展开命中实例 */}
+                <Table<RequirementGroup>
+                  rowKey="templateId"
+                  dataSource={grouped}
                   size="small"
                   pagination={{
                     defaultPageSize: 20,
@@ -438,13 +473,51 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                     selections: true,
                   }}
                   expandable={{
-                    expandedRowRender: (r) => <ReqDetail r={r} />,
-                    rowExpandable: (r) => Boolean(r.description || r.acceptance_criteria
-                      || r.trigger_reason || (r.regulatory_ref ?? []).length),
+                    expandedRowRender: (g) => (
+                      <Table<RequirementRow>
+                        rowKey="req_id" size="small" pagination={false}
+                        dataSource={g.instances}
+                        expandable={{
+                          expandedRowRender: (r) => <ReqDetail r={r} />,
+                          rowExpandable: (r) => Boolean(r.description || r.acceptance_criteria
+                            || r.trigger_reason || (r.regulatory_ref ?? []).length),
+                        }}
+                        columns={[
+                          { title: '编号', dataIndex: 'req_id', width: 140 },
+                          {
+                            title: '命中内容', dataIndex: 'title', ellipsis: true,
+                          },
+                          {
+                            title: '触发来源', dataIndex: 'source_label', width: 220, ellipsis: true,
+                            render: (label: string | null | undefined) => label || '—',
+                          },
+                          {
+                            title: '属实性', dataIndex: 'review_status', width: 150,
+                            render: (v: string | undefined, r) => (
+                              <ReviewStatusCell status={v} invalidReason={r.invalid_reason} />
+                            ),
+                          },
+                          {
+                            title: '操作', width: 170,
+                            render: (_, r) => (canManageEvaluations ? (
+                              needsDevAction(r)
+                                ? <Space size={4}>
+                                    <Button size="small" type="link" onClick={() => void doConfirmOne(r)}>确认属实</Button>
+                                    <Button size="small" type="link" danger
+                                      onClick={() => { setInvalidTarget(r); setInvalidReason('') }}>不属实</Button>
+                                  </Space>
+                                : r.review_status === 'invalid'
+                                  ? <Button size="small" type="link" onClick={() => void doConfirmOne(r)}>恢复确认</Button>
+                                  : null
+                            ) : <ReviewStatusCell status={r.review_status} invalidReason={r.invalid_reason} />),
+                          },
+                        ]}
+                      />
+                    ),
                   }}
                   title={() => (
                     <Space size={12} wrap>
-                      <span>已选 {selectedKeys.length} 条</span>
+                      <span>已选 {selectedKeys.length} 组</span>
                       <Button size="small" type="primary" loading={confirming} onClick={() => void doBatchConfirm()}>
                         批量确认
                       </Button>
@@ -454,51 +527,43 @@ export default function ResultPage({ projectId }: { projectId: number }) {
                         </Button>
                       )}
                       <Typography.Text type="secondary">
-                        默认只列关键列, 点击行首 + 展开描述全文/验收标准/触发原因与合规出处; 支持批量确认
+                        同一知识库规则命中的多个功能/数据项合并为一组; 展开查看命中实例与详情, 可逐条「确认属实 / 标记不属实」
                       </Typography.Text>
                     </Space>
                   )}
                   columns={[
-                    { title: '编号', dataIndex: 'req_id', width: 130 },
+                    { title: '规则编号', dataIndex: 'templateId', width: 140 },
                     {
-                      title: '需求标题', dataIndex: 'title',
-                      render: (t, r) => (
-                        <Typography.Text
-                          strong={r.priority === 'critical'}
-                          style={{ color: r.priority === 'critical' ? HEX.danger : undefined, fontSize: 13 }}
-                          ellipsis={{ tooltip: t }}
-                        >
-                          {t}
-                        </Typography.Text>
-                      ),
+                      title: '需求规则', dataIndex: 'title',
+                      render: (t: string, g) => {
+                        const titles = new Set(g.instances.map((r) => r.title))
+                        return (
+                          <Typography.Text
+                            strong={g.priority === 'critical'}
+                            style={{ color: g.priority === 'critical' ? HEX.danger : undefined, fontSize: 13 }}
+                            ellipsis={{ tooltip: t }}
+                          >
+                            {t}{g.instances.length > 1 && titles.size > 1 ? ` 等 ${g.instances.length} 处命中` : ''}
+                          </Typography.Text>
+                        )
+                      },
                     },
                     {
                       title: '优先级', dataIndex: 'priority', width: 80,
-                      render: (p) => <Tag color={PRIORITY_COLOR[p]}>{priorityLabels[p] ?? p}</Tag>,
+                      render: (p: string) => <Tag color={PRIORITY_COLOR[p]}>{priorityLabels[p] ?? p}</Tag>,
                     },
                     {
                       title: '类目', dataIndex: 'category', width: 110,
-                      render: (c) => <Tag>{c}</Tag>,
+                      render: (c: string) => <Tag>{c}</Tag>,
                     },
+                    { title: '命中', dataIndex: 'instances', width: 70,
+                      render: (instances: RequirementRow[]) => instances.length },
                     {
-                      title: '触发来源', dataIndex: 'source_label', width: 220, ellipsis: true,
-                      render: (label, r) => label
-                        ?? (r.source_entity_type ? `${r.source_entity_type}#${r.source_entity_id}` : '来源未定位'),
-                    },
-                    {
-                      title: '合规依据', dataIndex: 'regulatory_ref', width: 100,
-                      render: (refs: RequirementRow['regulatory_ref']) => (refs ?? []).length
-                        ? <Tag color="blue">{(refs ?? []).length} 条出处</Tag>
-                        : '—',
-                    },
-                    {
-                      title: '确认', dataIndex: 'reg_confirmed', width: 110,
-                      render: (v: boolean, r) => (v
-                        ? <Tag color="blue">已确认{r.confirmed_by ? `·${r.confirmed_by}` : ''}</Tag>
-                        : <Button size="small" type="link" onClick={() => void doConfirmOne(r)}>确认</Button>),
+                      title: '属实性汇总', key: 'summary', width: 240,
+                      render: (_: unknown, g) => <GroupStatusSummary instances={g.instances} />,
                     },
                   ]}
-                  rowClassName={(r) => (r.priority === 'critical' ? 'row-critical' : '')}
+                  rowClassName={(g) => (g.priority === 'critical' ? 'row-critical' : '')}
                 />
               </>
             ),
@@ -761,6 +826,26 @@ export default function ResultPage({ projectId }: { projectId: number }) {
         </ReviewPanel>
       </div>
 
+      {/* ── 标记不属实弹窗(#310 属实性确认): 必填原因, 保留记录不删除 ── */}
+      <Modal
+        title={`标记不属实: ${invalidTarget?.req_id ?? ''}`}
+        open={invalidTarget !== null}
+        onCancel={() => setInvalidTarget(null)}
+        onOk={() => void doMarkInvalid()}
+        okText="确认标记不属实"
+      >
+        <Typography.Paragraph type="secondary">{invalidTarget?.title}</Typography.Paragraph>
+        <Typography.Paragraph type="warning" style={{ marginBottom: 8 }}>
+          标记后该需求不参加落盘, 但记录保留; 安全管理员评审时会复核不属实原因, 退回后可修改。
+        </Typography.Paragraph>
+        <Typography.Text type="secondary">不属实原因(必填)</Typography.Text>
+        <Input.TextArea
+          rows={3} style={{ marginTop: 4 }}
+          placeholder="如: 该功能不涉及此数据/已有其他系统承担该职责等"
+          value={invalidReason} onChange={(e) => setInvalidReason(e.target.value)}
+        />
+      </Modal>
+
     </div>
   )
 }
@@ -1014,5 +1099,39 @@ function ExecutiveSummaryCard({ hitAll, vulns, complianceTargets, complianceLabe
         {openReqs > 0 ? `; ${openReqs} 条尚未闭环(状态为待落实), 闭环进度见需求跟踪表。` : '。'}
       </Typography.Text>
     </Card>
+  )
+}
+
+/** 需求属实性状态单元格(#310): 含不属实原因提示。 */
+export function ReviewStatusCell({ status, invalidReason }: {
+  status?: string | null
+  invalidReason?: string | null
+}) {
+  const label = REVIEW_STATUS_LABELS[status ?? ''] ?? status ?? '待确认'
+  if (status === 'invalid') {
+    return (
+      <Tooltip title={invalidReason ? `不属实原因: ${invalidReason}` : undefined}>
+        <Tag color={REQUIREMENT_STATUS_COLOR.invalid}>不属实</Tag>
+      </Tooltip>
+    )
+  }
+  return <Tag color={REQUIREMENT_STATUS_COLOR[status ?? ''] ?? 'default'}>{label}</Tag>
+}
+
+/** 组内属实性汇总(#310): 各状态计数 Tag。 */
+export function GroupStatusSummary({ instances }: { instances: RequirementRow[] }) {
+  const counts = new Map<string, number>()
+  for (const r of instances) {
+    const key = r.review_status ?? 'open'
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  return (
+    <Space size={4} wrap>
+      {[...counts.entries()].map(([status, n]) => (
+        <Tag key={status} color={REQUIREMENT_STATUS_COLOR[status] ?? 'default'} style={{ marginRight: 0 }}>
+          {REVIEW_STATUS_LABELS[status] ?? status} {n}
+        </Tag>
+      ))}
+    </Space>
   )
 }

@@ -180,17 +180,16 @@ def submit_review(db: Session, project: Project, actor: PlatformUser,
 def annotate_requirement(db: Session, project: Project, gate: ReviewGate,
                          req: SecurityRequirement, actor: PlatformUser,
                          disposition: str, comment: str | None = None) -> None:
-    """评审员逐条批注: approve(通过→reviewed)/return(退回→rectifying)/object(异议留痕)。"""
+    """评审逐条批注=意见留痕(#310): 不再直接变更需求状态。
+
+    安全侧对具体条目的意见(认可/异议/需复核)只留痕; 需求状态变化一律由整体裁定
+    驱动(approve → confirmed 整体落盘为 reviewed; request_change 整体退回给开发),
+    杜绝「评审员逐条多次通过」与「整体通过后条目状态不同步」两类走查问题。
+    """
     if gate.status != "in_review":
         raise ReviewFlowError("评审未在进行中, 不能批注")
     _ensure_actor_can_review(gate, actor)
-    if disposition == "approve":
-        transition_requirement(db, req, "review_pass", actor, opinion=comment)
-    elif disposition == "return":
-        transition_requirement(db, req, "request_change", actor, opinion=comment)
-    elif disposition == "object":
-        pass  # 异议不改需求状态, 仅留痕
-    else:
+    if disposition not in ("approve", "return", "object"):
         raise ReviewFlowError(f"未知批注意见: {disposition}")
     append_evidence(db, gate, "annotate", actor, comment=comment,
                     payload={"req_id": req.req_id, "disposition": disposition})
@@ -337,7 +336,7 @@ def review_overview(db: Session, user: PlatformUser) -> list[dict]:
             "final_reviewer_name": users.get(gate.final_reviewer_id),
             "requirement_summary": {
                 key: summary.get(key, 0)
-                for key in ("open", "confirmed", "reviewed", "rectifying")
+                for key in ("open", "confirmed", "reviewed", "rectifying", "invalid")
             },
             "last_activity_at": _iso(activity_map.get(gate.id)),
         })
@@ -350,7 +349,7 @@ def review_state(db: Session, project: Project, user: PlatformUser,
     """门禁状态 + 留痕时间线 + 需求状态汇总(评审工作台/时间线展示数据源)。"""
     gate = db.query(ReviewGate).filter_by(
         project_id=project.id, gate_type=gate_type).first()
-    summary = {"open": 0, "confirmed": 0, "reviewed": 0, "rectifying": 0}
+    summary = {"open": 0, "confirmed": 0, "reviewed": 0, "rectifying": 0, "invalid": 0}
     for status, count in (
         db.query(SecurityRequirement.review_status, func.count())
         .filter(SecurityRequirement.project_id == project.id)

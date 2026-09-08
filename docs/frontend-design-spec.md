@@ -47,7 +47,7 @@
 - 色值唯一来源是 `frontend/src/ui/tokens.ts`(Tag 用 antd 预设色名, style 场景用其 HEX 常量, CSS 场景用 index.css 顶部变量); 页面内不得再定义同义映射或写状态语义 hex(#234); 角色标签色 `ROLE_COLOR` 同样在此(#268)
 - 品牌色唯一来源是 `frontend/src/ui/theme.ts`(PRIMARY/BRAND_GRADIENT/themeConfig), 与状态 tokens 分工: 品牌归 theme, 语义归 tokens(#268)
 - 等保定级(#234 定夺留痕): 一级=灰 / 二级=蓝 / 三级=黄, 与数据分级同 ramp——等保级别表达合规强度而非风险警示, 不用红色; 未来扩到四级/五级续接火山橙/红
-- 需求状态: open=灰 / confirmed=蓝 / reviewed=绿 / rectifying=橙(状态机见 v3.0 #217)
+- 需求状态: open=灰 / confirmed=蓝 / reviewed=绿 / rectifying=橙 / invalid=红(不属实, #310; 状态机见 v3.0 #217 与 #310 属实性确认)
 - 门禁: pending=灰 / in_review=蓝 / blocked=红 / passed=绿 / rejected=红 / rectifying=橙(in_review/rejected 是 ReviewGate 既有枚举的补充, blocked 为提交校验返回态)
 - 数据分级 L1-L5: 1级=灰 / 2级=蓝 / 3级=黄 / 4级=橙 / 5级=红
 - 操作按钮: 主操作=页面唯一 primary, 其余 default/danger

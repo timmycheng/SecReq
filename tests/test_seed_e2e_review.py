@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """种子项目全流程 E2E 验收(#231, #309 单步评审): 评审闭环端到端收口。
 
-链路: 种子项目 → 提交 → blocked(缺责任人确认) → 补齐 → 复提交 → 评审退回 1 条
-→ 整改 → 裁定通过(单步) → 系统基线写回。权限断言: pm 调评审接口 403; auditor 写 403;
-安全管理员不能提交评审。回归底线: 规则引擎测试全绿(全仓 pytest 保证)。
+链路: 种子项目 → 提交 → blocked(缺属实性结论) → 补齐 → 复提交 → 批注+整体退回
+→ 调整后重新提交 → 裁定通过(单步) → 系统基线写回。权限断言: pm 调评审接口 403;
+auditor 写 403; 安全管理员不能提交评审。回归底线: 规则引擎测试全绿(全仓 pytest 保证)。
 """
 import pytest
 
@@ -69,27 +69,24 @@ def test_full_review_loop_e2e(api, seeded_api):
     assert state["gate"]["status"] == "in_review"
     assert state["chain_valid"] is True
 
-    # ── 3. 评审员退回 1 条 → rectifying, 整体裁定 request_change ──
+    # ── 3. 批注意见留痕 + 整体退回(#310: 退回一律整体退回) ──
     reqs = api.get(f"/api/projects/{pid}/requirements").json()
     returned = reqs[0]
     resp = reviewer.post(
         f"/api/projects/{pid}/review/requirements/{returned['req_id']}/annotate",
-        json={"disposition": "return", "comment": "验收标准需补充量化指标"})
+        json={"disposition": "object", "comment": "验收标准需补充量化指标"})
     assert resp.status_code == 200, resp.text
-    assert resp.json()["review_status"] == "rectifying"
+    assert resp.json()["review_status"] == "confirmed"  # 批注不改状态
     resp = reviewer.post(f"/api/projects/{pid}/review/decide",
                          json={"conclusion": "request_change", "comment": "补充后重提"})
     assert resp.status_code == 200
     assert resp.json()["gate_status"] == "rectifying"
 
-    # ── 4. PM 整改 → 重新确认 → 重新提交 ──
-    resp = api.post(f"/api/projects/{pid}/requirements/{returned['req_id']}/confirm")
-    assert resp.status_code == 200
-    assert resp.json()["review_status"] == "confirmed"
+    # ── 4. PM 按意见调整 → 重新提交(需求状态保持 confirmed, 无需重新确认) ──
     resp = api.post(f"/api/projects/{pid}/review/submit")
     assert resp.json()["status"] == "submitted"
 
-    # ── 5. 复审: 逐条通过 → 裁定 approve 即 passed(#309 单步评审) ──
+    # ── 5. 复审: 批注留痕 → 裁定 approve 即 passed(#309 单步评审) ──
     reqs = api.get(f"/api/projects/{pid}/requirements").json()
     for r in reqs:
         resp = reviewer.post(

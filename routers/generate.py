@@ -147,6 +147,10 @@ class BatchConfirmIn(BaseModel):
     req_ids: list[str] = Field(min_length=1, max_length=500)
 
 
+class MarkInvalidIn(BaseModel):
+    reason: str = Field(min_length=1, max_length=500, description="不属实原因(必填)")
+
+
 @router.post("/requirements/batch-confirm", response_model=dict)
 def batch_confirm(payload: BatchConfirmIn,
                   project: Project = Depends(get_writable_project),
@@ -177,7 +181,8 @@ def batch_confirm(payload: BatchConfirmIn,
 def confirm_regulatory(req_id: str, project: Project = Depends(get_writable_project),
                        db: Session = Depends(get_db),
                        user: PlatformUser = Depends(require_login)):
-    """确认一条安全需求(#217 状态机: open/rectifying → confirmed, 幂等, reviewed 拒绝)。"""
+    """确认一条安全需求属实(#217/#310 状态机: open/rectifying/invalid → confirmed,
+    幂等, reviewed 拒绝; 从不属实恢复确认时清空行上原因, 留痕保留在流转记录)。"""
     req = db.query(SecurityRequirement).filter_by(
         project_id=project.id, req_id=req_id,
     ).first()
@@ -191,6 +196,28 @@ def confirm_regulatory(req_id: str, project: Project = Depends(get_writable_proj
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     db.commit()
     audit(db, user.username, "confirm", {"project_id": project.id, "req_id": req_id})
+    return RequirementOut.model_validate(req)
+
+
+@router.post("/requirements/{req_id}/invalid", response_model=RequirementOut)
+def mark_requirement_invalid(req_id: str, payload: MarkInvalidIn,
+                             project: Project = Depends(get_writable_project),
+                             db: Session = Depends(get_db),
+                             user: PlatformUser = Depends(require_login)):
+    """标记一条安全需求不属实(#310 属实性确认): 必填原因, 保留记录不删除;
+    安全管理员评审时复核, 恢复确认走 confirm 端点。"""
+    req = db.query(SecurityRequirement).filter_by(
+        project_id=project.id, req_id=req_id,
+    ).first()
+    if req is None:
+        raise HTTPException(status_code=404, detail=f"需求不存在: {req_id}")
+    try:
+        transition_requirement(db, req, "mark_invalid", user, opinion=payload.reason.strip())
+    except RequirementTransitionError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    db.commit()
+    audit(db, user.username, "mark_invalid", {"project_id": project.id, "req_id": req_id})
     return RequirementOut.model_validate(req)
 
 

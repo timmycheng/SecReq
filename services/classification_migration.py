@@ -67,6 +67,8 @@ _NEW_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("confirmed_at", "DATETIME"),
         # 需求评审生命周期(#217): 补列后已有行为 NULL, 由 backfill_review_statuses 回填
         ("review_status", "VARCHAR(20)"),
+        # 不属实原因(#310 属实性确认)
+        ("invalid_reason", "TEXT"),
     ],
     # #225 级别变更确认待办挂基线行(#223 表已建的存量库需补列)
     "system_baselines": [

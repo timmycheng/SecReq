@@ -7,9 +7,10 @@
  * 语义与文案细则见 docs/frontend-design-spec.md, 本模块与其一一对应。
  */
 
-// ── 需求评审生命周期(#217 状态机): open=灰 / confirmed=蓝 / reviewed=绿 / rectifying=橙
+// ── 需求评审生命周期(#217 状态机, #310 增不属实): open=灰 / confirmed=蓝 /
+// reviewed=绿 / rectifying=橙 / invalid=红(不属实, 待安全侧复核)
 export const REQUIREMENT_STATUS_COLOR: Record<string, string> = {
-  open: 'default', confirmed: 'blue', reviewed: 'green', rectifying: 'orange',
+  open: 'default', confirmed: 'blue', reviewed: 'green', rectifying: 'orange', invalid: 'red',
 }
 
 // ── 评审门禁(ReviewGate 状态 + 提交校验返回态 blocked)

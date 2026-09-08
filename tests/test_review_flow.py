@@ -82,7 +82,11 @@ def test_pm_cannot_review_own_submission(api, generated, reviewers):
 
 
 def test_full_chain_submit_annotate_decide_pass(api, generated, reviewers):
-    """提交 → 逐条批注 → 裁定 approve → passed; 需求全部 reviewed; 哈希链完整。"""
+    """提交 → 逐条批注(意见留痕) → 裁定 approve → passed; 需求全部 reviewed(#310)。
+
+    批注不再改变需求状态: 「通过」的评审语义只在整体裁定中生效,
+    杜绝评审员逐条多次通过、以及整体通过后条目状态不同步两类走查问题。
+    """
     pid, reqs = generated
     _confirm_all(api, pid, reqs)
     assert api.post(f"/api/projects/{pid}/review/submit").json()["status"] == "submitted"
@@ -95,7 +99,8 @@ def test_full_chain_submit_annotate_decide_pass(api, generated, reviewers):
             f"/api/projects/{pid}/review/requirements/{r['req_id']}/annotate",
             json={"disposition": "approve", "comment": "没问题"})
         assert resp.status_code == 200, resp.text
-        assert resp.json()["review_status"] == "reviewed"
+        # 批注仅留痕: 需求状态保持 confirmed, 不提前变 reviewed(#310)
+        assert resp.json()["review_status"] == "confirmed"
 
     # 裁定 approve → 单步评审直接 passed(#309), 随裁定触发基线写回
     resp = seca.post(f"/api/projects/{pid}/review/decide",
@@ -162,28 +167,19 @@ def _gate(db):
 
 
 def test_request_change_rectify_and_resubmit_loop(api, generated, reviewers):
-    """退回整改闭环: 裁定 request_change → rectifying → 整改确认 → 重新提交。"""
+    """整体退回闭环(#310): 裁定 request_change → rectifying → 开发调整 → 重新提交。"""
     pid, reqs = generated
     _confirm_all(api, pid, reqs)
     api.post(f"/api/projects/{pid}/review/submit")
 
     seca = _client(api, "seca_u")
-    # 逐条退回第一条(需求状态 confirmed → rectifying)
-    resp = seca.post(
-        f"/api/projects/{pid}/review/requirements/{reqs[0]['req_id']}/annotate",
-        json={"disposition": "return", "comment": "验收标准不完整"})
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["review_status"] == "rectifying"
-
+    # 整体退回: 门禁 rectifying, 需求条目状态不变(已确认保持已确认)
     resp = seca.post(f"/api/projects/{pid}/review/decide",
                      json={"conclusion": "request_change", "comment": "补充后重提"})
     assert resp.status_code == 200, resp.text
     assert resp.json()["gate_status"] == "rectifying"
-
-    # 整改: pm 重新确认(状态机 reconfirm: rectifying → confirmed)
-    resp = api.post(f"/api/projects/{pid}/requirements/{reqs[0]['req_id']}/confirm")
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["review_status"] == "confirmed"
+    after = api.get(f"/api/projects/{pid}/requirements").json()
+    assert all(r["review_status"] == "confirmed" for r in after)
 
     # 重新提交 → in_review, 评审结论清空
     resp = api.post(f"/api/projects/{pid}/review/submit")

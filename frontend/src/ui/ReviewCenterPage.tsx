@@ -61,7 +61,7 @@ export default function ReviewCenterPage() {
       render: (v: string | null) => v || '—' },
     { title: '提交时间', dataIndex: 'submitted_at', width: 150, render: fmtDateTime },
     { title: '最近动态', dataIndex: 'last_activity_at', width: 150, render: fmtDateTime },
-    { title: '需求(待确认/已确认/评审通过)', key: 'summary', width: 200,
+    { title: '需求(待确认/已确认/评审通过)', key: 'summary', width: 220,
       render: (_: unknown, r) => {
         const s = r.requirement_summary ?? {}
         return (
@@ -69,6 +69,9 @@ export default function ReviewCenterPage() {
             {s.open ?? 0} / {s.confirmed ?? 0} / {s.reviewed ?? 0}
             {(s.rectifying ?? 0) > 0 && (
               <Typography.Text type="warning"> (整改 {s.rectifying})</Typography.Text>
+            )}
+            {(s.invalid ?? 0) > 0 && (
+              <Typography.Text type="danger"> (不属实 {s.invalid})</Typography.Text>
             )}
           </Typography.Text>
         )

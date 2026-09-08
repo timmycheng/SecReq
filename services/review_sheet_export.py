@@ -23,7 +23,7 @@ _GATE_STATUS_LABELS = {
 }
 _LIFECYCLE_LABELS = {
     "open": "待确认", "confirmed": "已确认",
-    "reviewed": "评审通过", "rectifying": "整改中",
+    "reviewed": "评审通过", "rectifying": "整改中", "invalid": "不属实",
 }
 
 
