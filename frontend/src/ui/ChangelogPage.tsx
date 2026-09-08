@@ -104,7 +104,7 @@ export default function ChangelogPage() {
         title="更新日志"
         description="平台各版本变更记录, 与仓库 CHANGELOG 同源"
       />
-      <Card style={{ maxWidth: 880 }}>
+      <Card>
         <Collapse
           defaultActiveKey={[latest.version]}
           items={versions.map((v) => ({

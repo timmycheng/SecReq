@@ -2,7 +2,7 @@
    三块以分组卡片纵向排布; 密码策略与题库原为独立 Tab, 业务逻辑原样迁入。
    编号规则未配置时后端回退历史格式 XM<年份>-<三位序号>, 老评估编号不受影响。 */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Button, Card, Checkbox, Form, Input, InputNumber, Select, Space, Spin, Tag, Typography, message } from 'antd'
+import { Button, Card, Checkbox, Col, Form, Input, InputNumber, Row, Select, Space, Spin, Tag, Typography, message } from 'antd'
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 
 import { api, type PolicyBaselines, type QuestionBank } from '../../api'
@@ -11,13 +11,14 @@ import { useAsyncAction } from '../common'
 
 export default function SystemSettingsTab() {
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <CodeRuleCard />
-      <PolicyBaselineCard />
-      <QuestionBankCard />
-      <InfraEnvsCard />
-      <SystemDictsCard />
-    </Space>
+    /* #299: 按内容形态双列编排(题库最密整宽), 全宽不再右侧留白 */
+    <Row gutter={[16, 16]}>
+      <Col xs={24} lg={12}><CodeRuleCard /></Col>
+      <Col xs={24} lg={12}><InfraEnvsCard /></Col>
+      <Col xs={24} lg={12}><SystemDictsCard /></Col>
+      <Col xs={24} lg={12}><PolicyBaselineCard /></Col>
+      <Col span={24}><QuestionBankCard /></Col>
+    </Row>
   )
 }
 
@@ -52,27 +53,35 @@ function CodeRuleCard() {
 
   return (
     <Card
-      size="small" title="评估编号规则" style={{ width: 680 }}
+      size="small" title="评估编号规则"
       extra={<Typography.Text type="secondary">修改规则只影响新评估</Typography.Text>}
     >
       <Form form={form} layout="vertical" initialValues={rule ?? undefined}>
-        <Space size={16} wrap align="start">
-          <Form.Item
-            name="prefix" label="前缀(1-10 位字母数字)"
-            rules={[{ required: true }, { pattern: /^[A-Za-z0-9]+$/, message: '仅字母数字' }]}
-          >
-            <Input placeholder="如 XM / PRJ" maxLength={10} style={{ width: 160 }} />
-          </Form.Item>
-          <Form.Item name="include_year" valuePropName="checked" style={{ marginTop: 30 }}>
-            <Checkbox>编号包含当前年份</Checkbox>
-          </Form.Item>
-          <Form.Item name="digits" label="序号位数" extra="1-6 位, 不足补零">
-            <InputNumber min={1} max={6} style={{ width: 100 }} />
-          </Form.Item>
-          <Form.Item label="下一个编号" style={{ marginTop: 0 }}>
-            <Typography.Text code>{preview}</Typography.Text>
-          </Form.Item>
-        </Space>
+        <Row gutter={16}>
+          <Col span={12}>
+            <Form.Item
+              name="prefix" label="前缀(1-10 位字母数字)"
+              rules={[{ required: true }, { pattern: /^[A-Za-z0-9]+$/, message: '仅字母数字' }]}
+            >
+              <Input placeholder="如 XM / PRJ" maxLength={10} />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="include_year" valuePropName="checked" label=" ">
+              <Checkbox>编号包含当前年份</Checkbox>
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="digits" label="序号位数" extra="1-6 位, 不足补零">
+              <InputNumber min={1} max={6} style={{ width: '100%' }} />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item label="下一个编号" style={{ marginBottom: 0 }}>
+              <Typography.Text code style={{ fontSize: 16 }}>{preview}</Typography.Text>
+            </Form.Item>
+          </Col>
+        </Row>
         <div>
           <Button
             type="primary" size="small" loading={save.busy}
@@ -109,7 +118,7 @@ function PolicyBaselineCard() {
 
   return (
     <Card
-      size="small" title="密码策略基线" style={{ width: 680 }}
+      size="small" title="密码策略基线"
       extra={<Typography.Text type="secondary">评估未显式覆盖时按档位默认取值</Typography.Text>}
     >
       {Object.entries(data.baselines).map(([level, base]) => (
@@ -162,7 +171,7 @@ function QuestionBankCard() {
 
   return (
     <Card
-      size="small" title="定级题库" style={{ width: 880 }}
+      size="small" title="定级题库"
       extra={<Typography.Text type="secondary">题目分值决定自动定级建议, 保存后对新问卷立即生效</Typography.Text>}
     >
       <Card size="small" type="inner" title="定级阈值(总分 → 等级建议)" style={{ marginBottom: 12 }}>
@@ -228,7 +237,7 @@ function InfraEnvsCard() {
 
   return (
     <Card
-      size="small" title="基础资源环境" style={{ width: 680 }}
+      size="small" title="基础资源环境"
       extra={<Typography.Text type="secondary">评估向导与系统详情的基础设施环境列表</Typography.Text>}
     >
       <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
@@ -301,7 +310,7 @@ function SystemDictsCard() {
 
   return (
     <Card
-      size="small" title="系统字典(标签 / 系统类型枚举)" style={{ width: 880 }}
+      size="small" title="系统字典(标签 / 系统类型枚举)"
       extra={<Typography.Text type="secondary">系统清单的标签与业务类型下拉来源; 类型 code 录入后不可改</Typography.Text>}
     >
       <Typography.Paragraph type="secondary" style={{ marginBottom: 4 }}>系统标签:</Typography.Paragraph>
@@ -318,11 +327,11 @@ function SystemDictsCard() {
         {types.map((t, i) => (
           <Space key={t.code} size={8} style={{ display: 'flex' }}>
             <Input
-              style={{ width: 220 }} value={t.code} disabled
+              style={{ flex: '0 0 180px' }} value={t.code} disabled
               addonBefore="code"
             />
             <Input
-              style={{ width: 300 }} value={t.label} placeholder="显示名(如 业务平台)"
+              style={{ flex: 1 }} value={t.label} placeholder="显示名(如 业务平台)"
               onChange={(e) => setTypes(types.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)))}
             />
             <Button
