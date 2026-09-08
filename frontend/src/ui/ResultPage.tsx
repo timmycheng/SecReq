@@ -1,6 +1,6 @@
 /* 产物页(#280 改版): 执行摘要作第一页 Tab, 随后安全需求清单平铺(描述全文/来源中文/批量确认)、
    漏洞清单、组件与许可证; 每个视图可「复制到 Word」(HTML 剪贴板, 粘贴即排版)。
-   状态流转采用新框架的「右侧固定评审操作面板」: 提交评审 / 整体裁定 / 终审会签
+   状态流转采用新框架的「右侧固定评审操作面板」: 提交评审 / 整体裁定(#309 单步评审)
    走既有 review API; 逐条批注与留痕明细仍在评审中心页。 */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Key, ReactNode } from 'react'
@@ -12,7 +12,7 @@ import {
   CopyOutlined, DiffOutlined, DownloadOutlined, DownOutlined, ReloadOutlined,
 } from '@ant-design/icons'
 
-import { api, downloadFile, getStoredUser } from '../api'
+import { api, downloadFile, getStoredUser, isDevSideRole, isSecuritySideRole } from '../api'
 import { labelMapOf, useEnums } from '../enums'
 import { navigate } from '../router'
 import type {
@@ -90,24 +90,18 @@ export default function ResultPage({ projectId }: { projectId: number }) {
   // 两轮增量对比(评估继承): 有上一轮已生成评估时展示"新增/移除/变更"摘要条
   const [diff, setDiff] = useState<RequirementDiff | null>(null)
   const [diffOpen, setDiffOpen] = useState(false)
-  // 右侧评审操作面板(#280): 门禁状态 + 提交评审/裁定/终审(走既有 review API)
+  // 右侧评审操作面板(#280): 门禁状态 + 提交评审/裁定(走既有 review API; #309 单步评审)
   const [gate, setGate] = useState<Awaited<ReturnType<typeof api.reviewState>>['gate']>(null)
   const [reviewBlocked, setReviewBlocked] = useState<string[] | null>(null)
   const [acting, setActing] = useState(false)
   const [decide, setDecide] = useState<string | null>(null)
   const [decideComment, setDecideComment] = useState('')
-  const [finalizeOpen, setFinalizeOpen] = useState(false)
-  const [finalizeComment, setFinalizeComment] = useState('')
   const user = getStoredUser()
-  const isSecuritySide = user?.role === 'security_reviewer' || user?.role === 'security_lead'
-  const isLead = user?.role === 'security_lead'
+  const isSecuritySide = isSecuritySideRole(user?.role)
   const gateSubmitter = gate?.submitter_id != null && gate.submitter_id === user?.id
-  const gateReviewer = gate?.reviewer_id != null && gate.reviewer_id === user?.id
   const inReview = gate?.status === 'in_review'
-  const canSubmit = user?.role === 'pm' || isLead
+  const canSubmit = isDevSideRole(user?.role)
   const canDecide = isSecuritySide && inReview && !gateSubmitter
-  const canFinalize = isLead && inReview && gate?.reviewer_conclusion === 'approve'
-    && !gateSubmitter && !gateReviewer
 
   const priorityLabels = labelMapOf(enums, 'priority_labels')
   const severityLabels = labelMapOf(enums, 'severity_labels')
@@ -710,21 +704,19 @@ export default function ResultPage({ projectId }: { projectId: number }) {
           hideSubmit={hitAll.length === 0}
           onSubmit={() => void doSubmitReview()}
           canDecide={canDecide}
-          decideTitle="整体裁定(安全侧)"
+          decideTitle="整体裁定(安全管理员): 通过即评审通过并落盘"
           decide={decide}
           onDecideChange={setDecide}
           decideComment={decideComment}
           onDecideCommentChange={setDecideComment}
           onDecideSubmit={() => {
             if (!decide) return
+            const okMsg = decide === 'approve' ? '评审通过, 需求已落盘'
+              : decide === 'request_change' ? '已退回整改, 等待开发整改后重新提交' : '已否决'
             void runReviewAction(
-              () => api.reviewDecide(projectId, decide, decideComment), '裁定已记录',
+              () => api.reviewDecide(projectId, decide, decideComment), okMsg,
             ).then((ok) => { if (ok) { setDecide(null); setDecideComment('') } })
           }}
-          canFinalize={canFinalize}
-          finalizeComment={finalizeComment}
-          onFinalizeCommentChange={setFinalizeComment}
-          onFinalizeClick={() => setFinalizeOpen(true)}
           auditorHint={user?.role === 'auditor' ? '审计视角: 只读查看。' : undefined}
           withdrawSlot={canSubmit && gateSubmitter && (
             <Popconfirm
@@ -769,21 +761,6 @@ export default function ResultPage({ projectId }: { projectId: number }) {
         </ReviewPanel>
       </div>
 
-      {/* ── 终审确认弹窗 ── */}
-      <Modal
-        title="终审会签确认" open={finalizeOpen} onCancel={() => setFinalizeOpen(false)}
-        onOk={async () => {
-          const ok = await runReviewAction(
-            () => api.reviewFinalize(projectId, finalizeComment), '终审通过, 本轮评审归档')
-          if (ok) { setFinalizeOpen(false); setFinalizeComment('') }
-        }}
-        okText="确认复审通过"
-      >
-        <Typography.Paragraph>
-          终审通过后门禁进入 passed, 未批注的已确认需求将随项目整体推为「评审通过」。
-        </Typography.Paragraph>
-        <Typography.Paragraph type="secondary">终审人与提交人/评审员不得为同一人。</Typography.Paragraph>
-      </Modal>
     </div>
   )
 }

@@ -2,7 +2,7 @@
 """《项目安全评审表》导出(#230): 评审会可直接归档上会的第 5 份文档。
 
 内容: 门禁状态、需求覆盖统计、漏洞概况、遗留问题、评审意见与签字栏。
-数据来源与评审中心(/review/state)一致; 仅门禁推进到终审环节的项目可导出。
+数据来源与评审中心(/review/state)一致; 仅已提交评审的项目可导出。
 """
 from datetime import datetime
 
@@ -18,7 +18,7 @@ DOCX_MEDIA_TYPE = (
 )
 
 _GATE_STATUS_LABELS = {
-    "pending": "待提交", "in_review": "评审中", "passed": "终审通过",
+    "pending": "待提交", "in_review": "评审中", "passed": "评审通过",
     "rejected": "已否决", "rectifying": "退回整改中",
 }
 _LIFECYCLE_LABELS = {
@@ -58,16 +58,13 @@ def build_review_sheet_docx(project, gate: ReviewGate | None,
         _para(doc, f"当前状态: {_GATE_STATUS_LABELS.get(gate['status'], gate['status'])}"
                    f"({gate.get('status_verb') or ''})", size=10.5)
         _para(doc, f"提交时间: {gate.get('submitted_at') or '—'}    "
-                   f"评审时间: {gate.get('reviewed_at') or '—'}    "
-                   f"终审时间: {gate.get('final_reviewed_at') or '—'}", size=10.5)
+                   f"评审时间: {gate.get('reviewed_at') or '—'}", size=10.5)
         conclusion = gate.get("reviewer_conclusion")
         _para(doc, "评审员裁定: " + {
             "approve": "通过", "reject": "否决", "request_change": "退回整改",
         }.get(conclusion, "—"), size=10.5)
         if gate.get("reviewer_opinion"):
             _para(doc, f"评审意见: {gate['reviewer_opinion']}", size=10.5)
-        if gate.get("final_opinion"):
-            _para(doc, f"终审意见: {gate['final_opinion']}", size=10.5)
         _para(doc, "评审留痕链校验: " + ("完整" if chain_valid else "发现篡改, 请立即核查!"),
               size=10.5)
 
@@ -121,8 +118,8 @@ def build_review_sheet_docx(project, gate: ReviewGate | None,
     _heading(doc, "六、评审意见与签字栏")
     table = doc.add_table(rows=4, cols=4)
     table.style = "Table Grid"
-    heads = [("项目经理", "签字/日期"), ("安全评审员", "签字/日期"),
-             ("安全负责人", "签字/日期"), ("备注", "评审结论(通过/有条件通过/不通过)")]
+    heads = [("项目经理", "签字/日期"), ("开发管理员", "签字/日期"),
+             ("安全管理员", "签字/日期"), ("备注", "评审结论(通过/有条件通过/不通过)")]
     for i, (left, right) in enumerate(heads):
         row = table.rows[i]
         _set_cn_font(row.cells[0].paragraphs[0].add_run(left), size=10)

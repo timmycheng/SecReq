@@ -57,17 +57,23 @@ def test_dashboard_trend_counts_by_month(api):
 
 
 def test_dashboard_visible_scope_for_pm(api):
-    """pm 只统计本人项目; 安全侧全量可见。"""
+    """pm 只统计本人项目; 全量可见角色(dev_admin/安全管理员)统计全部; 安全管理员不能建评估(#309)。"""
     sid = create_system_api(api, "权限系统")["id"]
     _mk_project(api, sid, "dev 的评估")
 
     sec = api_as(api, "sec_admin")
     sec_sid = create_system_api(sec, "安全侧系统")["id"]
-    _mk_project(sec, sec_sid, "sec 的评估")
+    # 安全管理员对评估仅查看: 创建被角色层拦截(#309)
+    assert sec.post("/api/projects", json={
+        "name": "sec 的评估", "system_id": sec_sid}).status_code == 403
+
+    lead = api_as(api, "dev_lead")
+    lead_sid = create_system_api(lead, "开发侧系统")["id"]
+    _mk_project(lead, lead_sid, "lead 的评估")
 
     mine = api.get("/api/meta/dashboard").json()
     assert mine["eval_total"] == 1
-    theirs = sec.get("/api/meta/dashboard").json()
+    theirs = lead.get("/api/meta/dashboard").json()
     assert theirs["eval_total"] == 2
 
 

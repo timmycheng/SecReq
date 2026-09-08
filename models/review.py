@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """评审流程与门禁(改造点4/5): 平台用户 + 评审门禁 + 链式哈希留痕。
 
-ReviewGate: 每项目每门禁类型一行(UNIQUE), 两步签核
-    提交(pm/developer) → 评审员审核(security_reviewer) → 负责人终审(security_lead)。
+ReviewGate: 每项目每门禁类型一行(UNIQUE), #309 起单步评审:
+    提交(pm/dev_admin) → 安全管理员审核裁定(security_admin, 通过即 passed)。
+    final_* 会签字段保留兼容(单步评审下裁定即终审, 与 reviewer_* 同值)。
 ReviewEvidence: 门禁上的动作流水, curr_hash = SHA256(prev_hash + 动作字段),
     同一门禁内链式防篡改; 创世 prev_hash 为 64 个 0。
 """
@@ -59,10 +60,10 @@ class ReviewGate(Base):
         String(20), comment="approve/reject/request_change"
     )
     final_reviewer_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("platform_users.id"), comment="终审人(security_lead)"
-    )
-    final_opinion: Mapped[str | None] = mapped_column(Text, comment="终审意见")
-    final_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, comment="终审时间")
+        Integer, ForeignKey("platform_users.id"),
+        comment="终审人(#309 单步评审=评审人, 兼容存量字段)")
+    final_opinion: Mapped[str | None] = mapped_column(Text, comment="终审意见(#309 起=评审意见)")
+    final_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, comment="终审时间(#309 起=评审时间)")
     conclusion_attachments: Mapped[list] = mapped_column(
         JSON, default=list, comment="结论附件路径列表"
     )
@@ -78,15 +79,13 @@ class ReviewGate(Base):
     def latest_status_verb(self) -> str:
         """评审记录页展示: 当前推进到哪一步。"""
         if self.status == "passed":
-            return "终审通过"
+            return "评审通过"
         if self.status == "rejected":
             return "已否决"
         if self.status == "rectifying":
             return "退回整改中"
-        if self.reviewer_conclusion == "approve":
-            return "评审员已通过, 待负责人终审"
         if self.status == "in_review":
-            return "待评审员审核"
+            return "待安全管理员评审"
         return "待提交"
 
 

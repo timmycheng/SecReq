@@ -188,10 +188,10 @@ def summarize_detail(action: str, detail: dict) -> str | None:
             str(get("disposition")), str(get("disposition")))
         return f"项目 #{get('project_id')} 需求 {get('req_id')} 批注: {disposition}"
     if action == "review_decide":
-        conclusion = {"approve": "通过, 待终审", "request_change": "退回整改",
+        conclusion = {"approve": "评审通过", "request_change": "退回整改",
                       "reject": "否决"}.get(str(get("conclusion")), str(get("conclusion")))
         return f"项目 #{get('project_id')} 评审裁定: {conclusion}"
-    if action == "review_finalize":
+    if action == "review_finalize":  # 历史事件(#309 前两步评审), 保留可读描述
         verdict = "终审通过" if get("gate_status") == "passed" else "终审未通过"
         return f"项目 #{get('project_id')} {verdict}"
     return None

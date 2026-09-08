@@ -527,22 +527,33 @@ TRIGGER_CATEGORY_LABELS = {
 }
 
 # ── 平台角色与数据权限 ─────────────────────────────────
-# v3.0 评审闭环(#216): 恢复四类角色 —— pm 填报/确认/提交/整改, security_reviewer 逐条
-# 批注/裁定, security_lead 终审会签并继承安全侧管理权限, auditor 只读全量。
+# v3.3 五角色细分(#309): 两开发侧 + 一安全侧 + 两系统层面 ——
+#   项目经理(pm)           开发侧: 系统仅本人可管, 对本人系统填报/提交/撤回评估, 查看本人评审;
+#   开发管理员(dev_admin)  开发侧: 全量系统/评估管理与填报, 查看全量评审;
+#   安全管理员(security_admin) 安全侧: 全量系统管理, 评估仅查看, 评审通过/退回整改(单步裁定);
+#   系统管理员(sys_admin)  系统层面: 平台设置/用户管理等管理端;
+#   审计员(auditor)        系统层面: 全量只读。
 PLATFORM_ROLES = {
-    "pm": "项目管理",
-    "security_reviewer": "安全评审员",
-    "security_lead": "安全负责人",
+    "pm": "项目经理",
+    "dev_admin": "开发管理员",
+    "security_admin": "安全管理员",
+    "sys_admin": "系统管理员",
     "auditor": "审计员",
 }
 
-# 数据权限口径: 全量可见角色(评审队列/审计视图)可以看到/操作全部项目, pm 只见本人创建。
+# 数据权限口径: 全量可见角色可以看到全部系统/评估/评审, pm 仅见本人创建。
 ALL_PLATFORM_ROLES = list(PLATFORM_ROLES.keys())
-FULL_VISIBILITY_ROLES = ["security_reviewer", "security_lead", "auditor"]
-# 安全侧角色(系统管理/NetBox 互通等管理端点仅此两类可用)。
-SECURITY_SIDE_ROLES = ["security_reviewer", "security_lead"]
-# 一般业务写操作白名单(auditor 只读不在此列; 评审动作端点另有更细的角色白名单)。
-WRITE_WIZARD_ROLES = ["pm", "security_reviewer", "security_lead"]
+FULL_VISIBILITY_ROLES = ["dev_admin", "security_admin", "sys_admin", "auditor"]
+# 安全业务侧角色(评审裁定/基线级别确认等安全业务端点仅安全管理员可用)。
+SECURITY_SIDE_ROLES = ["security_admin"]
+# 平台管理端角色(系统设置/用户管理/备案管理等 /api/admin 管理页, #309)。
+PLATFORM_ADMIN_ROLES = ["security_admin", "sys_admin"]
+# 评估写操作白名单(新建/填写/提交/撤回/删除; 安全管理员不操作评估, 仅查看)。
+WRITE_WIZARD_ROLES = ["pm", "dev_admin"]
+# 系统写操作白名单(#309: 安全管理员同开发管理员全量管理系统; pm 仅限本人创建)。
+SYSTEM_WRITE_ROLES = ["pm", "dev_admin", "security_admin"]
+# 评审提交/撤回角色(仅评估负责人侧; 提交人不得自审由服务层硬约束)。
+REVIEW_SUBMIT_ROLES = ["pm", "dev_admin"]
 
 
 # ── 需求评审生命周期(#217) ─────────────────────────────

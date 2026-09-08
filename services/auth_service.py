@@ -37,21 +37,23 @@ def _initial_seed_password() -> str:
 SEED_DEFAULT_PASSWORD = _initial_seed_password()
 _PBKDF2_ITERATIONS = 120_000
 
-# 种子账号: 四类角色各一名(DESIGN「默认各角色用户各设置一个」), 账号语义清晰不残留演示痕迹(#63)
+# 种子账号: 五类角色各一名(#309 角色细分), 账号语义清晰不残留演示痕迹(#63)
 SEED_USERS = [
-    {"username": "dev_admin", "display_name": "开发管理员", "employee_id": "E1001", "role": "pm"},
-    {"username": "sec_admin", "display_name": "安全管理员", "employee_id": "E2001", "role": "security_lead"},
-    {"username": "sec_reviewer", "display_name": "安全评审员", "employee_id": "E2002", "role": "security_reviewer"},
+    {"username": "dev_admin", "display_name": "项目经理", "employee_id": "E1001", "role": "pm"},
+    {"username": "dev_lead", "display_name": "开发管理员", "employee_id": "E1002", "role": "dev_admin"},
+    {"username": "sec_admin", "display_name": "安全管理员", "employee_id": "E2001", "role": "security_admin"},
+    {"username": "sysadmin", "display_name": "系统管理员", "employee_id": "E9001", "role": "sys_admin"},
     {"username": "auditor", "display_name": "审计员", "employee_id": "E3001", "role": "auditor"},
 ]
 
-# 存量库旧角色 → 新角色(#216 四角色恢复; 不走映射的旧角色账号直接停用)
+# 存量库旧角色 → 新角色(#309 五角色; 不走映射的旧角色账号直接停用)。
+# v3.0~3.2 的 security_reviewer/security_lead 两步评审合并为 security_admin 单步评审。
 _LEGACY_ROLE_MAP = {
     "pm": "pm",
     "developer": "pm",
-    "security": "security_lead",
-    "security_reviewer": "security_reviewer",
-    "security_lead": "security_lead",
+    "security": "security_admin",
+    "security_reviewer": "security_admin",
+    "security_lead": "security_admin",
     "auditor": "auditor",
 }
 

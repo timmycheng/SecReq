@@ -176,12 +176,12 @@ def test_user_update_and_guards(sec):
         "username": "dev_edit", "display_name": "待编辑", "role": "pm"})
 
     resp = sec.put("/api/admin/users/dev_edit", json={
-        "display_name": "已编辑", "employee_id": "E9001", "role": "security_lead"})
+        "display_name": "已编辑", "employee_id": "E9001", "role": "security_admin"})
     assert resp.status_code == 200, resp.text
     rows = {r["username"]: r for r in sec.get("/api/admin/users").json()}
     assert rows["dev_edit"]["display_name"] == "已编辑"
     assert rows["dev_edit"]["employee_id"] == "E9001"
-    assert rows["dev_edit"]["role"] == "security_lead"
+    assert rows["dev_edit"]["role"] == "security_admin"
 
     # 不能修改自己的角色(防止最后一个安全账号自降锁死系统管理)
     resp = sec.put("/api/admin/users/sec_admin", json={"role": "pm"})
@@ -475,7 +475,7 @@ def test_changelog_endpoint_versions_descending(sec):
     assert kinds & {"h3", "para", "list_item"}
 
 
-def test_api_import_parse_text_and_file(api, sec):
+def test_api_import_parse_text_and_file(api):
     """#92: 批量导入解析 —— 文本/xlsx 两段式, 非法行不阻塞合法行。"""
     import io
 
@@ -491,7 +491,7 @@ def test_api_import_parse_text_and_file(api, sec):
         "牌价查询,GET,/api/v1/rates,true,0",
         "坏行,PUTT,/x,,",
     ])
-    resp = sec.post(f"/api/projects/{pid}/api-endpoints/parse",
+    resp = api.post(f"/api/projects/{pid}/api-endpoints/parse",
                     files={"text": (None, text)})
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -509,7 +509,7 @@ def test_api_import_parse_text_and_file(api, sec):
     ws.append(["客户查询", "GET", "/api/v1/customers", "是", "否"])
     buf = io.BytesIO()
     wb.save(buf)
-    resp = sec.post(f"/api/projects/{pid}/api-endpoints/parse",
+    resp = api.post(f"/api/projects/{pid}/api-endpoints/parse",
                     files={"file": ("apis.xlsx", buf.getvalue(),
                                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
     assert resp.status_code == 200, resp.text
@@ -526,47 +526,47 @@ def test_api_import_parse_text_and_file(api, sec):
     assert len(save.json()) == 2
 
 
-def test_api_import_parse_requires_input(sec, api):
+def test_api_import_parse_requires_input(api):
     sid = create_system_api(api, f"空导入系统-{uuid.uuid4().hex[:6]}")["id"]
     pid = api.post("/api/projects", json={"name": "空导入项目", "system_id": sid}).json()["id"]
-    resp = sec.post(f"/api/projects/{pid}/api-endpoints/parse",
+    resp = api.post(f"/api/projects/{pid}/api-endpoints/parse",
                     files={"text": (None, "   ")})
     assert resp.status_code == 400
 
 
-def test_arch_image_roundtrip(api, sec):
+def test_arch_image_roundtrip(api):
     """架构图(#164): 每环境一张 data URL, PUT 幂等覆盖, 类型/编码/大小校验, 删除幂等。"""
     system = create_system_api(api, "架构图系统")
     pid = api.post("/api/projects", json={
         "name": "架构图项目", "system_id": system["id"]}).json()["id"]
-    assert sec.get(f"/api/projects/{pid}/arch-images").json() == []
+    assert api.get(f"/api/projects/{pid}/arch-images").json() == []
 
     png = "data:image/png;base64," + base64.b64encode(b"png-bytes").decode()
-    resp = sec.put(f"/api/projects/{pid}/arch-images/prod", json={"image_data_url": png})
+    resp = api.put(f"/api/projects/{pid}/arch-images/prod", json={"image_data_url": png})
     assert resp.status_code == 200, resp.text
     assert resp.json()["env"] == "prod"
 
     # 同环境重复上传 → 覆盖而非新增; 多环境互相独立
-    assert sec.put(f"/api/projects/{pid}/arch-images/prod", json={"image_data_url": png}).status_code == 200
+    assert api.put(f"/api/projects/{pid}/arch-images/prod", json={"image_data_url": png}).status_code == 200
     webp = "data:image/webp;base64," + base64.b64encode(b"webp-bytes").decode()
-    assert sec.put(f"/api/projects/{pid}/arch-images/test", json={"image_data_url": webp}).status_code == 200
-    rows = sec.get(f"/api/projects/{pid}/arch-images").json()
+    assert api.put(f"/api/projects/{pid}/arch-images/test", json={"image_data_url": webp}).status_code == 200
+    rows = api.get(f"/api/projects/{pid}/arch-images").json()
     assert {r["env"] for r in rows} == {"prod", "test"}
 
     # 非图片类型 / base64 编码无效 / 超过 2MB
-    bad_type = sec.put(f"/api/projects/{pid}/arch-images/dev",
+    bad_type = api.put(f"/api/projects/{pid}/arch-images/dev",
                        json={"image_data_url": "data:image/gif;base64,R0lGODlhAQABAAAAADs="})
     assert bad_type.status_code == 400
-    bad_b64 = sec.put(f"/api/projects/{pid}/arch-images/dev",
+    bad_b64 = api.put(f"/api/projects/{pid}/arch-images/dev",
                       json={"image_data_url": "data:image/png;base64,AAAAAAAAAAA"})
     assert bad_b64.status_code == 400
     big = "data:image/png;base64," + base64.b64encode(b"x" * (2 * 1024 * 1024 + 1)).decode()
-    assert sec.put(f"/api/projects/{pid}/arch-images/dev", json={"image_data_url": big}).status_code == 413
+    assert api.put(f"/api/projects/{pid}/arch-images/dev", json={"image_data_url": big}).status_code == 413
 
     # 删除与幂等删除
-    assert sec.delete(f"/api/projects/{pid}/arch-images/prod").json() == {"ok": True}
-    assert sec.delete(f"/api/projects/{pid}/arch-images/prod").json() == {"ok": True}
-    assert {r["env"] for r in sec.get(f"/api/projects/{pid}/arch-images").json()} == {"test"}
+    assert api.delete(f"/api/projects/{pid}/arch-images/prod").json() == {"ok": True}
+    assert api.delete(f"/api/projects/{pid}/arch-images/prod").json() == {"ok": True}
+    assert {r["env"] for r in api.get(f"/api/projects/{pid}/arch-images").json()} == {"test"}
 
 def test_kb_create_template_and_duplicate(sec, kb_files):
     """新增模板(#165): POST 落盘可读; 重复 id 与缺必填字段被拦截。"""

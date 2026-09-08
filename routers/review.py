@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""评审动作流端点(#218): 提交/批注/裁定/终审/状态与时间线。
+"""评审动作流端点(#218, #309 单步化): 提交/批注/裁定/状态与时间线。
 
-角色口径(#216): 提交=pm/安全负责人; 批注与裁定=安全侧(评审员/负责人);
-终审=仅安全负责人。提交人不得自审, 评审员不得终审自己的裁定(服务层硬约束)。
+角色口径(#309 五角色): 提交/撤回=pm/开发管理员; 批注与裁定=安全管理员(通过即通过,
+不再区分初审/终审)。提交人不得自审(服务层硬约束)。
 """
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -15,8 +15,7 @@ from routers.common import (
 from services.audit_service import audit
 from services.review_service import (
     ReviewFlowError, ReviewForbidden, annotate_requirement, decide_review,
-    finalize_review, get_or_create_gate, review_state, submit_review,
-    withdraw_review,
+    get_or_create_gate, review_state, submit_review, withdraw_review,
 )
 
 import shared.constants as C
@@ -81,7 +80,7 @@ class DecideIn(BaseModel):
 
 
 @router.post("/submit")
-def submit(ctx: ProjectUserCtx = Depends(_write_ctx("pm", "security_lead")),
+def submit(ctx: ProjectUserCtx = Depends(_write_ctx(*C.REVIEW_SUBMIT_ROLES)),
            db: Session = Depends(get_db),
            request: Request = None):
     """提交评审(#218): 硬校验未过返回 blocked 契约; 通过则门禁进入 in_review。"""
@@ -132,7 +131,7 @@ def decide(payload: DecideIn,
            ctx: ProjectUserCtx = Depends(_write_ctx(*C.SECURITY_SIDE_ROLES)),
            db: Session = Depends(get_db),
            request: Request = None):
-    """评审员整体裁定(#218): approve=待终审 / request_change=退回整改 / reject=否决。"""
+    """安全管理员整体裁定(#309 单步评审): approve=评审通过并落盘 / request_change=退回整改 / reject=否决。"""
     gate = _gate_or_404(ctx, db)
     try:
         decide_review(db, ctx.project, gate, ctx.user,
@@ -147,37 +146,18 @@ def decide(payload: DecideIn,
     audit(db, ctx.user.username, "review_decide",
           {"project_id": ctx.project.id, "conclusion": payload.conclusion},
           client_ip(request))
-    return {"status": "ok", "gate_status": gate.status}
-
-
-@router.post("/finalize")
-def finalize(payload: ReviewOpinionIn,
-             ctx: ProjectUserCtx = Depends(_write_ctx("security_lead")),
-             db: Session = Depends(get_db),
-             request: Request = None):
-    """终审会签(#218): 仅评审员 approve 后可终审; 通过 → passed(基线写回触发源)。"""
-    gate = _gate_or_404(ctx, db)
-    try:
-        finalize_review(db, ctx.project, gate, ctx.user, payload.comment)
-    except ReviewFlowError as exc:
-        db.rollback()
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except ReviewForbidden as exc:
-        db.rollback()
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-    db.commit()
-    audit(db, ctx.user.username, "review_finalize",
-          {"project_id": ctx.project.id, "gate_status": gate.status},
-          client_ip(request))
-    # 基线写回与终审结论分事务(#225): 写回失败只记告警, 不回滚评审结论
-    from services.baseline_writeback import writeback_baseline
-    baseline = writeback_baseline(db, ctx.project, gate, ctx.user)
+    # 基线写回与评审结论分事务(#225): 写回失败只记告警, 不回滚评审结论
+    baseline_written = False
+    if payload.conclusion == "approve":
+        from services.baseline_writeback import writeback_baseline
+        baseline = writeback_baseline(db, ctx.project, gate, ctx.user)
+        baseline_written = baseline is not None
     return {"status": "ok", "gate_status": gate.status,
-            "baseline_written": baseline is not None}
+            "baseline_written": baseline_written}
 
 
 @router.post("/withdraw")
-def withdraw(ctx: ProjectUserCtx = Depends(_write_ctx("pm", "security_lead")),
+def withdraw(ctx: ProjectUserCtx = Depends(_write_ctx(*C.REVIEW_SUBMIT_ROLES)),
              db: Session = Depends(get_db),
              request: Request = None):
     """撤回评审(评估状态机): 审批中提交人可撤回, 回到新建阶段, 各项数据保留。"""

@@ -154,7 +154,7 @@ def writeback_baseline(db: Session, project: Project, gate, actor) -> SystemBase
             baseline_id=baseline.id,
             project_id=project.id,
             gate_id=gate.id,
-            summary=f"终审通过写回基线: {baseline.summary}"
+            summary=f"评审通过写回基线: {baseline.summary}"
                     + (f"; 级别待确认(备案 {filing_level}/评估 {suggested})"
                        if baseline.pending_level_confirmation else ""),
             operator_id=actor.id,

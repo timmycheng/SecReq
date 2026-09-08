@@ -24,7 +24,7 @@ from services.system_service import (
 
 router = APIRouter(prefix="/api/filings", tags=["filings"])
 
-_writable = Depends(require_write_roles(*C.SECURITY_SIDE_ROLES))
+_writable = Depends(require_write_roles(*C.PLATFORM_ADMIN_ROLES))
 
 
 def _detail(filing: Filing, system_count: int = 0, latest_round: dict | None = None) -> FilingDetail:
@@ -42,7 +42,7 @@ def list_all(db: Session = Depends(get_db), user: PlatformUser = Depends(require
 
 @router.post("", response_model=FilingDetail, status_code=201, dependencies=[_writable])
 def create(payload: FilingCreate, request: Request, db: Session = Depends(get_db),
-           user: PlatformUser = Depends(require_write_roles(*C.SECURITY_SIDE_ROLES))):
+           user: PlatformUser = Depends(require_write_roles(*C.PLATFORM_ADMIN_ROLES))):
     try:
         filing = create_filing(db, payload.model_dump())
     except NameConflictError as exc:
@@ -56,7 +56,7 @@ def create(payload: FilingCreate, request: Request, db: Session = Depends(get_db
 @router.patch("/{filing_id}", response_model=FilingDetail, dependencies=[_writable])
 def patch(payload: FilingUpdate, filing_id: int, request: Request,
           db: Session = Depends(get_db),
-          user: PlatformUser = Depends(require_write_roles(*C.SECURITY_SIDE_ROLES))):
+          user: PlatformUser = Depends(require_write_roles(*C.PLATFORM_ADMIN_ROLES))):
     filing = db.get(Filing, filing_id)
     if filing is None:
         raise HTTPException(status_code=404, detail=f"备案不存在: id={filing_id}")
@@ -72,7 +72,7 @@ def patch(payload: FilingUpdate, filing_id: int, request: Request,
 
 @router.delete("/{filing_id}", status_code=204, dependencies=[_writable])
 def remove(filing_id: int, request: Request, db: Session = Depends(get_db),
-           user: PlatformUser = Depends(require_write_roles(*C.SECURITY_SIDE_ROLES))):
+           user: PlatformUser = Depends(require_write_roles(*C.PLATFORM_ADMIN_ROLES))):
     filing = db.get(Filing, filing_id)
     if filing is None:
         raise HTTPException(status_code=404, detail=f"备案不存在: id={filing_id}")
@@ -108,7 +108,7 @@ def _decode_csv(raw: bytes) -> str:
 async def import_csv(request: Request, file: UploadFile = File(...),
                      db: Session = Depends(get_db),
                      user: PlatformUser = Depends(
-                         require_write_roles(*C.SECURITY_SIDE_ROLES))):
+                         require_write_roles(*C.PLATFORM_ADMIN_ROLES))):
     """CSV 批量导入备案: 表头 name,level[,code,note](中英文表头均可)。
 
     逐行校验: name/level 必填, level 须为有效定级, 名称/编号冲突整行跳过;

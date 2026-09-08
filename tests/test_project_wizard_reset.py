@@ -119,12 +119,13 @@ def test_reset_wizard_clears_all_inputs(api, bound_projects):
 
 
 def test_copy_and_reset_audited(api, sec, bound_projects):
-    """copy-from 与 reset-wizard 都有审计留痕(以安全角色操作)。"""
+    """copy-from 与 reset-wizard 都有审计留痕(开发管理员操作, 安全管理员查审计)。"""
+    lead = api_as(api, "dev_lead")  # 评估写操作属开发侧(#309); dev_lead 全量可见可操作
     src = bound_projects("审计来源")
     _seed_inputs(api, src)
     dst = bound_projects("审计目标")
-    assert sec.post(f"/api/projects/{dst}/copy-from", json={"from_project_id": src}).status_code == 200
-    assert sec.post(f"/api/projects/{dst}/reset-wizard").status_code == 200
+    assert lead.post(f"/api/projects/{dst}/copy-from", json={"from_project_id": src}).status_code == 200
+    assert lead.post(f"/api/projects/{dst}/reset-wizard").status_code == 200
 
     logs = sec.get("/api/admin/audit-logs").json()
     actions = {log["action"] for log in logs}

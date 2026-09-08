@@ -26,12 +26,11 @@ def generated(api):
 
 @pytest.fixture()
 def reviewers(api):
-    """评审员与负责人账号(经管理端创建, 种子默认口令可直接登录)。"""
+    """安全管理员账号(经管理端创建, 种子默认口令可直接登录; #309 单步评审只需一个)。"""
     sec = api_as(api, "sec_admin")
-    for username, role in (("reviewer_u", "security_reviewer"), ("lead_u", "security_lead")):
-        resp = sec.post("/api/admin/users", json={
-            "username": username, "display_name": username, "role": role})
-        assert resp.status_code == 201, resp.text
+    resp = sec.post("/api/admin/users", json={
+        "username": "seca_u", "display_name": "seca_u", "role": "security_admin"})
+    assert resp.status_code == 201, resp.text
     return True
 
 
@@ -58,30 +57,28 @@ def test_overview_only_after_submit(api, generated):
     assert row["project_id"] == pid
     assert row["project_code"] is not None
     assert row["gate_status"] == "in_review"
-    assert row["status_verb"] == "待评审员审核"
+    assert row["status_verb"] == "待安全管理员评审"
     assert row["submitter_name"]  # 提交人为当前开发身份
     assert row["requirement_summary"]["confirmed"] == len(reqs)
     assert row["last_activity_at"]
 
 
 def test_overview_updates_with_review_actions(api, generated, reviewers):
-    """评审推进后条目状态与汇总同步更新。"""
+    """评审推进后条目状态与汇总同步更新(#309 单步: 裁定通过即 passed)。"""
     pid, reqs = generated
     _confirm_all(api, pid, reqs)
     api.post(f"/api/projects/{pid}/review/submit")
 
-    reviewer = _client(api, "reviewer_u")
-    lead = _client(api, "lead_u")
-    for r in reqs:
-        reviewer.post(f"/api/projects/{pid}/review/requirements/{r['req_id']}/annotate",
-                      json={"disposition": "approve"})
-    reviewer.post(f"/api/projects/{pid}/review/decide", json={"conclusion": "approve"})
-    lead.post(f"/api/projects/{pid}/review/finalize", json={"comment": "通过"})
+    seca = _client(api, "seca_u")
+    resp = seca.post(f"/api/projects/{pid}/review/decide",
+                     json={"conclusion": "approve", "comment": "通过"})
+    assert resp.status_code == 200, resp.text
 
     rows = api.get("/api/reviews").json()
     assert len(rows) == 1
     row = rows[0]
     assert row["gate_status"] == "passed"
+    assert row["status_verb"] == "评审通过"
     assert row["requirement_summary"]["reviewed"] == len(reqs)
     assert row["reviewer_name"] and row["final_reviewer_name"]
 

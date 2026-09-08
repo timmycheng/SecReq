@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""种子项目全流程 E2E 验收(#231): v3.0 评审闭环端到端收口。
+"""种子项目全流程 E2E 验收(#231, #309 单步评审): 评审闭环端到端收口。
 
 链路: 种子项目 → 提交 → blocked(缺责任人确认) → 补齐 → 复提交 → 评审退回 1 条
-→ 整改 → 复审通过 → 系统基线写回。权限断言: pm 调评审接口 403; auditor 写 403;
-pm 不能自审。回归底线: 规则引擎测试全绿(全仓 pytest 保证)。
+→ 整改 → 裁定通过(单步) → 系统基线写回。权限断言: pm 调评审接口 403; auditor 写 403;
+安全管理员不能提交评审。回归底线: 规则引擎测试全绿(全仓 pytest 保证)。
 """
 import pytest
 
@@ -28,8 +28,7 @@ def seeded_api(api):
     assert resp.status_code == 200, resp.text
     assert (api.get(f"/api/projects/{pid}").json()["system_id"]) == system_id
     sec = api_as(api, "sec_admin")
-    for username, role in (("e2e_reviewer", "security_reviewer"),
-                           ("e2e_lead", "security_lead"),
+    for username, role in (("e2e_reviewer", "security_admin"),
                            ("e2e_auditor", "auditor")):
         resp = sec.post("/api/admin/users", json={
             "username": username, "display_name": username, "role": role})
@@ -55,8 +54,7 @@ def test_full_review_loop_e2e(api, seeded_api):
     """提交→blocked→补齐→复审→退回整改→复审通过→基线写回 全链。"""
     pid = seeded_api
     sec = api_as(api, "sec_admin")
-    reviewer = _client(api, "e2e_reviewer")
-    lead = _client(api, "e2e_lead")
+    reviewer = _client(api, "e2e_reviewer")  # #309 单步评审: 仅安全管理员一个评审身份
 
     # ── 1. 首次提交: 需求门禁 blocked(缺责任人确认) ──
     body = api.post(f"/api/projects/{pid}/review/submit").json()
@@ -91,7 +89,7 @@ def test_full_review_loop_e2e(api, seeded_api):
     resp = api.post(f"/api/projects/{pid}/review/submit")
     assert resp.json()["status"] == "submitted"
 
-    # ── 5. 复审: 逐条通过 → approve → 终审 → passed ──
+    # ── 5. 复审: 逐条通过 → 裁定 approve 即 passed(#309 单步评审) ──
     reqs = api.get(f"/api/projects/{pid}/requirements").json()
     for r in reqs:
         resp = reviewer.post(
@@ -100,9 +98,6 @@ def test_full_review_loop_e2e(api, seeded_api):
         assert resp.status_code == 200
     resp = reviewer.post(f"/api/projects/{pid}/review/decide",
                          json={"conclusion": "approve"})
-    assert resp.status_code == 200
-    resp = lead.post(f"/api/projects/{pid}/review/finalize",
-                     json={"comment": "复审通过, 同意归档"})
     assert resp.status_code == 200, resp.text
     assert resp.json()["gate_status"] == "passed"
 
@@ -119,7 +114,7 @@ def test_full_review_loop_e2e(api, seeded_api):
     detail = sec.get(f"/api/systems/{system_id}").json()
     assert detail["baseline"] is not None
     assert detail["baseline"]["source_project_id"] == pid
-    assert any("终审通过写回基线" in h["summary"] for h in detail["baseline_histories"])
+    assert any("评审通过写回基线" in h["summary"] for h in detail["baseline_histories"])
 
     # ── 8. 写回后新建轮次: 基线预填(#224 闭环) ──
     nxt = api.post("/api/projects", json={
@@ -144,7 +139,6 @@ def test_permission_assertions_pm_auditor(api, seeded_api):
     assert auditor.post(f"/api/projects/{pid}/review/submit").status_code == 403
     assert auditor.post(f"/api/projects/{pid}/review/decide",
                         json={"conclusion": "approve"}).status_code == 403
-    assert auditor.post(f"/api/projects/{pid}/review/finalize", json={}).status_code == 403
     assert auditor.post("/api/systems", json={"name": "x"}).status_code == 403
     assert auditor.post("/api/admin/users", json={
         "username": "nope", "display_name": "n", "role": "pm"}).status_code == 403
@@ -164,7 +158,6 @@ def test_permission_assertions_pm_auditor(api, seeded_api):
         json={"disposition": "approve"}).status_code == 403
     assert api.post(f"/api/projects/{pid}/review/decide",
                     json={"conclusion": "approve"}).status_code == 403
-    assert api.post(f"/api/projects/{pid}/review/finalize", json={}).status_code == 403
 
     report = sec.get("/api/admin/step-metrics",
                      params={"project_id": pid}).json()
@@ -173,8 +166,8 @@ def test_permission_assertions_pm_auditor(api, seeded_api):
 
 
 def test_migrated_accounts_login_and_permissions(api):
-    """存量账号升级后可登录且权限不回退(#216 回归底线)。"""
-    for username, role in (("dev_admin", "pm"), ("sec_admin", "security_lead")):
+    """存量账号升级后可登录且权限不回退(#309 回归底线)。"""
+    for username, role in (("dev_admin", "pm"), ("sec_admin", "security_admin")):
         resp = TestClient(api.app).post("/api/auth/login", json={
             "username": username, "password": SEED_DEFAULT_PASSWORD})
         assert resp.status_code == 200

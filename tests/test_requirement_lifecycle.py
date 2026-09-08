@@ -232,7 +232,7 @@ def test_confirm_endpoint_writes_transition(api):
     record = transitions[0]
     assert record["action"] == "confirm"
     assert record["from_status"] == "open" and record["to_status"] == "confirmed"
-    assert record["operator_name"] == "开发管理员"
+    assert record["operator_name"] == "项目经理"  # dev_admin 种子显示名(#309)
     assert record["created_at"]
 
     # 幂等确认: 状态与记录数都不变

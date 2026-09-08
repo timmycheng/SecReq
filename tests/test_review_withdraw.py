@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""评估状态机收口(DESIGN): 审批态内容锁定 + 开发侧撤回 + 清单耗时输出 + 种子四角色。
+"""评估状态机收口(DESIGN): 审批态内容锁定 + 开发侧撤回 + 清单耗时输出 + 种子五角色(#309)。
 
 撤回语义: 审批中(in_review)提交人可撤回, 门禁回 pending、项目回草稿、数据全保留,
 重提后哈希链续写不断链。
@@ -29,10 +29,11 @@ def generated(api):
 
 @pytest.fixture()
 def reviewers(api):
+    """安全管理员评审账号(#309 单步评审)。"""
     sec = api_as(api, "sec_admin")
     resp = sec.post("/api/admin/users", json={
         "username": "wd_reviewer", "display_name": "wd_reviewer",
-        "role": "security_reviewer"})
+        "role": "security_admin"})
     assert resp.status_code == 201, resp.text
     return True
 
@@ -80,9 +81,12 @@ def test_withdraw_only_by_submitter_and_only_in_review(api, generated, reviewers
     _confirm_all(api, pid, reqs)
     assert api.post(f"/api/projects/{pid}/review/submit").json()["status"] == "submitted"
 
-    # 非提交人撤回 → 403(sec_admin 是全量可见的安全负责人, 但不是提交人)
+    # 非提交人撤回 → 403(sec_admin 是安全管理员本就无撤回角色, 更非提交人)
     sec = api_as(api, "sec_admin")
     assert sec.post(f"/api/projects/{pid}/review/withdraw").status_code == 403
+    # 另一位开发侧(dev_lead)虽可提交/撤回评估, 但不是本次提交人 → 服务层 403
+    lead = api_as(api, "dev_lead")
+    assert lead.post(f"/api/projects/{pid}/review/withdraw").status_code == 403
 
     state = api.get(f"/api/projects/{pid}/review/state").json()
     assert state["gate"]["status"] == "in_review"
@@ -101,17 +105,12 @@ def test_withdraw_only_by_submitter_and_only_in_review(api, generated, reviewers
 
 
 def test_passed_locks_content_but_allows_cleanup(api, generated, reviewers):
-    """终审通过后内容锁定(已落盘); 删除不再拦(允许清理历史轮次)。"""
+    """评审通过后内容锁定(已落盘); #309 单步评审: 安全管理员裁定通过即 passed。"""
     pid, _, reqs = generated
     _confirm_all(api, pid, reqs)
     api.post(f"/api/projects/{pid}/review/submit")
     reviewer = _client(api, "wd_reviewer")
-    lead = _client(api, "sec_admin")
-    for r in reqs:
-        reviewer.post(f"/api/projects/{pid}/review/requirements/{r['req_id']}/annotate",
-                      json={"disposition": "approve"})
-    reviewer.post(f"/api/projects/{pid}/review/decide", json={"conclusion": "approve"})
-    resp = lead.post(f"/api/projects/{pid}/review/finalize", json={})
+    resp = reviewer.post(f"/api/projects/{pid}/review/decide", json={"conclusion": "approve"})
     assert resp.status_code == 200, resp.text
 
     assert api.post(f"/api/projects/{pid}/features",
@@ -131,12 +130,13 @@ def test_project_list_outputs_duration_seconds(api, generated):
     assert rows[pid]["duration_seconds"] == 42.0
 
 
-def test_seed_users_cover_all_four_roles(api):
-    """DESIGN: 默认各角色用户各设置一个 —— 四角色种子账号均可登录。"""
+def test_seed_users_cover_all_five_roles(api):
+    """DESIGN + #309: 五角色种子账号均可登录, 角色值与角色细分一致。"""
     from services.auth_service import SEED_DEFAULT_PASSWORD
     from fastapi.testclient import TestClient
-    for username, role in (("dev_admin", "pm"), ("sec_admin", "security_lead"),
-                           ("sec_reviewer", "security_reviewer"), ("auditor", "auditor")):
+    for username, role in (("dev_admin", "pm"), ("dev_lead", "dev_admin"),
+                           ("sec_admin", "security_admin"), ("sysadmin", "sys_admin"),
+                           ("auditor", "auditor")):
         resp = TestClient(api.app).post("/api/auth/login", json={
             "username": username, "password": SEED_DEFAULT_PASSWORD})
         assert resp.status_code == 200, resp.text

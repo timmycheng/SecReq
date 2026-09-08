@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""评审动作流(#218): 门禁推进 + 链式哈希留痕 + 交付物快照。
+"""评审动作流(#218, #309 单步化): 门禁推进 + 链式哈希留痕 + 交付物快照。
 
-把 models/review.py 休眠的 ReviewGate(两步签核)/ReviewEvidence(链式哈希)跑起来:
-    提交(pm) → 评审员批注/裁定(security_reviewer) → 负责人终审会签(security_lead),
-    request_change/reject → rectifying, 整改后重新提交形成闭环。
+把 models/review.py 休眠的 ReviewGate/ReviewEvidence(链式哈希)跑起来:
+    提交(pm/dev_admin) → 安全管理员单步评审: 通过即 passed(需求确认落盘+基线写回),
+    退回整改/否决 → rectifying/rejected, 整改后重新提交形成闭环。
 
-硬约束: 提交人/评审员/终审人三者不得为同一人; 两步签核顺序不可跳过。
+硬约束: 提交人不得自审(服务层强制); 裁定即终审, 不再区分初审/终审两步签核(#309)。
 门禁硬校验通过 GATE_CHECKS 注册表挂接(#220 需求门禁 / #222 设计门禁), 本层只汇总契约。
 """
 import hashlib
@@ -142,12 +142,10 @@ def get_or_create_gate(db: Session, project: Project,
     return gate
 
 
-def _ensure_actor_can_review(gate: ReviewGate, actor: PlatformUser, step: str) -> None:
-    """提交人/评审员/终审人三者不得为同一人(PM 不能自审)。"""
+def _ensure_actor_can_review(gate: ReviewGate, actor: PlatformUser) -> None:
+    """提交人不得自审(#216 三权分立的存留约束: 提交与评审必须不同人)。"""
     if gate.submitter_id == actor.id:
-        raise ReviewForbidden(f"提交人不能担任{step}")
-    if step == "终审" and gate.reviewer_id == actor.id:
-        raise ReviewForbidden("评审员不能同时担任终审人")
+        raise ReviewForbidden("提交人不能自审本人的提交")
 
 
 def submit_review(db: Session, project: Project, actor: PlatformUser,
@@ -155,7 +153,7 @@ def submit_review(db: Session, project: Project, actor: PlatformUser,
     """提交评审: 硬校验 → blocked 契约; 通过则门禁进入 in_review 并做交付物快照。
 
     可提交状态: pending(首次)/rectifying(整改后)/rejected(否决后重开);
-    in_review 重复提交 409(评审员正在看); passed 409(已通过, 重评请新建评估轮次)。
+    in_review 重复提交 409(安全管理员正在看); passed 409(已通过, 重评请新建评估轮次)。
     """
     gate = get_or_create_gate(db, project, gate_type)
     if gate.status == "in_review":
@@ -185,7 +183,7 @@ def annotate_requirement(db: Session, project: Project, gate: ReviewGate,
     """评审员逐条批注: approve(通过→reviewed)/return(退回→rectifying)/object(异议留痕)。"""
     if gate.status != "in_review":
         raise ReviewFlowError("评审未在进行中, 不能批注")
-    _ensure_actor_can_review(gate, actor, "评审员")
+    _ensure_actor_can_review(gate, actor)
     if disposition == "approve":
         transition_requirement(db, req, "review_pass", actor, opinion=comment)
     elif disposition == "return":
@@ -201,10 +199,14 @@ def annotate_requirement(db: Session, project: Project, gate: ReviewGate,
 def decide_review(db: Session, project: Project, gate: ReviewGate,
                   actor: PlatformUser, conclusion: str,
                   comment: str | None = None) -> None:
-    """评审员整体裁定: approve(待终审)/request_change(→rectifying)/reject(→rejected)。"""
+    """安全管理员整体裁定(#309 单步评审): approve 即通过并落盘, request_change/reject 退回。
+
+    approve → 门禁 passed + 剩余已确认需求整体推为 reviewed(评审全部通过后仅确认的
+    需求落盘); 调用方(路由层)在独立事务中触发基线写回。
+    """
     if gate.status != "in_review":
         raise ReviewFlowError("评审未在进行中, 不能裁定")
-    _ensure_actor_can_review(gate, actor, "评审员")
+    _ensure_actor_can_review(gate, actor)
     if conclusion not in ("approve", "reject", "request_change"):
         raise ReviewFlowError(f"未知裁定结论: {conclusion}")
     gate.reviewer_id = actor.id
@@ -212,48 +214,39 @@ def decide_review(db: Session, project: Project, gate: ReviewGate,
     gate.reviewer_opinion = comment
     gate.reviewed_at = datetime.now()
     if conclusion == "approve":
-        pass  # 等待负责人终审, 状态保持 in_review
-    elif conclusion == "request_change":
+        rectifying = (
+            db.query(SecurityRequirement)
+            .filter_by(project_id=project.id, review_status="rectifying")
+            .count()
+        )
+        if rectifying:
+            raise ReviewFlowError(f"仍有 {rectifying} 条需求处于整改中, 不能评审通过")
+        # 单步评审: 裁定即终审, 会签字段一并留档(models 兼容字段, #309)
+        gate.final_reviewer_id = actor.id
+        gate.final_opinion = comment
+        gate.final_reviewed_at = gate.reviewed_at
+        gate.status = "passed"
+        append_evidence(db, gate, "approve", actor, comment=comment,
+                        payload={"gate_status": "passed"})
+        # 未被逐条批注通过的已确认需求, 随门禁通过整体推为 reviewed(仅确认的需求落盘)
+        pending = (
+            db.query(SecurityRequirement)
+            .filter_by(project_id=project.id, review_status="confirmed")
+            .all()
+        )
+        for req in pending:
+            try:
+                transition_requirement(db, req, "review_pass", actor,
+                                       opinion="评审通过, 随项目门禁整体通过")
+            except RequirementTransitionError:
+                pass  # 单条异常不阻塞评审结论
+        return
+    if conclusion == "request_change":
         gate.status = "rectifying"
     else:
         gate.status = "rejected"
     append_evidence(db, gate, conclusion, actor, comment=comment,
                     payload={"gate_status": gate.status})
-
-
-def finalize_review(db: Session, project: Project, gate: ReviewGate,
-                    actor: PlatformUser, comment: str | None = None) -> None:
-    """终审会签: 仅评审员 approve 后可终审; 通过 → passed 并把已确认需求整体推为 reviewed。"""
-    if gate.status != "in_review":
-        raise ReviewFlowError("评审未在进行中, 不能终审")
-    if gate.reviewer_conclusion != "approve":
-        raise ReviewFlowError("评审员尚未通过, 不能终审(两步签核顺序不可跳过)")
-    _ensure_actor_can_review(gate, actor, "终审")
-    rectifying = (
-        db.query(SecurityRequirement)
-        .filter_by(project_id=project.id, review_status="rectifying")
-        .count()
-    )
-    if rectifying:
-        raise ReviewFlowError(f"仍有 {rectifying} 条需求处于整改中, 不能终审通过")
-    gate.final_reviewer_id = actor.id
-    gate.final_opinion = comment
-    gate.final_reviewed_at = datetime.now()
-    gate.status = "passed"
-    append_evidence(db, gate, "sign", actor, comment=comment,
-                    payload={"gate_status": "passed"})
-    # 未被逐条批注通过的已确认需求, 随项目门禁通过整体推为 reviewed(终审事件)
-    pending = (
-        db.query(SecurityRequirement)
-        .filter_by(project_id=project.id, review_status="confirmed")
-        .all()
-    )
-    for req in pending:
-        try:
-            transition_requirement(db, req, "review_pass", actor,
-                                   opinion="终审通过, 随项目门禁整体通过")
-        except RequirementTransitionError:
-            pass  # 单条异常不阻塞终审结论
 
 
 def withdraw_review(db: Session, project: Project, gate: ReviewGate,

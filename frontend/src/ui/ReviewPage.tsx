@@ -1,6 +1,6 @@
-/* 评审中心(#219): 布局模式4 —— 左侧内容(门禁卡 + 需求批注工作台 + 流转时间线)
-   + 右侧固定「评审操作面板」。四类角色同页按角色与门禁状态出操作:
-   pm=提交评审/整改后重新提交, 评审员=逐条批注+整体裁定, 负责人=终审会签。 */
+/* 评审中心(#219, #309 单步评审): 布局模式4 —— 左侧内容(门禁卡 + 需求批注工作台 + 流转时间线)
+   + 右侧固定「评审操作面板」。角色按身份与门禁状态出操作:
+   pm/开发管理员=提交评审/整改后重新提交, 安全管理员=逐条批注+整体裁定(通过即通过)。 */
 import { useCallback, useEffect, useState } from 'react'
 import {
   Alert, App, Button, Card, Descriptions, Empty, Input, Modal,
@@ -9,7 +9,7 @@ import {
 import { DownloadOutlined } from '@ant-design/icons'
 import type { RequirementRow, RequirementTransitionRow, ReviewState } from '../types'
 import ReviewPanel from './ReviewPanel'
-import { api, type StoredUser } from '../api'
+import { api, isDevSideRole, isSecuritySideRole, type StoredUser } from '../api'
 import { getStoredUser } from '../api'
 import { GATE_STATUS_COLOR, PRIORITY_COLOR, REQUIREMENT_STATUS_COLOR } from './tokens'
 import { navigate } from '../router'
@@ -20,7 +20,7 @@ const REVIEW_STATUS_LABELS: Record<string, string> = {
 }
 
 const ACTION_LABELS: Record<string, string> = {
-  submit: '提交评审', approve: '裁定通过', reject: '裁定否决',
+  submit: '提交评审', approve: '评审通过', reject: '裁定否决',
   request_change: '退回整改', sign: '终审会签', annotate: '逐条批注',
 }
 
@@ -42,13 +42,11 @@ export default function ReviewPage({ projectId }: { projectId: number }) {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [acting, setActing] = useState(false)
   const [blocked, setBlocked] = useState<string[] | null>(null)
-  // 批注弹窗 / 裁定意见 / 终审意见
+  // 批注弹窗 / 裁定意见
   const [annotate, setAnnotate] = useState<{ req: RequirementRow; disposition: string } | null>(null)
   const [annotateComment, setAnnotateComment] = useState('')
   const [decide, setDecide] = useState<string | null>(null)
   const [decideComment, setDecideComment] = useState('')
-  const [finalizeOpen, setFinalizeOpen] = useState(false)
-  const [finalizeComment, setFinalizeComment] = useState('')
   const [expanded, setExpanded] = useState<Record<number, RequirementTransitionRow[]>>({})
   const [confirming, setConfirming] = useState<number | null>(null)
 
@@ -72,15 +70,12 @@ export default function ReviewPage({ projectId }: { projectId: number }) {
   useEffect(() => { void reload() }, [reload])
 
   const gate = state?.gate ?? null
-  const isSecuritySide = user?.role === 'security_reviewer' || user?.role === 'security_lead'
-  const isLead = user?.role === 'security_lead'
+  const isSecuritySide = isSecuritySideRole(user?.role)
   const isSubmitter = gate?.submitter_id != null && gate.submitter_id === user?.id
-  const isReviewerOfGate = gate?.reviewer_id != null && gate.reviewer_id === user?.id
   const inReview = gate?.status === 'in_review'
-  const canSubmit = user?.role === 'pm' || isLead
+  const canSubmit = isDevSideRole(user?.role)
   const canAnnotate = isSecuritySide && inReview && !isSubmitter
   const canDecide = isSecuritySide && inReview && !isSubmitter
-  const canFinalize = isLead && inReview && gate?.reviewer_conclusion === 'approve' && !isSubmitter && !isReviewerOfGate
 
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     setActing(true)
@@ -107,7 +102,7 @@ export default function ReviewPage({ projectId }: { projectId: number }) {
         message.warning('门禁校验未通过, 请补齐缺项后重新提交评审')
       } else {
         setBlocked(null)
-        message.success('已提交评审, 等待评审员审核')
+        message.success('已提交评审, 等待安全管理员评审')
         await reload()
       }
     } catch (e) {
@@ -154,7 +149,7 @@ export default function ReviewPage({ projectId }: { projectId: number }) {
               </Tag>
             </Space>
           )}
-          onBack={() => navigate('/evaluations')}
+          onBack={() => navigate('/reviews')}
         />
 
         <Card
@@ -190,9 +185,7 @@ export default function ReviewPage({ projectId }: { projectId: number }) {
                     </Tag>
                   : '—'}
               </Descriptions.Item>
-              <Descriptions.Item label="终审时间">{gate.final_reviewed_at?.slice(0, 19).replace('T', ' ') ?? '—'}</Descriptions.Item>
               {gate.reviewer_opinion && <Descriptions.Item label="评审意见" span={2}>{gate.reviewer_opinion}</Descriptions.Item>}
-              {gate.final_opinion && <Descriptions.Item label="终审意见" span={2}>{gate.final_opinion}</Descriptions.Item>}
               <Descriptions.Item label="交付物快照">
                 <Typography.Text code copyable style={{ fontSize: 12 }}>
                   {gate.version_hash?.slice(0, 16) ?? '—'}
@@ -290,7 +283,7 @@ export default function ReviewPage({ projectId }: { projectId: number }) {
             : (
               <Timeline
                 items={state.evidences.map((e) => ({
-                  color: e.action === 'submit' ? 'blue' : e.action === 'sign' ? 'green' : e.action === 'reject' || e.action === 'request_change' ? 'red' : 'gray',
+                  color: e.action === 'submit' ? 'blue' : e.action === 'sign' || e.action === 'approve' ? 'green' : e.action === 'reject' || e.action === 'request_change' ? 'red' : 'gray',
                   children: (
                     <>
                       <strong>{ACTION_LABELS[e.action] ?? e.action}</strong>
@@ -317,24 +310,19 @@ export default function ReviewPage({ projectId }: { projectId: number }) {
         submitConfirmTitle="提交评审后将进入评审队列, 确认提交?"
         onSubmit={() => void onSubmit()}
         canDecide={canDecide}
-        decideTitle="整体裁定(评审员)"
+        decideTitle="整体裁定(安全管理员): 通过即评审通过并落盘"
         decide={decide}
         onDecideChange={setDecide}
         decideComment={decideComment}
         onDecideCommentChange={setDecideComment}
         onDecideSubmit={() => {
           if (!decide) return
-          void run(() => api.reviewDecide(projectId, decide, decideComment), '裁定已记录').then((ok) => {
+          const okMsg = decide === 'approve' ? '评审通过, 需求已落盘'
+            : decide === 'request_change' ? '已退回整改, 等待开发整改后重新提交' : '已否决'
+          void run(() => api.reviewDecide(projectId, decide, decideComment), okMsg).then((ok) => {
             if (ok) { setDecide(null); setDecideComment('') }
           })
         }}
-        canFinalize={canFinalize}
-        finalizeComment={finalizeComment}
-        onFinalizeCommentChange={setFinalizeComment}
-        onFinalizeClick={() => setFinalizeOpen(true)}
-        leadHint={isLead && inReview && gate?.reviewer_conclusion !== 'approve' && !isSubmitter && (
-          <Typography.Text type="secondary">评审员裁定通过后可终审会签。</Typography.Text>
-        )}
         auditorHint={user?.role === 'auditor' ? '审计视角: 只读查看门禁与留痕。' : undefined}
       >
         <Descriptions size="small" column={1} style={{ marginBottom: 12 }}>
@@ -369,21 +357,6 @@ export default function ReviewPage({ projectId }: { projectId: number }) {
           rows={3} placeholder="批注意见(退回建议必填)"
           value={annotateComment} onChange={(e) => setAnnotateComment(e.target.value)}
         />
-      </Modal>
-
-      {/* ── 终审确认 ── */}
-      <Modal
-        title="终审会签确认" open={finalizeOpen} onCancel={() => setFinalizeOpen(false)}
-        onOk={async () => {
-          const ok = await run(() => api.reviewFinalize(projectId, finalizeComment), '终审通过, 本轮评审归档')
-          if (ok) { setFinalizeOpen(false); setFinalizeComment('') }
-        }}
-        okText="确认复审通过"
-      >
-        <Typography.Paragraph>
-          终审通过后门禁进入 passed, 未批注的已确认需求将随项目整体推为「评审通过」。
-        </Typography.Paragraph>
-        <Typography.Paragraph type="secondary">终审人与提交人/评审员不得为同一人。</Typography.Paragraph>
       </Modal>
     </div>
   )

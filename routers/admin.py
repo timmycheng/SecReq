@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""系统管理路由(仅安全角色): 知识库/题库/策略基线/LLM接入/用户/审计日志。
+"""平台管理路由(安全管理员/系统管理员, #309): 知识库/题库/策略基线/LLM接入/用户/审计日志。
 
 走查整改: 知识库策略可视化、可配置; 平台自身安全功能(用户管理、审计留痕)到位。
 """
@@ -38,9 +38,9 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
 def require_security(user: PlatformUser = Depends(require_login)) -> PlatformUser:
-    """系统管理仅安全角色可用。"""
-    if user.role not in C.SECURITY_SIDE_ROLES:
-        raise HTTPException(status_code=403, detail="仅安全角色可访问系统管理")
+    """平台管理端(系统设置/用户管理等)仅安全管理员与系统管理员可用(#309)。"""
+    if user.role not in C.PLATFORM_ADMIN_ROLES:
+        raise HTTPException(status_code=403, detail="仅安全管理员/系统管理员可访问平台管理")
     return user
 
 
