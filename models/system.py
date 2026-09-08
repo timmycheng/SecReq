@@ -47,7 +47,8 @@ class System(Base):
     filing_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("filings.id"), index=True, comment="所属定级备案(空=未备案)"
     )
-    owner_name: Mapped[str | None] = mapped_column(String(50), comment="系统负责人")
+    owner_name: Mapped[str | None] = mapped_column(
+        String(50), comment="系统负责人(#295 起界面停用, 由三方责任人取代; NetBox 同步沿用存量字段)")
     owner_user_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("platform_users.id"), index=True,
         comment="创建人(数据权限: 开发仅见本人系统)",
