@@ -456,7 +456,7 @@ export interface VulnerabilityRow {
   cn_severity?: string | null
 }
 
-/* ── 离线漏洞库(系统管理 · 漏洞库页) ─────────────── */
+/* ── 离线漏洞库(平台设置 · 漏洞库页) ─────────────── */
 
 export interface VulnSourceRow {
   code: string

@@ -62,7 +62,7 @@ def sync_run(user: PlatformUser = Depends(require_security),
     """手动触发一轮同步(内联执行); 未配置 409, 执行中 409。"""
     if not get_netbox_config(db):
         raise HTTPException(
-            status_code=409, detail="NetBox 尚未配置, 请在 系统管理 → NetBox 互通 填写地址与 Token")
+            status_code=409, detail="NetBox 尚未配置, 请在 平台设置 → Netbox 管理 填写地址与 Token")
     if not sync_state.begin():
         raise HTTPException(status_code=409, detail="已有一轮同步在执行, 请稍后再试")
     try:
