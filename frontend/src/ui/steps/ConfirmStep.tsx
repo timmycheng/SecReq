@@ -209,7 +209,8 @@ export default function ConfirmStep({ ws, goto }: StepProps) {
         </div>
       </div>
 
-      <div style={{ marginTop: 16, textAlign: 'center' }}>
+      {/* 生成按钮(DESIGN): 右下角, 与其他页面主操作位置一致 */}
+      <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
         {generating
           ? <Spin tip="正在执行规则引擎与文档生成…"><div style={{ height: 60 }} /></Spin>
           : (

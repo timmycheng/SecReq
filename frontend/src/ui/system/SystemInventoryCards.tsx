@@ -475,7 +475,8 @@ export function SystemComponentsCard({ systemId, onHandle, onSaved }: {
       </Space>
 
       <Table<DraftRow>
-        rowKey={(_, i) => String(i)}
+        /* 已保存行按稳定 uid 取键, 删除行不再导致其余行身份漂移; 新增行(未落库)回退序号 */
+        rowKey={(r, i) => r.uid || `new-${i ?? 0}`}
         dataSource={rows}
         pagination={false}
         size="small"

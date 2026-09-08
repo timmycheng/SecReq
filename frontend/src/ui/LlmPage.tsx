@@ -2,18 +2,17 @@
    配置 OpenAI 兼容接口后功能提取使用大模型; 未配置或调用失败自动降级规则提取。
    内网部署请填写行内网关地址; 留空则直接使用关键词规则提取。 */
 import { useCallback, useEffect, useState } from 'react'
-import {
-  Alert, Button, Card, Col, Form, Input, Row, Space, Tag, Typography, message,
-} from 'antd'
+import { Button, Card, Col, Form, Input, Row, Space, Tag, Typography, message } from 'antd'
 import { ApiOutlined } from '@ant-design/icons'
 
 import { api, type LlmConfig } from '../api'
 import PageHeader from './PageHeader'
+import { TestResultAlert, useAsyncAction } from './common'
 
 export default function LlmPage() {
   const [cfg, setCfg] = useState<LlmConfig | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [testing, setTesting] = useState(false)
+  const save = useAsyncAction()
+  const test = useAsyncAction()
   const [testResult, setTestResult] = useState<{ ok: boolean; latency_ms?: number; reply?: string; reason?: string } | null>(null)
   const [form] = Form.useForm()
 
@@ -31,37 +30,24 @@ export default function LlmPage() {
         extra={(
           <Space>
             <Button
-              icon={<ApiOutlined />} loading={testing}
-              onClick={async () => {
-                const values = await form.validateFields()
-                setTesting(true)
+              icon={<ApiOutlined />} loading={test.busy}
+              onClick={() => {
                 setTestResult(null)
-                try {
+                void test.run(async () => {
+                  const values = await form.validateFields()
                   setTestResult(await api.testLlmConfig(values))
-                } catch (e) {
-                  message.error((e as Error).message)
-                } finally {
-                  setTesting(false)
-                }
+                })
               }}
             >
               连接测试
             </Button>
             <Button
-              type="primary" loading={saving}
-              onClick={async () => {
+              type="primary" loading={save.busy}
+              onClick={() => void save.run(async () => {
                 const values = await form.validateFields()
-                setSaving(true)
-                try {
-                  await api.saveLlmConfig(values)
-                  message.success('已保存, 功能提取将使用大模型')
-                  reload()
-                } catch (e) {
-                  message.error((e as Error).message)
-                } finally {
-                  setSaving(false)
-                }
-              }}
+                await api.saveLlmConfig(values)
+                reload()
+              }, '已保存, 功能提取将使用大模型')}
             >
               保存配置
             </Button>
@@ -82,16 +68,10 @@ export default function LlmPage() {
                 <Input placeholder="如 glm-4 / qwen-max / gpt-4o-mini" />
               </Form.Item>
             </Form>
-            {testResult && (
-              <Alert
-                type={testResult.ok ? 'success' : 'error'}
-                showIcon
-                message={testResult.ok
-                  ? `连接成功(${testResult.latency_ms}ms)`
-                  : `连接失败: ${testResult.reason ?? '未知原因'}`}
-                description={testResult.ok && testResult.reply ? `模型响应: ${testResult.reply}` : undefined}
-              />
-            )}
+            <TestResultAlert
+              result={testResult}
+              successDescription={testResult?.reply ? `模型响应: ${testResult.reply}` : undefined}
+            />
           </Card>
         </Col>
         <Col xs={24} lg={10}>

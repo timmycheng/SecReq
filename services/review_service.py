@@ -254,6 +254,25 @@ def finalize_review(db: Session, project: Project, gate: ReviewGate,
             pass  # 单条异常不阻塞终审结论
 
 
+def withdraw_review(db: Session, project: Project, gate: ReviewGate,
+                    actor: PlatformUser) -> None:
+    """撤回评审(评估状态机「审批」态的出口): 门禁回到 pending, 项目回到草稿, 数据全保留。
+
+    仅审批中(in_review)可撤回, 且仅提交人本人可撤回; 已产生的批注留痕不动
+    (重新提交后 submit 会清空 reviewer 字段并续写哈希链)。
+    """
+    if gate.status != "in_review":
+        raise ReviewFlowError("评审不在进行中, 无可撤回的提交")
+    if gate.submitter_id != actor.id:
+        raise ReviewForbidden("仅提交人可撤回评审")
+    gate.status = "pending"
+    gate.reviewer_id = None
+    gate.reviewer_conclusion = None
+    gate.reviewer_opinion = None
+    project.status = "draft"
+    append_evidence(db, gate, "withdraw", actor, payload={"gate_status": "pending"})
+
+
 def review_state(db: Session, project: Project, user: PlatformUser,
                  gate_type: str = "requirement") -> dict:
     """门禁状态 + 留痕时间线 + 需求状态汇总(评审工作台/时间线展示数据源)。"""

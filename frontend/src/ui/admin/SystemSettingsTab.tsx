@@ -6,6 +6,7 @@ import { Button, Card, Checkbox, Form, Input, InputNumber, Space, Spin, Tag, Typ
 
 import { api, type PolicyBaselines, type QuestionBank } from '../../api'
 import { NumField } from './shared'
+import { useAsyncAction } from '../common'
 
 export default function SystemSettingsTab() {
   return (
@@ -27,7 +28,7 @@ interface CodeRule {
 
 function CodeRuleCard() {
   const [rule, setRule] = useState<CodeRule | null>(null)
-  const [saving, setSaving] = useState(false)
+  const save = useAsyncAction()
   const [form] = Form.useForm<CodeRule>()
 
   const reload = useCallback(() => {
@@ -71,20 +72,11 @@ function CodeRuleCard() {
         </Space>
         <div>
           <Button
-            type="primary" size="small" loading={saving}
-            onClick={async () => {
+            type="primary" size="small" loading={save.busy}
+            onClick={() => void save.run(async () => {
               const values = await form.validateFields()
-              setSaving(true)
-              try {
-                const saved = await api.saveProjectCodeRule(values)
-                setRule(saved)
-                message.success('编号规则已保存')
-              } catch (e) {
-                message.error((e as Error).message)
-              } finally {
-                setSaving(false)
-              }
-            }}
+              setRule(await api.saveProjectCodeRule(values))
+            }, '编号规则已保存')}
           >
             保存规则
           </Button>
@@ -98,7 +90,7 @@ function CodeRuleCard() {
 
 function PolicyBaselineCard() {
   const [data, setData] = useState<PolicyBaselines | null>(null)
-  const [saving, setSaving] = useState(false)
+  const save = useAsyncAction()
 
   useEffect(() => {
     api.getPolicyBaselines().then(setData).catch((e: Error) => message.error(e.message))
@@ -107,7 +99,7 @@ function PolicyBaselineCard() {
   if (!data) return <Spin style={{ display: 'block', margin: '24px auto' }} />
 
   const update = (level: string, key: string, value: number | null) => {
-    const copy: PolicyBaselines = JSON.parse(JSON.stringify(data))
+    const copy = structuredClone(data)
     if (value !== null) copy.baselines[level][key as keyof PolicyBaselines['baselines'][string]] = value
     setData(copy)
   }
@@ -137,18 +129,8 @@ function PolicyBaselineCard() {
       </Space>
       <div>
         <Button
-          type="primary" size="small" loading={saving}
-          onClick={async () => {
-            setSaving(true)
-            try {
-              await api.savePolicyBaselines(data)
-              message.success('策略基线已保存')
-            } catch (e) {
-              message.error((e as Error).message)
-            } finally {
-              setSaving(false)
-            }
-          }}
+          type="primary" size="small" loading={save.busy}
+          onClick={() => void save.run(() => api.savePolicyBaselines(data), '策略基线已保存')}
         >
           保存基线
         </Button>
@@ -161,7 +143,7 @@ function PolicyBaselineCard() {
 
 function QuestionBankCard() {
   const [bank, setBank] = useState<QuestionBank | null>(null)
-  const [saving, setSaving] = useState(false)
+  const save = useAsyncAction()
 
   useEffect(() => {
     api.getQuestionBank().then(setBank).catch((e: Error) => message.error(e.message))
@@ -170,7 +152,7 @@ function QuestionBankCard() {
   if (!bank) return <Spin style={{ display: 'block', margin: '24px auto' }} />
 
   const updateOption = (qi: number, oi: number, patch: Partial<QuestionBank['questions'][0]['options'][0]>) => {
-    const copy: QuestionBank = JSON.parse(JSON.stringify(bank))
+    const copy = structuredClone(bank)
     Object.assign(copy.questions[qi].options[oi], patch)
     setBank(copy)
   }
@@ -180,10 +162,17 @@ function QuestionBankCard() {
       size="small" title="定级题库" style={{ width: 880 }}
       extra={<Typography.Text type="secondary">题目分值决定自动定级建议, 保存后对新问卷立即生效</Typography.Text>}
     >
+      <Card size="small" type="inner" title="定级阈值(总分 → 等级建议)" style={{ marginBottom: 12 }}>
+        <Space size={8} wrap>
+          {bank.levels.map((l) => (
+            <Tag key={l.level}>{l.level}: 总分 ≥ {l.min_score}</Tag>
+          ))}
+        </Space>
+      </Card>
       {bank.questions.map((q, qi) => (
         <Card
           key={q.id} type="inner" size="small" title={`${q.id}. ${q.title}`} style={{ marginBottom: 12 }}
-          extra={<Tag>命中组合: {bank.levels.find((l) => l.level)?.level ?? ''}</Tag>}
+          extra={<Tag>本题最高 {Math.max(0, ...q.options.map((o) => o.score))} 分</Tag>}
         >
           {q.options.map((o, oi) => (
             <Space key={o.id} size={8} style={{ display: 'flex', marginBottom: 6 }} wrap>
@@ -199,19 +188,9 @@ function QuestionBankCard() {
           ))}
         </Card>
       ))}
-      <Button type="primary" size="small" loading={saving}
-        onClick={async () => {
-          if (!bank) return
-          setSaving(true)
-          try {
-            await api.saveQuestionBank(bank)
-            message.success('题库已保存并即时生效')
-          } catch (e) {
-            message.error((e as Error).message)
-          } finally {
-            setSaving(false)
-          }
-        }}
+      <Button
+        type="primary" size="small" loading={save.busy}
+        onClick={() => bank && void save.run(() => api.saveQuestionBank(bank), '题库已保存并即时生效')}
       >
         保存题库
       </Button>

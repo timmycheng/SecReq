@@ -14,6 +14,7 @@ import { api, getStoredUser, isSecuritySideRole } from '../api'
 import { labelMapOf, useEnums } from '../enums'
 import { navigate } from '../router'
 import { DATA_LEVEL_COLOR, PRIORITY_COLOR } from './tokens'
+import { DIFF_FIELD_FALLBACK_LABELS } from './common'
 import { LevelTag, RoundCell } from './tags'
 import { SystemFormModal } from './SystemsPage'
 import PageHeader from './PageHeader'
@@ -498,12 +499,6 @@ function ChangesSection({ system }: { system: SystemRow }) {
       </Modal>
     </Space>
   )
-}
-
-/** 旧载荷无 field_values 时的字段名中文兜底(与产物页口径一致)。 */
-const DIFF_FIELD_FALLBACK_LABELS: Record<string, string> = {
-  title: '需求标题', description: '需求内容', priority: '优先级',
-  acceptance_criteria: '验收标准', category: '类目', regulatory_ref: '合规出处',
 }
 
 /* ── 合规基线(D 区): 级别变更确认待办 + 基线概要 ──── */

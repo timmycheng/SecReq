@@ -344,7 +344,6 @@ def test_inherited_baseline_prefills_new_round_after_writeback(api, generated, r
     """#224+225 闭环: 终审写回基线后, 新建轮次自动预填基线数据。"""
     pid, reqs = generated
     _confirm_all(api, pid, reqs)
-    assert api.post(f"/api/projects/{pid}/review/submit").json()["status"] == "submitted"
     db = api.session_factory()
     try:
         from models import DataTable, DataAsset  # noqa: F401
@@ -354,13 +353,17 @@ def test_inherited_baseline_prefills_new_round_after_writeback(api, generated, r
         system_id = system.id
     finally:
         db.close()
-    # 本轮造一条资产(向导 Step4 保存端点)
-    resp = api.post(f"/api/projects/{pid}/data-assets", json=[{
+    # 本轮追加一条资产(向导 Step4 保存端点, 整卷替换语义): 提交评审后内容锁定,
+    # 须在提交前写入; C3 资产须带数据字典表, 否则设计门禁拦截提交
+    ws_now = api.get(f"/api/projects/{pid}/wizard-state").json()
+    resp = api.post(f"/api/projects/{pid}/data-assets", json=ws_now["data_assets"] + [{
         "uid": "asset-wb-1", "name": "客户信息", "data_type": "business_data",
         "classification": "3级_C2主要信息", "is_pii": True, "is_sensitive_pii": False,
-        "storage_envs": ["db"], "cross_border_transfer": False, "tables": [],
+        "storage_envs": ["db"], "cross_border_transfer": False,
+        "tables": [{"table_name": "customer_info", "fields": []}],
     }])
     assert resp.status_code == 200, resp.text
+    assert api.post(f"/api/projects/{pid}/review/submit").json()["status"] == "submitted"
 
     reviewer = _client(api, "reviewer_u")
     lead = _client(api, "lead_u")
@@ -373,7 +376,7 @@ def test_inherited_baseline_prefills_new_round_after_writeback(api, generated, r
     # 新一轮评估 → 基线预填
     second = api.post("/api/projects", json={"name": "继承轮", "system_id": system_id}).json()
     ws = api.get(f"/api/projects/{second['id']}/wizard-state").json()
-    assert [a["name"] for a in ws["data_assets"]] == ["客户信息"]
+    assert [a["name"] for a in ws["data_assets"]] == ["交易流水", "客户信息"]
 
 
 def test_review_sheet_export(api, generated, reviewers):

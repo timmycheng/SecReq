@@ -16,6 +16,7 @@ from services.audit_service import audit
 from services.review_service import (
     ReviewFlowError, ReviewForbidden, annotate_requirement, decide_review,
     finalize_review, get_or_create_gate, review_state, submit_review,
+    withdraw_review,
 )
 
 import shared.constants as C
@@ -173,6 +174,26 @@ def finalize(payload: ReviewOpinionIn,
     baseline = writeback_baseline(db, ctx.project, gate, ctx.user)
     return {"status": "ok", "gate_status": gate.status,
             "baseline_written": baseline is not None}
+
+
+@router.post("/withdraw")
+def withdraw(ctx: ProjectUserCtx = Depends(_write_ctx("pm", "security_lead")),
+             db: Session = Depends(get_db),
+             request: Request = None):
+    """撤回评审(评估状态机): 审批中提交人可撤回, 回到新建阶段, 各项数据保留。"""
+    gate = _gate_or_404(ctx, db)
+    try:
+        withdraw_review(db, ctx.project, gate, ctx.user)
+    except ReviewFlowError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ReviewForbidden as exc:
+        db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    db.commit()
+    audit(db, ctx.user.username, "project_withdraw",
+          {"project_id": ctx.project.id, "gate_id": gate.id}, client_ip(request))
+    return {"status": "ok", "gate_status": gate.status}
 
 
 @router.get("/state")

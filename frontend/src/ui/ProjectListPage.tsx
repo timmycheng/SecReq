@@ -10,9 +10,11 @@ import type { ColumnsType } from 'antd/es/table'
 
 import { api, getStoredUser, isFullVisibilityRole } from '../api'
 import { HEX } from './tokens'
-import { useEnums } from '../enums'
+import { labelMapOf, useEnums } from '../enums'
 import { navigate } from '../router'
 import PageHeader from './PageHeader'
+import { TABLE_PAGINATION } from './common'
+import { clearWizardStepStorage } from './WizardPage'
 import { GateStatusTag, LevelTag, ProjectStatusTag } from './tags'
 import type { ProjectDetail, RoundSummary, SystemRow } from '../types'
 
@@ -116,6 +118,7 @@ export default function ProjectListPage() {
     { title: '评审', dataIndex: 'review_gate_status', width: 100, render: (v: string | null) => <GateStatusTag status={v} /> },
     ...(isFullView ? [{ title: '创建人', dataIndex: 'owner_name', width: 100, render: (v: string | null) => v || '—' } as const] : []),
     { title: '安全需求', dataIndex: ['counts', 'requirements'], width: 90 },
+    { title: '耗时', dataIndex: 'duration_seconds', width: 100, render: formatDuration },
     {
       title: '操作', key: 'ops', width: 250, fixed: 'right',
       render: (_, record) => (
@@ -128,6 +131,7 @@ export default function ProjectListPage() {
             onConfirm={async () => {
               try {
                 await api.deleteProject(record.id)
+                clearWizardStepStorage(record.id)
                 message.success('已删除')
               } catch (e) {
                 message.error((e as Error).message)
@@ -165,7 +169,7 @@ export default function ProjectListPage() {
               style={{ width: 140 }}
               placeholder="状态"
               value={statusFilter ?? undefined}
-              options={Object.entries(labelMapOrEmpty(enums, 'project_status')).map(([value, label]) => ({ value, label }))}
+              options={Object.entries(labelMapOf(enums, 'project_status')).map(([value, label]) => ({ value, label }))}
               onChange={(v) => setStatusFilter(v ?? null)}
             />
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
@@ -181,7 +185,7 @@ export default function ProjectListPage() {
           dataSource={visibleProjects}
           scroll={{ x: 1200 }}
           sticky
-          pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50], showTotal: (t) => `共 ${t} 条` }}
+          pagination={TABLE_PAGINATION}
           locale={{
             emptyText: (
               <Empty
@@ -200,9 +204,6 @@ export default function ProjectListPage() {
                 </Button>
               </Empty>
             ),
-          }}
-          expandable={{
-            expandedRowRender: (record) => <CountsGrid counts={record.counts} />,
           }}
           columns={columns}
         />
@@ -272,65 +273,11 @@ export default function ProjectListPage() {
   )
 }
 
-/** labelOf 前置: project_status 的 code→label 映射(枚举由后端统一下发)。 */
-function labelMapOrEmpty(enums: ReturnType<typeof useEnums>, key: string): Record<string, string> {
-  const raw = enums[key]
-  return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, string> : {}
-}
-
-const COUNT_LABELS: Record<string, string> = {
-  features: '功能',
-  data_assets: '数据资产',
-  roles: '角色',
-  resources: '资源',
-  permission_entries: '权限授权项',
-  components: '组件',
-  api_endpoints: '接口',
-  infra_assets: '基础设施资产',
-  external_systems: '外部系统',
-  requirements: '安全需求',
-  vulnerabilities: '漏洞记录',
-}
-
-/** 展开区分组(#86): 评估输入 / 生成产出, 各配 preset 色; 0 值项弱化不隐藏(空项目不突兀)。 */
-const COUNT_GROUPS: { title: string; color: string; keys: string[] }[] = [
-  {
-    title: '评估输入',
-    color: 'geekblue',
-    keys: ['features', 'data_assets', 'roles', 'resources', 'permission_entries',
-      'components', 'api_endpoints', 'infra_assets', 'external_systems'],
-  },
-  { title: '生成产出', color: 'green', keys: ['requirements', 'vulnerabilities'] },
-]
-
-/** 展开区统计网格: 居中分布, 数字放大、标签缩小, 分组一眼可辨(#86)。 */
-function CountsGrid({ counts }: { counts: Record<string, number> }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'center', gap: 32, flexWrap: 'wrap', padding: '8px 0' }}>
-      {COUNT_GROUPS.map((group) => {
-        const items = group.keys
-          .map((key) => ({ key, count: counts[key] ?? 0 }))
-          .filter((it) => COUNT_LABELS[it.key])
-        return (
-          <div key={group.title}>
-            <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
-              {group.title}
-            </Typography.Text>
-            <Space size={[8, 8]} wrap style={{ maxWidth: 520 }}>
-              {items.map(({ key, count }) => (
-                <Tag
-                  key={key}
-                  color={count > 0 ? group.color : 'default'}
-                  style={{ marginRight: 0, borderRadius: 12, paddingInline: 10 }}
-                >
-                  <span style={{ fontSize: 15, fontWeight: 600, marginInlineEnd: 4 }}>{count}</span>
-                  {COUNT_LABELS[key]}
-                </Tag>
-              ))}
-            </Space>
-          </div>
-        )
-      })}
-    </div>
-  )
+/** 步骤耗时埋点聚合(#229)的人类可读展示; 未填报过耗时显示占位符。 */
+function formatDuration(seconds: number | null | undefined): string {
+  if (seconds == null) return '—'
+  if (seconds < 60) return `${Math.round(seconds)} 秒`
+  const minutes = Math.floor(seconds / 60)
+  const rest = Math.round(seconds % 60)
+  return rest ? `${minutes} 分 ${rest} 秒` : `${minutes} 分钟`
 }

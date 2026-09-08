@@ -30,6 +30,7 @@ export interface ProjectDetail extends ProjectInfo {
   filing_level?: string | null
   is_current_baseline?: boolean
   review_gate_status?: string | null
+  duration_seconds?: number | null
 }
 
 /* ── 评审闭环(#218/#219) ── */

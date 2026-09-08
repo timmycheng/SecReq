@@ -42,6 +42,15 @@ const LAST = STEPS.length - 1
 
 const stepKey = (projectId: number) => `secreq.wizard.${projectId}.step`
 
+/** 删除评估时同步清理其步骤位置记忆, 避免 localStorage 残留孤儿键。 */
+export function clearWizardStepStorage(projectId: number): void {
+  try {
+    localStorage.removeItem(stepKey(projectId))
+  } catch {
+    // localStorage 不可用(隐私模式等)时忽略
+  }
+}
+
 export interface StepProps {
   ws: WizardState
   /** 向导状态局部更新(保存成功后以最新落库实体覆盖对应切片)。 */
@@ -239,8 +248,8 @@ export default function WizardPage({ projectId }: { projectId: number }) {
   const footerStyle: CSSProperties = {
     position: 'sticky',
     bottom: 0,
-    display: 'flex',
-    justifyContent: 'space-between',
+    display: 'grid',
+    gridTemplateColumns: '1fr auto 1fr',
     alignItems: 'center',
     background: '#fff',
     margin: '24px -24px -24px',
@@ -301,28 +310,31 @@ export default function WizardPage({ projectId }: { projectId: number }) {
             {renderers[current]({ ws, patch, goto: (idx) => guardLeave(() => switchTo(idx)) })}
           </div>
           <div style={footerStyle}>
-            <Button
-              icon={<ArrowLeftOutlined />}
-              disabled={current === 0}
-              onClick={() => guardLeave(() => switchTo(current - 1))}
-            >
-              上一步
+            <div style={{ justifySelf: 'start' }}>
+              <Button
+                icon={<ArrowLeftOutlined />}
+                disabled={current === 0}
+                onClick={() => guardLeave(() => switchTo(current - 1))}
+              >
+                上一步
+              </Button>
+            </div>
+            {/* 一键清空(DESIGN): 独占底部中间, 不与下一步/提交按钮贴着 */}
+            <Button danger disabled={resetting} onClick={() => { setResetCode(''); setResetOpen(true) }}>
+              一键清空
             </Button>
-            <Space size={12}>
+            <Space size={12} style={{ justifySelf: 'end' }}>
               {autosavedAt && (
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                   草稿已自动保存 {autosavedAt}
                 </Typography.Text>
               )}
-              <Button danger disabled={resetting} onClick={() => { setResetCode(''); setResetOpen(true) }}>
-                一键清空
-              </Button>
               {current < LAST ? (
                 <Button type="primary" loading={advancing} onClick={saveAndNext}>
                   保存并下一步 <ArrowRightOutlined />
                 </Button>
               ) : (
-                <Typography.Text type="secondary">确认无误后, 点击本页下方「生成安全基线」按钮</Typography.Text>
+                <Typography.Text type="secondary">确认无误后, 点击本页右下角「生成安全基线」按钮</Typography.Text>
               )}
             </Space>
           </div>

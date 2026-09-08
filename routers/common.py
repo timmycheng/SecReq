@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from models import (
     ApiEndpoint, AuthConfig, DataAsset, ExternalSystem,
     Feature, GradingSurvey, InfraAsset, PermissionEntry, PlatformUser, Project,
-    SbomComponent, VulnerabilityRecord, Resource, Role,
+    ReviewGate, SbomComponent, VulnerabilityRecord, Resource, Role,
 )
 from schemas.component import ComponentOut, ComponentVulnInline
 from schemas.data_dictionary import DataAssetOut, DataFieldOut, DataTableOut
@@ -148,10 +148,36 @@ def get_accessible_project(
 def get_writable_project(
     project: Project = Depends(get_project_or_404),
     user: PlatformUser = Depends(require_write_roles(*C.WRITE_WIZARD_ROLES)),
+    db: Session = Depends(get_db),
 ) -> Project:
-    """写场景: 装载项目 + 角色白名单 + 归属校验。"""
+    """写场景: 装载项目 + 角色白名单 + 归属校验 + 评审门禁锁。"""
     ensure_project_access(user, project)
+    ensure_project_editable(db, project)
     return project
+
+
+def requirement_gate_lock(db: Session, project: Project) -> str | None:
+    """评审门禁锁(DESIGN 评估状态机): 返回锁定原因, None=可编辑。
+
+    in_review(审批中)各项信息不可修改仅查看; passed(结束)已落盘同样锁定。
+    rectifying(整改)/rejected(否决重开)/pending(待提交)保持可编辑。
+    """
+    gate = db.query(ReviewGate).filter_by(
+        project_id=project.id, gate_type="requirement").first()
+    if gate is None:
+        return None
+    if gate.status == "in_review":
+        return "评审进行中, 各项信息已锁定为只读; 如需修改请先撤回评审"
+    if gate.status == "passed":
+        return "评审已通过, 评估信息已落盘, 不能再修改"
+    return None
+
+
+def ensure_project_editable(db: Session, project: Project) -> None:
+    """内容写场景的门禁锁校验: 锁定即 409(附原因, 前端可直接提示)。"""
+    reason = requirement_gate_lock(db, project)
+    if reason:
+        raise HTTPException(status_code=409, detail=reason)
 
 
 # ── 序列化 ────────────────────────────────────────────

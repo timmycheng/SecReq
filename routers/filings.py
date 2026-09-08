@@ -1,15 +1,20 @@
 # -*- coding: utf-8 -*-
-"""定级备案 CRUD。
+"""定级备案 CRUD 与 CSV 批量导入(DESIGN: 备案管理增加批量导入)。
 
 备案是对外备案测评的少数主体, 定级事实由安全侧权威维护(#192):
 登录即可读(开发侧选择挂靠备案必须能看到清单), 写操作仅安全角色。
 """
-from fastapi import APIRouter, Depends, HTTPException, Request
+import csv
+import io
+
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session
 
 import shared.constants as C
 from models import Filing, PlatformUser
-from routers.common import client_ip, get_db, require_login, require_write_roles
+from routers.common import (
+    client_ip, get_db, read_upload_limited, require_login, require_write_roles,
+)
 from schemas.system import FilingCreate, FilingDetail, FilingOut, FilingUpdate
 from services.audit_service import audit
 from services.system_service import (
@@ -77,3 +82,75 @@ def remove(filing_id: int, request: Request, db: Session = Depends(get_db),
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     audit(db, user.username, "filing_delete",
           {"filing_id": filing_id, "name": filing.name}, client_ip(request))
+
+
+#: CSV 表头别名 → 字段(兼容 Excel 导出的中文表头)
+_CSV_HEADER_ALIASES = {
+    "name": "name", "名称": "name",
+    "level": "level", "定级": "level", "等级": "level",
+    "code": "code", "编号": "code",
+    "note": "note", "备注": "note",
+}
+_CSV_MAX_ROWS = 1000
+
+
+def _decode_csv(raw: bytes) -> str:
+    """国内 Excel 另存的 CSV 常是 GBK/带 BOM 的 UTF-8, 依次尝试解码。"""
+    for encoding in ("utf-8-sig", "gbk"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    raise HTTPException(status_code=400, detail="CSV 文件编码无法识别, 请另存为 UTF-8 或 GBK")
+
+
+@router.post("/import", status_code=201, dependencies=[_writable])
+async def import_csv(request: Request, file: UploadFile = File(...),
+                     db: Session = Depends(get_db),
+                     user: PlatformUser = Depends(
+                         require_write_roles(*C.SECURITY_SIDE_ROLES))):
+    """CSV 批量导入备案: 表头 name,level[,code,note](中英文表头均可)。
+
+    逐行校验: name/level 必填, level 须为有效定级, 名称/编号冲突整行跳过;
+    返回逐行跳过原因, 有效行即使夹杂坏行也照常入库。
+    """
+    if not (file.filename or "").lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="请上传 .csv 文件")
+    raw = await read_upload_limited(file)
+    reader = csv.DictReader(io.StringIO(_decode_csv(raw)))
+    if not reader.fieldnames:
+        raise HTTPException(status_code=400, detail="CSV 文件为空")
+    fields = {_CSV_HEADER_ALIASES.get(str(h).strip().lower()): str(h).strip()
+              for h in reader.fieldnames}
+    missing = [f for f in ("name", "level") if f not in fields]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"CSV 缺少必需列: {', '.join(missing)}(表头需含 名称/定级 或 name/level)")
+
+    created, skipped = 0, []
+    for line, row in enumerate(reader, start=2):  # 第 1 行是表头
+        if line > _CSV_MAX_ROWS + 1:
+            skipped.append({"row": line, "name": "", "reason": f"超过单次 {_CSV_MAX_ROWS} 行上限"})
+            continue
+        data = {key: (row.get(header) or "").strip() for key, header in fields.items() if key}
+        name = data.get("name", "")
+        level = data.get("level", "")
+        if not name:
+            skipped.append({"row": line, "name": "", "reason": "名称为空"})
+            continue
+        if level not in C.GRADING_LEVELS:
+            skipped.append({"row": line, "name": name,
+                            "reason": f"定级须为 {'、'.join(C.GRADING_LEVELS)} 之一"})
+            continue
+        try:
+            create_filing(db, {"name": name, "level": level,
+                               "code": data.get("code") or None,
+                               "note": data.get("note") or None})
+        except NameConflictError as exc:
+            skipped.append({"row": line, "name": name, "reason": str(exc)})
+            continue
+        created += 1
+    audit(db, user.username, "filing_import",
+          {"created": created, "skipped": len(skipped)}, client_ip(request))
+    return {"created": created, "skipped": skipped}
