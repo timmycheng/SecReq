@@ -47,16 +47,6 @@ function useSection<T>(loader: () => Promise<DetailSectionMeta & { rows: T }>) {
 }
 
 /** 清单类分节未写回基线时的统一引导。 */
-function NoBaselineHint() {
-  return (
-    <Alert
-      type="info" showIcon
-      message="尚未生成安全基线"
-      description="评估轮次终审通过后, 本轮清单快照会写回为系统基线; 到时这里即可查看。可先在「评估历史」发起或继续评估。"
-    />
-  )
-}
-
 function SectionError({ error, onRetry }: { error: string; onRetry: () => void }) {
   return <Alert type="error" showIcon message="数据加载失败" description={error}
     action={<Button size="small" onClick={onRetry}>重试</Button>} />
@@ -180,14 +170,15 @@ function FeaturesSection({ systemId }: { systemId: number }) {
     () => api.systemDetailFeatures(systemId), [systemId]))
   if (loading) return <Section id="features" title="功能清单"><div style={{ padding: 24, textAlign: 'center' }}><Spin /></div></Section>
   if (error) return <Section id="features" title="功能清单"><SectionError error={error} onRetry={reload} /></Section>
-  if (!meta?.has_baseline) return <Section id="features" title="功能清单"><NoBaselineHint /></Section>
   return (
     <Section id="features" title="功能清单">
       <Table<SystemDetailFeature>
         rowKey={(r) => r.uid || r.name}
         size="small" loading={loading} dataSource={rows ?? []}
         pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
-        locale={{ emptyText: <Empty description="基线来源轮次没有功能记录" /> }}
+        locale={{ emptyText: <Empty description={meta?.has_baseline
+          ? "基线来源轮次没有功能记录"
+          : "完成评估并终审通过后, 这里展示基线轮次维护的功能清单"} /> }}
         columns={[
           { title: '功能名称', dataIndex: 'name' },
           { title: '所属模块', dataIndex: 'module', width: 140, render: (v) => v || '—' },
@@ -219,14 +210,15 @@ function DataAssetsSection({ systemId }: { systemId: number }) {
     () => api.systemDetailDataAssets(systemId), [systemId]))
   if (loading) return <Section id="assets" title="数据资产"><div style={{ padding: 24, textAlign: 'center' }}><Spin /></div></Section>
   if (error) return <Section id="assets" title="数据资产"><SectionError error={error} onRetry={reload} /></Section>
-  if (!meta?.has_baseline) return <Section id="assets" title="数据资产"><NoBaselineHint /></Section>
   return (
     <Section id="assets" title="数据资产">
       <Table<BaselineDataAsset>
         rowKey={(r) => r.uid || r.name}
         size="small" loading={loading} dataSource={rows ?? []}
         pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
-        locale={{ emptyText: <Empty description="基线中没有数据资产记录" /> }}
+        locale={{ emptyText: <Empty description={meta?.has_baseline
+          ? "基线中没有数据资产记录"
+          : "完成评估并终审通过后, 这里展示基线轮次维护的数据资产与数据字典表"} /> }}
         expandable={{
           expandedRowRender: (asset) => (
             <Table<BaselineDataTable>
@@ -285,7 +277,6 @@ function PermissionsSection({ systemId }: { systemId: number }) {
     () => api.systemDetailPermissions(systemId), [systemId]))
   if (loading) return <Section id="permissions" title="权限矩阵"><div style={{ padding: 24, textAlign: 'center' }}><Spin /></div></Section>
   if (error) return <Section id="permissions" title="权限矩阵"><SectionError error={error} onRetry={reload} /></Section>
-  if (!meta?.has_baseline) return <Section id="permissions" title="权限矩阵"><NoBaselineHint /></Section>
   const bundle = rows ?? { roles: [], resources: [], permission_entries: [] }
   const roleNameOf = (uid?: string | null) =>
     bundle.roles.find((r) => r.uid === uid)?.name ?? uid ?? '—'
@@ -295,14 +286,18 @@ function PermissionsSection({ systemId }: { systemId: number }) {
     <Section id="permissions" title="权限矩阵">
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
         <Table size="small" rowKey="uid" pagination={false} dataSource={bundle.roles}
-          locale={{ emptyText: <Empty description="基线中没有角色记录" /> }}
+          locale={{ emptyText: <Empty description={meta?.has_baseline
+            ? "基线中没有角色记录"
+            : "完成评估并终审通过后, 这里展示基线轮次维护的角色"} /> }}
           columns={[
             { title: '角色', dataIndex: 'name' },
             { title: '角色类型', dataIndex: 'role_type', width: 140, render: (v) => v || '—' },
             { title: '预估用户数', dataIndex: 'user_count_estimate', width: 120, render: (v) => v ?? '—' },
           ]} />
         <Table size="small" rowKey="uid" pagination={false} dataSource={bundle.resources}
-          locale={{ emptyText: <Empty description="基线中没有资源记录" /> }}
+          locale={{ emptyText: <Empty description={meta?.has_baseline
+            ? "基线中没有资源记录"
+            : "完成评估并终审通过后, 这里展示基线轮次维护的资源"} /> }}
           columns={[
             { title: '资源', dataIndex: 'name' },
             { title: '资源类型', dataIndex: 'resource_type', width: 160, render: (v) => v || '—' },
@@ -312,7 +307,9 @@ function PermissionsSection({ systemId }: { systemId: number }) {
         <Table size="small" rowKey={(r) => `${r.role_uid}-${r.resource_uid}-${r.action}`}
           pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
           dataSource={bundle.permission_entries}
-          locale={{ emptyText: <Empty description="基线中没有授权记录" /> }}
+          locale={{ emptyText: <Empty description={meta?.has_baseline
+            ? "基线中没有授权记录"
+            : "完成评估并终审通过后, 这里展示基线轮次维护的授权项"} /> }}
           columns={[
             { title: '角色', dataIndex: 'role_uid', render: (v) => roleNameOf(v) },
             { title: '资源', dataIndex: 'resource_uid', render: (v) => resourceNameOf(v) },
@@ -332,14 +329,15 @@ function ApisSection({ systemId }: { systemId: number }) {
     () => api.systemDetailApis(systemId), [systemId]))
   if (loading) return <Section id="apis" title="接口清单"><div style={{ padding: 24, textAlign: 'center' }}><Spin /></div></Section>
   if (error) return <Section id="apis" title="接口清单"><SectionError error={error} onRetry={reload} /></Section>
-  if (!meta?.has_baseline) return <Section id="apis" title="接口清单"><NoBaselineHint /></Section>
   return (
     <Section id="apis" title="接口清单">
       <Table<BaselineApiEndpoint>
         rowKey={(r) => r.uid || `${r.method}-${r.path}`}
         size="small" loading={loading} dataSource={rows ?? []}
         pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
-        locale={{ emptyText: <Empty description="基线中没有接口记录" /> }}
+        locale={{ emptyText: <Empty description={meta?.has_baseline
+          ? "基线中没有接口记录"
+          : "完成评估并终审通过后, 这里展示基线轮次维护的 API 接口清单"} /> }}
         columns={[
           { title: '接口名称', dataIndex: 'name' },
           { title: '方法', dataIndex: 'method', width: 90,
