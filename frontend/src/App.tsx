@@ -7,9 +7,9 @@ import {
 } from 'antd'
 import {
   ApartmentOutlined, BookOutlined, CheckCircleOutlined, ClusterOutlined, DatabaseOutlined,
-  FileDoneOutlined, FileTextOutlined, HistoryOutlined, HomeOutlined, LinkOutlined,
-  LogoutOutlined, RobotOutlined, SafetyCertificateOutlined, SettingOutlined, TeamOutlined,
-  UserOutlined,
+  FileDoneOutlined, FileProtectOutlined, FileTextOutlined, HistoryOutlined, HomeOutlined,
+  LinkOutlined, LogoutOutlined, RobotOutlined, SafetyCertificateOutlined, SettingOutlined,
+  TeamOutlined, UserOutlined,
 } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
@@ -32,6 +32,7 @@ import ProjectListPage from './ui/ProjectListPage'
 import WizardPage from './ui/WizardPage'
 import ResultPage from './ui/ResultPage'
 import ReviewPage from './ui/ReviewPage'
+import ReviewCenterPage from './ui/ReviewCenterPage'
 import SystemSettingsPage from './ui/SystemSettingsPage'
 import VulnDbPage from './ui/VulnDbPage'
 import FilingsPage from './ui/FilingsPage'
@@ -64,6 +65,7 @@ const MENUS: MenuGroup[] = [
     items: [
       { key: '/systems', label: '系统清单', icon: <ApartmentOutlined /> },
       { key: '/evaluations', label: '评估清单', icon: <CheckCircleOutlined /> },
+      { key: '/reviews', label: '评审中心', icon: <FileProtectOutlined /> },
     ],
   },
   {
@@ -86,7 +88,7 @@ const MENUS: MenuGroup[] = [
 
 /** 菜单 key → 面包屑名。 */
 const CRUMB: Record<string, string> = {
-  systems: '系统清单', evaluations: '评估清单', admin: '系统设置', vulndb: '漏洞库',
+  systems: '系统清单', evaluations: '评估清单', reviews: '评审中心', admin: '系统设置', vulndb: '漏洞库',
   filings: '备案管理', knowledge: '知识库管理', users: '用户管理', ldap: 'LDAP/AD 对接',
   llm: 'LLM 管理', netbox: 'Netbox 管理', audit: '日志审计', changelog: '更新日志',
 }
@@ -116,6 +118,7 @@ function renderPage(route: Route, isSecurity: boolean) {
     case 'systems': return <SystemsPage />
     case 'systemDetail': return <SystemDetailPage key={route.systemId} systemId={route.systemId} />
     case 'evaluations': return <ProjectListPage />
+    case 'reviews': return <ReviewCenterPage />
     case 'wizard': return <WizardPage key={route.projectId} projectId={route.projectId} />
     case 'result': return <ResultPage key={route.projectId} projectId={route.projectId} />
     case 'review': return <ReviewPage key={route.projectId} projectId={route.projectId} />
@@ -175,7 +178,8 @@ function AppBody() {
 
   const selectedKey = useMemo(() => {
     if (route.name === 'systemDetail') return '/systems'
-    if (route.name === 'wizard' || route.name === 'result' || route.name === 'review') return '/evaluations'
+    if (route.name === 'wizard' || route.name === 'result') return '/evaluations'
+    if (route.name === 'review') return '/reviews'
     const seg = route.name === 'dashboard' ? '/' : `/${route.name}`
     return seg
   }, [route])

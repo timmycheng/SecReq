@@ -7,7 +7,7 @@ import type {
   ExternalSystemRow, FeatureRow, FilingRow, GenerateSummary, GradingQuestion,
   InfraArchImageRow, InfraAssetRow, LabelMap, LdapConfigRow, LdapSyncResult, LdapTestResult,
   LoginInfo, MatrixEntryIn,
-  RequirementTransitionRow, ReviewState, SystemDetailFeature,
+  RequirementTransitionRow, ReviewOverviewRow, ReviewState, SystemDetailFeature,
   PreviewResult, ProjectDetail, ProjectInfo, RequirementDiff, RequirementRow, RoleRow,
   ResourceRow, SurveyAnswer, SystemRow, VulnerabilityRow, VulnDbStatus, VulnDbVerifyResult,
   WizardState,
@@ -144,6 +144,8 @@ export const api = {
   me: () => request<LoginInfo | null>('/api/auth/me'),
   reviewState: (projectId: number) =>
     request<ReviewState>(`/api/projects/${projectId}/review/state`),
+  /** 评审中心(#307): 跨项目评审进度总览(仅已提交过的评审, 按数据权限过滤) */
+  listReviews: () => request<ReviewOverviewRow[]>('/api/reviews'),
   reviewSubmit: (projectId: number) =>
     request<{ status: string; missing?: string[]; gate_status?: string; version_hash?: string }>(
       `/api/projects/${projectId}/review/submit`, { method: 'POST', body: JSON.stringify({}) }),

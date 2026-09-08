@@ -22,6 +22,8 @@ from services.requirement_lifecycle import (
 )
 from services.review_gates import design_gate_checks, requirement_gate_checks
 
+import shared.constants as C
+
 GENESIS_HASH = "0" * 64
 
 
@@ -271,6 +273,83 @@ def withdraw_review(db: Session, project: Project, gate: ReviewGate,
     gate.reviewer_opinion = None
     project.status = "draft"
     append_evidence(db, gate, "withdraw", actor, payload={"gate_status": "pending"})
+
+
+def review_overview(db: Session, user: PlatformUser) -> list[dict]:
+    """跨项目评审进度总览(评审中心页数据源, #307): 仅含已提交过的评审。
+
+    评估提交(门禁出现 submit 留痕)后产生条目; 数据权限与项目同口径 ——
+    pm 仅见本人创建项目的评审, 全量可见角色见全部; 按最近动态倒序。
+    """
+    rows = (
+        db.query(ReviewGate, Project)
+        .join(Project, ReviewGate.project_id == Project.id)
+        .filter(ReviewGate.gate_type == "requirement")
+        .filter(ReviewGate.submitted_at.isnot(None))
+    )
+    if user.role not in C.FULL_VISIBILITY_ROLES:
+        rows = rows.filter(Project.owner_user_id == user.id)
+    pairs = rows.all()
+    if not pairs:
+        return []
+
+    project_ids = [p.id for _, p in pairs]
+    gate_ids = [g.id for g, _ in pairs]
+
+    # 需求状态汇总: 一次 group_by 拉全
+    summary_map: dict[int, dict[str, int]] = {}
+    for project_id, status, count in (
+        db.query(SecurityRequirement.project_id, SecurityRequirement.review_status,
+                 func.count())
+        .filter(SecurityRequirement.project_id.in_(project_ids))
+        .group_by(SecurityRequirement.project_id, SecurityRequirement.review_status)
+        .all()
+    ):
+        summary_map.setdefault(project_id, {})[status] = count
+
+    # 最近动态: 每个门禁取最后一条留痕时间
+    activity_map = dict(
+        db.query(ReviewEvidence.gate_id, func.max(ReviewEvidence.timestamp))
+        .filter(ReviewEvidence.gate_id.in_(gate_ids))
+        .group_by(ReviewEvidence.gate_id)
+        .all()
+    )
+
+    user_ids = {
+        u for g, _ in pairs for u in (g.submitter_id, g.reviewer_id, g.final_reviewer_id)
+        if u is not None
+    }
+    users = {
+        u.id: u.display_name
+        for u in db.query(PlatformUser).filter(PlatformUser.id.in_(user_ids)).all()
+    } if user_ids else {}
+
+    def _iso(v: datetime | None) -> str | None:
+        return v.isoformat() if v else None
+
+    overview = []
+    for gate, project in pairs:
+        summary = summary_map.get(project.id, {})
+        system = project.system
+        overview.append({
+            "project_id": project.id,
+            "project_name": project.name,
+            "project_code": project.code,
+            "system_name": system.name if system else None,
+            "gate_status": gate.status,
+            "status_verb": gate.latest_status_verb(),
+            "submitted_at": _iso(gate.submitted_at),
+            "submitter_name": users.get(gate.submitter_id),
+            "reviewer_name": users.get(gate.reviewer_id),
+            "final_reviewer_name": users.get(gate.final_reviewer_id),
+            "requirement_summary": {
+                key: summary.get(key, 0)
+                for key in ("open", "confirmed", "reviewed", "rectifying")
+            },
+            "last_activity_at": _iso(activity_map.get(gate.id)),
+        })
+    overview.sort(key=lambda r: r["last_activity_at"] or r["submitted_at"] or "", reverse=True)
+    return overview
 
 
 def review_state(db: Session, project: Project, user: PlatformUser,
