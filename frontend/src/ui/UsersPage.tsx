@@ -8,6 +8,7 @@ import { CloudDownloadOutlined, PlusOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 
 import { api, type AdminUserRow } from '../api'
+import { TABLE_PAGINATION } from './common'
 import { ROLE_COLOR } from './tokens'
 import PageHeader from './PageHeader'
 
@@ -114,8 +115,7 @@ export default function UsersPage() {
         <Table<AdminUserRow>
           rowKey="username"
           dataSource={rows}
-          loading={rows.length === 0}
-          pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50], showTotal: (t) => `共 ${t} 条` }}
+          pagination={TABLE_PAGINATION}
           size="small"
           scroll={{ x: 900 }}
           columns={columns}

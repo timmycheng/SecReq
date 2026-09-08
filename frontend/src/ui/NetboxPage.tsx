@@ -9,6 +9,7 @@ import {
 
 import { api, type NetboxConfig, type NetboxSyncLogOut } from '../api'
 import PageHeader from './PageHeader'
+import { TestResultAlert, useAsyncAction } from './common'
 
 const SYNC_STATUS_COLOR: Record<string, string> = {
   running: 'blue', success: 'green', partial: 'gold', failed: 'red',
@@ -34,8 +35,8 @@ function StatTags({ stats, section }: { stats: Record<string, Record<string, num
 
 export default function NetboxPage() {
   const [cfg, setCfg] = useState<NetboxConfig | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [testing, setTesting] = useState(false)
+  const save = useAsyncAction()
+  const test = useAsyncAction()
   const [testResult, setTestResult] = useState<
     { ok: boolean; latency_ms?: number; version?: string; reason?: string } | null
   >(null)
@@ -79,11 +80,7 @@ export default function NetboxPage() {
         sync_enabled: c.sync_enabled ?? false,
         sync_interval_hours: c.sync_interval_hours ?? 24,
       })
-      setSyncState({
-        running: false,
-        schedule: { enabled: c.sync_enabled ?? false, interval_hours: c.sync_interval_hours ?? 24 },
-        last: null,
-      })
+      // 调度/最近一轮以真实同步状态为准(checkState 拉取), 不再本地伪造
     }).catch((e: Error) => message.error(e.message))
     checkState()
     loadLogs()
@@ -121,27 +118,19 @@ export default function NetboxPage() {
               立即同步
             </Button>
             <Button
-              type="primary" loading={saving}
-              onClick={async () => {
+              type="primary" loading={save.busy}
+              onClick={() => void save.run(async () => {
                 const v = await form.validateFields()
-                setSaving(true)
-                try {
-                  await api.saveNetboxConfig({
-                    base_url: v.base_url,
-                    token: v.token || '',
-                    system_slug: v.system_slug || 'system',
-                    field_map: { name: v.name_key || 'name', code: v.code_key || 'code', owner: v.owner_key || 'owner' },
-                    sync_enabled: v.sync_enabled ?? false,
-                    sync_interval_hours: v.sync_interval_hours ?? 24,
-                  })
-                  message.success('已保存 NetBox 配置')
-                  reload()
-                } catch (e) {
-                  message.error((e as Error).message)
-                } finally {
-                  setSaving(false)
-                }
-              }}
+                await api.saveNetboxConfig({
+                  base_url: v.base_url,
+                  token: v.token || '',
+                  system_slug: v.system_slug || 'system',
+                  field_map: { name: v.name_key || 'name', code: v.code_key || 'code', owner: v.owner_key || 'owner' },
+                  sync_enabled: v.sync_enabled ?? false,
+                  sync_interval_hours: v.sync_interval_hours ?? 24,
+                })
+                reload()
+              }, '已保存 NetBox 配置')}
             >
               保存配置
             </Button>
@@ -152,62 +141,50 @@ export default function NetboxPage() {
         <Col xs={24} lg={12}>
           <Card title="对接配置" style={{ marginBottom: 16 }}>
             <Form form={form} layout="vertical">
-              <Space size={12} style={{ display: 'flex' }}>
+              {/* DESIGN: 输入组件响应式栅格排列, 替代硬编码像素宽度的水平流式排布 */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0 24px' }}>
                 <Form.Item name="base_url" label="NetBox 地址" extra="如 https://netbox.corp.example.com">
-                  <Input placeholder="https://..." style={{ width: 320 }} />
+                  <Input placeholder="https://..." />
                 </Form.Item>
                 <Form.Item
                   name="token" label="API Token"
                   extra={cfg?.token ? `当前: ${cfg.token}` : '未配置'}
                 >
-                  <Input.Password placeholder="Token 只存后端, 回显仅前 4 位" style={{ width: 220 }} />
+                  <Input.Password placeholder="Token 只存后端, 回显仅前 4 位" />
                 </Form.Item>
-              </Space>
-              <Space size={12} style={{ display: 'flex' }}>
                 <Form.Item
                   name="system_slug" label="系统对象类型 slug"
                   extra="custom-objects 插件类型标识(默认 system)"
                 >
-                  <Input placeholder="system" style={{ width: 140 }} />
+                  <Input placeholder="system" />
                 </Form.Item>
-                <Form.Item name="name_key" label="名称字段" style={{ width: 120 }}>
+                <Form.Item name="name_key" label="名称字段">
                   <Input placeholder="name" />
                 </Form.Item>
-                <Form.Item name="code_key" label="编码字段" style={{ width: 120 }}>
+                <Form.Item name="code_key" label="编码字段">
                   <Input placeholder="code" />
                 </Form.Item>
-                <Form.Item name="owner_key" label="负责人字段" style={{ width: 120 }}>
+                <Form.Item name="owner_key" label="负责人字段">
                   <Input placeholder="owner" />
                 </Form.Item>
-              </Space>
+              </div>
               <Button
-                loading={testing}
-                onClick={async () => {
-                  const v = await form.validateFields()
-                  setTesting(true)
+                loading={test.busy}
+                onClick={() => {
                   setTestResult(null)
-                  try {
+                  void test.run(async () => {
+                    const v = await form.validateFields()
                     setTestResult(await api.testNetboxConfig({ base_url: v.base_url, token: v.token || undefined }))
-                  } catch (e) {
-                    message.error((e as Error).message)
-                  } finally {
-                    setTesting(false)
-                  }
+                  })
                 }}
               >
                 测试连接
               </Button>
-              {testResult && (
-                <Alert
-                  style={{ marginTop: 12 }}
-                  type={testResult.ok ? 'success' : 'error'}
-                  showIcon
-                  message={testResult.ok
-                    ? `连接成功(${testResult.latency_ms}ms)`
-                    : `连接失败: ${testResult.reason ?? '未知原因'}`}
-                  description={testResult.ok ? `NetBox 版本: ${testResult.version}` : undefined}
-                />
-              )}
+              <TestResultAlert
+                result={testResult}
+                style={{ marginTop: 12 }}
+                successDescription={testResult?.version ? `NetBox 版本: ${testResult.version}` : undefined}
+              />
             </Form>
           </Card>
         </Col>

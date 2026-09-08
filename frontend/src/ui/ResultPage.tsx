@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Key, ReactNode } from 'react'
 import {
-  Alert, Button, Card, Descriptions, Dropdown, Input, Modal, Progress, Radio, Select,
+  Alert, Button, Card, Descriptions, Dropdown, Input, Modal, Popconfirm, Progress, Radio, Select,
   Space, Spin, Table, Tabs, Tag, Tooltip, Typography, message,
 } from 'antd'
 import {
@@ -20,6 +20,7 @@ import type {
 } from '../types'
 import { batchConfirm, confirmOne, unconfirmedAll, unconfirmedRegulatory } from './assist'
 import GlossaryTip from './GlossaryTip'
+import { DIFF_FIELD_FALLBACK_LABELS, isGateLocked } from './common'
 import { PRIMARY } from './theme'
 import PageHeader from './PageHeader'
 import { GateStatusTag, LevelTag, ProjectStatusTag } from './tags'
@@ -27,13 +28,6 @@ import {
   copyRichHtml, docShell, executiveSummarySection, requirementsSection, vulnsSection,
 } from './wordExport'
 import { HEX, PRIORITY_COLOR, SEVERITY_COLOR } from './tokens'
-
-/** 旧载荷无 field_values 时的字段名中文兜底(#176); 正常路径标签由后端 field_values 下发 */
-const DIFF_FIELD_FALLBACK_LABELS: Record<string, string> = {
-  title: '需求标题', description: '需求内容', priority: '优先级',
-  acceptance_criteria: '验收标准', category: '类目', regulatory_ref: '合规出处',
-}
-
 
 /** 漏洞严重度数值序(小=严重), 供汇聚取最高严重度(#95)。 */
 const SEVERITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
@@ -258,7 +252,10 @@ export default function ResultPage({ projectId }: { projectId: number }) {
         extra={(
           <Space wrap>
             <Button icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
-            <Button onClick={() => navigate(`/evaluations/${projectId}/wizard`)}>返回向导修改</Button>
+            {/* 审批中/已通过(DESIGN 状态机): 各项信息锁定为只读, 不再提供向导编辑入口 */}
+            {!isGateLocked(gate?.status) && (
+              <Button onClick={() => navigate(`/evaluations/${projectId}/wizard`)}>返回向导修改</Button>
+            )}
             {/* 次级导出动作收进下拉, 保持「下载 Word 文档」全页唯一 primary(#268) */}
             <Dropdown
               menu={{
@@ -748,7 +745,20 @@ export default function ResultPage({ projectId }: { projectId: number }) {
             </Button>
           )}
           {canSubmit && inReview && (
-            <Typography.Text type="secondary">评审进行中, 如需修改请等待评审结论。</Typography.Text>
+            <>
+              <Typography.Text type="secondary">评审进行中, 各项信息已锁定为只读。</Typography.Text>
+              {/* 撤回(DESIGN 状态机): 审批中提交人可撤回, 门禁回待提交, 数据全保留 */}
+              {gateSubmitter && (
+                <Popconfirm
+                  title="撤回本次评审提交?"
+                  description="门禁回到待提交, 各项数据保留, 可继续编辑评估。"
+                  onConfirm={() => void runReviewAction(
+                    () => api.reviewWithdraw(projectId), '已撤回, 可继续编辑评估')}
+                >
+                  <Button block danger style={{ marginTop: 8 }} loading={acting}>撤回评审</Button>
+                </Popconfirm>
+              )}
+            </>
           )}
           {canSubmit && gate?.status === 'passed' && (
             <Typography.Text type="secondary">评审已通过, 本轮归档。</Typography.Text>

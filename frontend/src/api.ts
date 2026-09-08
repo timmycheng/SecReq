@@ -73,9 +73,10 @@ function qsDuration(seconds?: number): string {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     ...((init?.headers as Record<string, string>) ?? {}),
   }
+  // FormData 由浏览器自动生成含 boundary 的 multipart Content-Type, 不能覆盖
+  if (!(init?.body instanceof FormData)) headers['Content-Type'] = 'application/json'
   const token = getStoredToken()
   if (token) headers.Authorization = `Bearer ${token}`
   const resp = await fetch(path, { ...init, headers })
@@ -90,6 +91,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (resp.status === 204) return undefined as T
   return (await resp.json()) as T
+}
+
+/** 文件上传统一入口: FormData + Bearer, 错误提示口径与 request() 一致。 */
+async function uploadRequest<T>(path: string, file: File | Blob, fieldName = 'file'): Promise<T> {
+  const body = new FormData()
+  body.append(fieldName, file)
+  return request<T>(path, { method: 'POST', body })
 }
 
 /** 触发浏览器下载: 经 fetch 携带 Bearer token, 再转 object URL 保存。 */
@@ -151,6 +159,10 @@ export const api = {
     request<{ status: string; gate_status: string }>(
       `/api/projects/${projectId}/review/finalize`,
       { method: 'POST', body: JSON.stringify({ comment: comment || null }) }),
+  /** 撤回评审(DESIGN 状态机): 审批中提交人可撤回, 回到新建阶段, 数据保留 */
+  reviewWithdraw: (projectId: number) =>
+    request<{ status: string; gate_status: string }>(
+      `/api/projects/${projectId}/review/withdraw`, { method: 'POST' }),
   downloadReviewSheet: (projectId: number) =>
     fetch(`/api/projects/${projectId}/review/export/review-sheet`, {
       headers: { Authorization: `Bearer ${getStoredToken() ?? ''}` },
@@ -199,6 +211,10 @@ export const api = {
   updateFiling: (id: number, data: Partial<FilingRow>) =>
     request<FilingRow>(`/api/filings/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteFiling: (id: number) => request<void>(`/api/filings/${id}`, { method: 'DELETE' }),
+  /** CSV 批量导入备案(DESIGN): 逐行校验, 返回新增数与跳过明细 */
+  importFilingsCsv: (file: File) =>
+    uploadRequest<{ created: number; skipped: { row: number; name: string; reason: string }[] }>(
+      '/api/filings/import', file),
   listSystems: () => request<SystemRow[]>('/api/systems'),
   getSystem: (id: number) => request<SystemRow>(`/api/systems/${id}`),
   /* 系统详情 Tab 分节数据(#272): features 读基线来源轮次, 其余读基线快照 */
@@ -234,22 +250,10 @@ export const api = {
     request<ComponentRow[]>(`/api/systems/${systemId}/components`, {
       method: 'POST', body: JSON.stringify({ components: rows }),
     }),
-  importSystemSbom: async (systemId: number, file: File) => {
-    const form = new FormData()
-    form.append('file', file)
-    const token = getStoredToken()
-    const resp = await fetch(`/api/systems/${systemId}/components/import-sbom`, {
-      method: 'POST', body: form,
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    })
-    if (!resp.ok) {
-      const body = await resp.json().catch(() => null)
-      throw new Error(body?.detail ?? `导入失败 HTTP ${resp.status}`)
-    }
-    return (await resp.json()) as {
+  importSystemSbom: (systemId: number, file: File) =>
+    uploadRequest<{
       filename: string, format: string, total_parsed: number, added: number, skipped_duplicate: number,
-    }
-  },
+    }>(`/api/systems/${systemId}/components/import-sbom`, file),
   getSystemArchImages: (systemId: number) =>
     request<InfraArchImageRow[]>(`/api/systems/${systemId}/arch-images`),
   uploadSystemArchImage: (systemId: number, env: string, imageDataUrl: string) =>
@@ -282,20 +286,9 @@ export const api = {
     request<{ row_count: number; assets: DataAssetRow[] }>(`/api/projects/${id}/data-assets/parse-dictionary`, {
       method: 'POST', body: JSON.stringify({ content }),
     }),
-  importDictionaryFile: async (id: number, file: File) => {
-    const form = new FormData()
-    form.append('file', file)
-    const token = getStoredToken()
-    const resp = await fetch(`/api/projects/${id}/data-assets/import-dictionary`, {
-      method: 'POST', body: form,
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    })
-    if (!resp.ok) {
-      const body = await resp.json().catch(() => null)
-      throw new Error(body?.detail ?? `解析失败 HTTP ${resp.status}`)
-    }
-    return (await resp.json()) as { row_count: number; assets: DataAssetRow[] }
-  },
+  importDictionaryFile: (id: number, file: File) =>
+    uploadRequest<{ row_count: number; assets: DataAssetRow[] }>(
+      `/api/projects/${id}/data-assets/import-dictionary`, file),
   saveFeatures: (id: number, rows: FeatureRow[], durationSeconds?: number) =>
     request<FeatureRow[]>(`/api/projects/${id}/features${qsDuration(durationSeconds)}`, {
       method: 'POST', body: JSON.stringify(rows),
@@ -325,22 +318,10 @@ export const api = {
       method: 'POST', body: JSON.stringify({ components: rows }),
     }),
   listComponents: (id: number) => request<ComponentRow[]>(`/api/projects/${id}/components`),
-  importSbomFile: async (id: number, file: File) => {
-    const form = new FormData()
-    form.append('file', file)
-    const token = getStoredToken()
-    const resp = await fetch(`/api/projects/${id}/components/import-sbom`, {
-      method: 'POST', body: form,
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    })
-    if (!resp.ok) {
-      const body = await resp.json().catch(() => null)
-      throw new Error(body?.detail ?? `导入失败 HTTP ${resp.status}`)
-    }
-    return (await resp.json()) as {
+  importSbomFile: (id: number, file: File) =>
+    uploadRequest<{
       filename: string, format: string, total_parsed: number, added: number, skipped_duplicate: number,
-    }
-  },
+    }>(`/api/projects/${id}/components/import-sbom`, file),
   saveApiEndpoints: (id: number, rows: ApiEndpointRow[], durationSeconds?: number) =>
     request<ApiEndpointRow[]>(`/api/projects/${id}/api-endpoints${qsDuration(durationSeconds)}`, {
       method: 'POST', body: JSON.stringify(rows),

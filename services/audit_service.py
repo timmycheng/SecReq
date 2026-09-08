@@ -45,11 +45,35 @@ ACTION_LABELS: dict[str, str] = {
     "llm_update": "更新大模型配置",
     "code_rule_update": "更新编号规则",
     "user_create": "创建用户",
+    "user_update": "更新用户",
     "user_reset_password": "重置用户密码",
     "user_toggle": "启停用户",
     "vulndb_verify": "漏洞库校验",
     "ldap_update": "更新 LDAP 配置",
     "ldap_sync": "LDAP 用户导入",
+    "netbox_update": "更新 NetBox 配置",
+    "netbox_sync": "触发 NetBox 同步",
+    "filing_create": "登记备案",
+    "filing_update": "更新备案",
+    "filing_delete": "删除备案",
+    "filing_import": "批量导入备案",
+    "system_create": "登记系统",
+    "system_update": "更新系统",
+    "system_delete": "删除系统",
+    "system_infra_save": "保存系统基础设施",
+    "system_components_save": "保存系统组件清单",
+    "system_arch_image": "上传系统架构图",
+    "system_arch_image_delete": "删除系统架构图",
+    "baseline_level_confirm": "确认级别变更",
+    "baseline_writeback_failed": "基线写回失败",
+    "project_copy_from": "整卷复制评估",
+    "project_reset_wizard": "清空向导输入",
+    "project_withdraw": "撤回评审",
+    "review_submit": "提交评审",
+    "review_submit_blocked": "提交评审未过门禁",
+    "review_annotate": "需求批注",
+    "review_decide": "评审裁定",
+    "review_finalize": "评审终审",
 }
 
 #: step_save 的 step 值 → 中文名(与 routers/steps.py 的调用点对应)
@@ -113,4 +137,55 @@ def summarize_detail(action: str, detail: dict) -> str | None:
         match = get("match")
         verdict = "校验通过" if match else ("校验失败" if match is not None else "无基准可比对")
         return f"漏洞库完整性{verdict}, {get('size_mb')} MB"
+    if action in ("filing_create", "filing_update"):
+        return f"{ACTION_LABELS[action]} {get('name')}({get('level')})"
+    if action == "filing_delete":
+        return f"删除备案 {get('name')}"
+    if action == "filing_import":
+        return f"批量导入备案: 新增 {get('created')} 条, 跳过 {get('skipped')} 条"
+    if action in ("system_create", "system_update"):
+        return f"{ACTION_LABELS[action]} {get('name')}"
+    if action == "system_delete":
+        return f"删除系统 {get('name')}"
+    if action in ("system_infra_save", "system_components_save"):
+        what = "基础设施" if action == "system_infra_save" else "组件清单"
+        return f"系统 #{get('system_id')} 保存{what}, 共 {get('count')} 条"
+    if action in ("system_arch_image", "system_arch_image_delete"):
+        env = C.ENV_NAMES.get(get("env"), get("env"))
+        verb = "上传" if action == "system_arch_image" else "删除"
+        return f"系统 #{get('system_id')} {verb}{env}架构图"
+    if action == "baseline_level_confirm":
+        verdict = ("采纳评估建议级" if get("decision") == "adopt_suggested"
+                   else "维持备案定级")
+        return f"系统 #{get('system_id')} 级别变更确认: {verdict}"
+    if action == "baseline_writeback_failed":
+        return f"项目 #{get('project_id')} 基线写回失败: {get('error')}"
+    if action == "netbox_update":
+        return f"NetBox 配置: {get('base_url')}({get('system_slug')})"
+    if action == "netbox_sync":
+        return f"NetBox 同步({get('trigger')}): {get('status')}, 日志 #{get('log_id')}"
+    if action == "user_update":
+        return f"更新用户 {get('target')}({C.label(C.PLATFORM_ROLES, str(get('role')))})"
+    if action == "project_copy_from":
+        return f"项目 #{get('project_id')} 自项目 #{get('copied_from')} 整卷复制向导数据"
+    if action == "project_reset_wizard":
+        return f"项目 #{get('project_id')} 清空全部向导输入"
+    if action == "project_withdraw":
+        return f"项目 #{get('project_id')} 撤回评审, 回到填写阶段(数据保留)"
+    if action == "review_submit":
+        return f"项目 #{get('project_id')} 提交评审(门禁 #{get('gate_id')})"
+    if action == "review_submit_blocked":
+        missing = get("missing") or []
+        return f"项目 #{get('project_id')} 提交评审被门禁拦截, 缺 {len(missing)} 项"
+    if action == "review_annotate":
+        disposition = {"approve": "通过", "return": "退回整改", "object": "异议留痕"}.get(
+            str(get("disposition")), str(get("disposition")))
+        return f"项目 #{get('project_id')} 需求 {get('req_id')} 批注: {disposition}"
+    if action == "review_decide":
+        conclusion = {"approve": "通过, 待终审", "request_change": "退回整改",
+                      "reject": "否决"}.get(str(get("conclusion")), str(get("conclusion")))
+        return f"项目 #{get('project_id')} 评审裁定: {conclusion}"
+    if action == "review_finalize":
+        verdict = "终审通过" if get("gate_status") == "passed" else "终审未通过"
+        return f"项目 #{get('project_id')} {verdict}"
     return None

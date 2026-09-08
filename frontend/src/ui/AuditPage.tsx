@@ -7,6 +7,7 @@ import {
 import type { ColumnsType } from 'antd/es/table'
 
 import { api, type AuditLogRow } from '../api'
+import { TABLE_PAGINATION } from './common'
 import PageHeader from './PageHeader'
 
 export default function AuditPage() {
@@ -89,7 +90,7 @@ export default function AuditPage() {
         <Table<AuditLogRow>
           rowKey="id" loading={loading} dataSource={list} size="small"
           tableLayout="fixed"
-          pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50], showTotal: (t) => `共 ${t} 条` }}
+          pagination={TABLE_PAGINATION}
           columns={columns}
         />
       </Card>

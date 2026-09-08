@@ -6,6 +6,7 @@
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import shared.constants as C
@@ -13,7 +14,7 @@ from models import (
     Filing, GradingSurvey, PlatformUser, Project, ReviewGate, System,  # noqa: F401 (类型标注用)
 )
 from routers.common import (
-    client_ip, get_db, get_project_or_404, require_login,
+    client_ip, ensure_project_editable, get_db, get_project_or_404, require_login,
     require_write_roles, visible_projects_query, wizard_state,
 )
 from schemas.project import (
@@ -63,6 +64,10 @@ def _detail(db: Session, project: Project) -> ProjectDetail:
                 detail.filing_name = filing.name
                 detail.filing_level = filing.level
             detail.is_current_baseline = current_baseline_id(db, system.id) == project.id
+    from models import StepDuration
+    total = db.query(func.sum(StepDuration.duration_seconds)).filter_by(
+        project_id=project.id).scalar()
+    detail.duration_seconds = round(float(total), 1) if total else None
     return detail
 
 
@@ -122,6 +127,7 @@ def copy_from(project_id: int, payload: CopyFromIn, request: Request,
         raise HTTPException(status_code=404, detail=f"评估不存在: id={project_id}")
     from routers.common import ensure_project_access
     ensure_project_access(user, project)
+    ensure_project_editable(db, project)
     source = db.get(Project, payload.from_project_id)
     if source is None:
         raise HTTPException(status_code=404, detail=f"来源评估不存在: id={payload.from_project_id}")
@@ -146,6 +152,7 @@ def reset_wizard(project_id: int, request: Request,
         raise HTTPException(status_code=404, detail=f"评估不存在: id={project_id}")
     from routers.common import ensure_project_access
     ensure_project_access(user, project)
+    ensure_project_editable(db, project)
     reset_wizard_data(db, project.id)
     audit(db, user.username, "project_reset_wizard",
           {"project_id": project.id}, client_ip(request))
@@ -176,6 +183,7 @@ def patch(payload: ProjectUpdate, project: Project = Depends(get_project_or_404)
           duration_seconds: float | None = Query(default=None, description='本步停留秒数(#229 埋点)')):
     from routers.common import ensure_project_access
     ensure_project_access(user, project)
+    ensure_project_editable(db, project)
     changes = payload.model_dump(exclude_unset=True)
     if "code" in changes and changes["code"] != project.code:
         raise HTTPException(status_code=400, detail="评估编码不允许修改")
@@ -196,6 +204,12 @@ def remove(request: Request, project: Project = Depends(get_project_or_404),
     from routers.common import ensure_project_access
     from services.project_service import delete_project_cascade
     ensure_project_access(user, project)
+    # 审批中不能整卷删除(会悬空评审门禁), 须先撤回; 结束态允许清理历史轮次
+    from models import ReviewGate
+    gate = db.query(ReviewGate).filter_by(
+        project_id=project.id, gate_type="requirement").first()
+    if gate is not None and gate.status == "in_review":
+        raise HTTPException(status_code=409, detail="评审进行中不能删除评估, 请先撤回评审")
     # 先取出标识再删, 删完再留痕(确保记录的是"已发生的删除")
     snapshot = {"project_id": project.id, "code": project.code, "name": project.name}
     delete_project_cascade(db, project.id)

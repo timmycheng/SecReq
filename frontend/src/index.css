@@ -24,7 +24,7 @@ body {
 
 /* 登录页(#280): 品牌渐变背景 + 白卡(渐变常量见 ui/theme.ts) */
 .login-bg {
-  height: 100%;
+  min-height: 100vh; /* html/body/#root 无高度链, 百分比高度会塌缩, 用视口单位兜底 */
   display: flex;
   align-items: center;
   justify-content: center;

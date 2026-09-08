@@ -149,7 +149,13 @@ def test_permission_assertions_pm_auditor(api, seeded_api):
     assert auditor.post("/api/admin/users", json={
         "username": "nope", "display_name": "n", "role": "pm"}).status_code == 403
 
-    # pm 提交后不能自审(角色白名单与服务层双重拦截)
+    # 耗时埋点报表可输出(#229 验收); 审批中内容锁定, 埋点写在提交评审之前
+    existing = api.get(f"/api/projects/{pid}/features").json()
+    resp = api.post(f"/api/projects/{pid}/features?duration_seconds=99",
+                    json=existing[:1] + [{"uid": "feat-metric-1", "name": "埋点探针功能",
+                                          "module": "用户中心",
+                                          "categories": ["auth_login"]}])
+    assert resp.status_code == 200
     _confirm_all(api, pid)
     assert api.post(f"/api/projects/{pid}/review/submit").json()["status"] == "submitted"
     reqs = api.get(f"/api/projects/{pid}/requirements").json()
@@ -160,13 +166,6 @@ def test_permission_assertions_pm_auditor(api, seeded_api):
                     json={"conclusion": "approve"}).status_code == 403
     assert api.post(f"/api/projects/{pid}/review/finalize", json={}).status_code == 403
 
-    # 耗时埋点报表可输出(#229 验收)
-    existing = api.get(f"/api/projects/{pid}/features").json()
-    resp = api.post(f"/api/projects/{pid}/features?duration_seconds=99",
-                    json=existing[:1] + [{"uid": "feat-metric-1", "name": "埋点探针功能",
-                                          "module": "用户中心",
-                                          "categories": ["auth_login"]}])
-    assert resp.status_code == 200
     report = sec.get("/api/admin/step-metrics",
                      params={"project_id": pid}).json()
     assert any(s["step"] == "features" and s["avg_seconds"] == 99.0
