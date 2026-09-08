@@ -14,6 +14,7 @@ import { api, getStoredUser, isSecuritySideRole } from '../api'
 import { labelMapOf, useEnums } from '../enums'
 import { navigate } from '../router'
 import { DATA_LEVEL_COLOR, PRIORITY_COLOR } from './tokens'
+import { PRIMARY } from './theme'
 import { DIFF_FIELD_FALLBACK_LABELS } from './common'
 import { LevelTag, RoundCell } from './tags'
 import { SystemFormModal } from './SystemsPage'
@@ -270,54 +271,120 @@ function DataAssetsSection({ systemId }: { systemId: number }) {
   )
 }
 
-/* ── 权限矩阵 ─────────────────────────────────────── */
+/* ── 权限矩阵(#306: 与填表向导 Step5 同构的交叉矩阵只读展示) ── */
+
+const BASELINE_ROLE_TYPE_COLOR: Record<string, string> = {
+  super_admin: 'red', privileged: 'orange', normal: 'blue',
+}
+const BASELINE_CRITICALITY_COLOR: Record<string, string> = {
+  低: 'default', 中: 'gold', 高: 'volcano', 关键: 'red',
+}
+
+function matrixCellStyle(bg?: string): CSSProperties {
+  // separate+单侧描边: collapse 会让 sticky 单元格失效(与向导 Step5 同口径, #142)
+  return {
+    borderRight: '1px solid #e8e8e8',
+    borderBottom: '1px solid #e8e8e8',
+    padding: '8px 10px',
+    textAlign: 'center',
+    minWidth: 150,
+    verticalAlign: 'middle',
+    ...(bg ? { background: bg } : {}),
+  }
+}
 
 function PermissionsSection({ systemId }: { systemId: number }) {
+  const enums = useEnums()
+  const roleTypeLabels = labelMapOf(enums, 'role_types')
+  const resourceTypeLabels = labelMapOf(enums, 'resource_types')
+  const criticalityLabels = labelMapOf(enums, 'criticality_levels')
+  const actionLabels = labelMapOf(enums, 'permission_actions')
   const { meta, rows, loading, error, reload } = useSection<BaselinePermissionBundle>(useCallback(
     () => api.systemDetailPermissions(systemId), [systemId]))
   if (loading) return <Section id="permissions" title="权限矩阵"><div style={{ padding: 24, textAlign: 'center' }}><Spin /></div></Section>
   if (error) return <Section id="permissions" title="权限矩阵"><SectionError error={error} onRetry={reload} /></Section>
   const bundle = rows ?? { roles: [], resources: [], permission_entries: [] }
-  const roleNameOf = (uid?: string | null) =>
-    bundle.roles.find((r) => r.uid === uid)?.name ?? uid ?? '—'
-  const resourceNameOf = (uid?: string | null) =>
-    bundle.resources.find((r) => r.uid === uid)?.name ?? uid ?? '—'
+  const cellText = (roleUid: string, resUid: string) =>
+    bundle.permission_entries
+      .filter((e) => e.role_uid === roleUid && e.resource_uid === resUid)
+      .map((e) => `${actionLabels[e.action ?? ''] ?? e.action}${e.requires_approval ? '*' : ''}`)
+      .join('、')
+  const hasMatrix = bundle.roles.length > 0 || bundle.resources.length > 0
   return (
     <Section id="permissions" title="权限矩阵">
-      <Space direction="vertical" size={16} style={{ width: '100%' }}>
-        <Table size="small" rowKey="uid" pagination={false} dataSource={bundle.roles}
-          locale={{ emptyText: <Empty description={meta?.has_baseline
-            ? "基线中没有角色记录"
-            : "完成评估并终审通过后, 这里展示基线轮次维护的角色"} /> }}
-          columns={[
-            { title: '角色', dataIndex: 'name' },
-            { title: '角色类型', dataIndex: 'role_type', width: 140, render: (v) => v || '—' },
-            { title: '预估用户数', dataIndex: 'user_count_estimate', width: 120, render: (v) => v ?? '—' },
-          ]} />
-        <Table size="small" rowKey="uid" pagination={false} dataSource={bundle.resources}
-          locale={{ emptyText: <Empty description={meta?.has_baseline
-            ? "基线中没有资源记录"
-            : "完成评估并终审通过后, 这里展示基线轮次维护的资源"} /> }}
-          columns={[
-            { title: '资源', dataIndex: 'name' },
-            { title: '资源类型', dataIndex: 'resource_type', width: 160, render: (v) => v || '—' },
-            { title: '重要度', dataIndex: 'criticality', width: 120, render: (v) => v || '—' },
-          ]} />
-        <Typography.Text strong>授权项({bundle.permission_entries.length})</Typography.Text>
-        <Table size="small" rowKey={(r) => `${r.role_uid}-${r.resource_uid}-${r.action}`}
-          pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
-          dataSource={bundle.permission_entries}
-          locale={{ emptyText: <Empty description={meta?.has_baseline
-            ? "基线中没有授权记录"
-            : "完成评估并终审通过后, 这里展示基线轮次维护的授权项"} /> }}
-          columns={[
-            { title: '角色', dataIndex: 'role_uid', render: (v) => roleNameOf(v) },
-            { title: '资源', dataIndex: 'resource_uid', render: (v) => resourceNameOf(v) },
-            { title: '操作', dataIndex: 'action', width: 140, render: (v) => v || '—' },
-            { title: '需审批', dataIndex: 'requires_approval', width: 100,
-              render: (v: boolean) => (v ? <Tag color="orange">需审批</Tag> : '—') },
-          ]} />
-      </Space>
+      {hasMatrix ? (
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Typography.Text type="secondary">
+            与填表向导一致的交叉矩阵视图 · 带 * 表示该操作需审批(执行前需第二人复核)
+          </Typography.Text>
+          {/* 横向滚动只作用于矩阵自身: 滚动条紧贴矩阵下方, 角色列固定左侧 */}
+          <div style={{ overflowX: 'auto' }}>
+            <table className="matrix-table" style={{ borderCollapse: 'separate', borderSpacing: 0, minWidth: 700 }}>
+              <thead>
+                <tr>
+                  <th style={{
+                    ...matrixCellStyle(PRIMARY),
+                    color: '#fff',
+                    borderLeft: '1px solid #e8e8e8', borderTop: '1px solid #e8e8e8',
+                    position: 'sticky', left: 0, zIndex: 3, boxShadow: '2px 0 4px rgba(0,0,0,0.06)',
+                  }}>角色 \ 资源</th>
+                  {bundle.resources.map((r) => (
+                    <th key={r.uid} style={{ ...matrixCellStyle(PRIMARY), color: '#fff', borderTop: '1px solid #e8e8e8' }}>
+                      {r.name}
+                      <div>
+                        <Tag style={{ marginRight: 0 }}>
+                          {resourceTypeLabels[r.resource_type ?? ''] ?? r.resource_type ?? '—'}
+                        </Tag>
+                        <Tag color={BASELINE_CRITICALITY_COLOR[criticalityLabels[r.criticality ?? ''] ?? '']}>
+                          {criticalityLabels[r.criticality ?? ''] ?? r.criticality ?? '—'}
+                        </Tag>
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {bundle.roles.map((role) => (
+                  <tr key={role.uid}>
+                    <td style={{
+                      ...matrixCellStyle('#fafafa'),
+                      borderLeft: '1px solid #e8e8e8',
+                      position: 'sticky', left: 0, zIndex: 2, boxShadow: '2px 0 4px rgba(0,0,0,0.06)',
+                    }}>
+                      <b>{role.name}</b><br />
+                      <Tag color={BASELINE_ROLE_TYPE_COLOR[role.role_type ?? '']}>
+                        {roleTypeLabels[role.role_type ?? ''] ?? role.role_type ?? '—'}
+                      </Tag>
+                      {role.user_count_estimate != null && (
+                        <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+                          预估 {role.user_count_estimate} 人
+                        </Typography.Text>
+                      )}
+                    </td>
+                    {bundle.resources.map((res) => {
+                      const text = cellText(role.uid, res.uid)
+                      return (
+                        <td key={res.uid} style={matrixCellStyle()}>
+                          {text
+                            ? <span style={{ fontSize: 12 }}>{text}</span>
+                            : <span style={{ color: '#bbb' }}>—</span>}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Typography.Text type="secondary" style={{ display: 'block' }}>
+            共 {bundle.roles.length} 角色 × {bundle.resources.length} 资源 · 已登记授权 {bundle.permission_entries.length} 格次
+          </Typography.Text>
+        </Space>
+      ) : (
+        <Empty description={meta?.has_baseline
+          ? '基线中没有权限矩阵记录'
+          : '完成评估并终审通过后, 这里展示基线轮次维护的权限矩阵'} />
+      )}
     </Section>
   )
 }
