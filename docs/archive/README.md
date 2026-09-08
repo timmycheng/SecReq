@@ -1,6 +1,6 @@
 # 历史文档归档
 
-此前各 agent 在本地工作目录(均在 .gitignore 中)生成的方案与记录, 已按开发管理逻辑收敛: 仍有效的工作项拆为独立 issue 跟踪, 现行总纲同步至 [../master-plan.md](../master-plan.md), 其余按原样归档于此。
+此前各 agent 在本地工作目录(均在 .gitignore 中)生成的方案与记录, 已按开发管理逻辑收敛: 仍有效的工作项拆为独立 issue 跟踪, 其余按原样归档于此。
 
 **归档原则**: 文件内容原样保留(仅按来源重命名, 段内换行未重排), 不作为现行规范 —— 事实口径以 README / CHANGELOG / 代码为准, 流程以 [../dev-workflow.md](../dev-workflow.md) 为准, 完成状态以 issue / milestone 为准。
 
@@ -19,3 +19,6 @@
 | agents-offline-vuln-db-plan.md | 离线漏洞库方案 v2(OSV 数据源实测数据 / 麒麟缺口 / SCA 核查清单) | v2.2.0 已落地; 收尾项 → #67 / #69 / #70 |
 | agents-memory-index.md | agent 长期记忆: 硬约束 / 踩坑 / 环境怪癖 / 版本路线 | 参考价值; 项目约定已上移至 AGENTS.md 与 dev-workflow.md |
 | agents-log-2026-08-30.md | 2026-08-30 工作日志(评审 / 方案 / 实施 / 发版全程记录) | 存档 |
+| master-plan.md | 2026-06~08 总纲(阶段路线 / 版本规划 / 里程碑口径) | 已完结并归档(#316); 完成状态以 issue / milestone 与 CHANGELOG 为准 |
+| fix-plan-v2.2.1.md | v2.2.1 修复计划(知识库维护 / 导出 / 界面细节) | 已随 v2.2.1 实施, 归档(#316) |
+| 前端改造方案.md | #280 前端整体改版取舍记录(原页面保留项 / 采用新界面项) | 已随 #280 实施, 归档(#316) |
