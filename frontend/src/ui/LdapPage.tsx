@@ -65,7 +65,7 @@ export default function LdapPage() {
         )}
       />
       {/* DESIGN: 页面整体居中 */}
-      <Form form={form} layout="vertical" style={{ maxWidth: 860, margin: '0 auto' }} initialValues={{ port: 389 }}>
+      <Form form={form} layout="vertical" initialValues={{ port: 389 }}>
         <Card title="对接配置" style={{ marginBottom: 16 }}>
           <Form.Item name="enabled" label="启用 LDAP/AD 登录" valuePropName="checked">
             <Switch checkedChildren="启用" unCheckedChildren="停用" />
@@ -126,10 +126,10 @@ export default function LdapPage() {
 
       <TestResultAlert
         result={testResult}
-        style={{ marginTop: 16, maxWidth: 860, marginInline: 'auto' }}
+        style={{ marginTop: 16 }}
         successDescription={`命中 ${testResult?.user_count ?? 0} 个目录用户`}
       />
-      <Typography.Text type="secondary" style={{ display: 'block', marginTop: 12, maxWidth: 860, marginInline: 'auto' }}>
+      <Typography.Text type="secondary" style={{ display: 'block', marginTop: 12 }}>
         密码策略与账号锁定沿用目录服务配置; 保存后立即对登录生效。
       </Typography.Text>
     </div>

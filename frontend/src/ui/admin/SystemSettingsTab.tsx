@@ -52,7 +52,7 @@ function CodeRuleCard() {
 
   return (
     <Card
-      size="small" title="评估编号规则" style={{ width: 680 }}
+      size="small" title="评估编号规则"
       extra={<Typography.Text type="secondary">修改规则只影响新评估</Typography.Text>}
     >
       <Form form={form} layout="vertical" initialValues={rule ?? undefined}>
@@ -109,7 +109,7 @@ function PolicyBaselineCard() {
 
   return (
     <Card
-      size="small" title="密码策略基线" style={{ width: 680 }}
+      size="small" title="密码策略基线"
       extra={<Typography.Text type="secondary">评估未显式覆盖时按档位默认取值</Typography.Text>}
     >
       {Object.entries(data.baselines).map(([level, base]) => (
@@ -162,7 +162,7 @@ function QuestionBankCard() {
 
   return (
     <Card
-      size="small" title="定级题库" style={{ width: 880 }}
+      size="small" title="定级题库"
       extra={<Typography.Text type="secondary">题目分值决定自动定级建议, 保存后对新问卷立即生效</Typography.Text>}
     >
       <Card size="small" type="inner" title="定级阈值(总分 → 等级建议)" style={{ marginBottom: 12 }}>
@@ -228,7 +228,7 @@ function InfraEnvsCard() {
 
   return (
     <Card
-      size="small" title="基础资源环境" style={{ width: 680 }}
+      size="small" title="基础资源环境"
       extra={<Typography.Text type="secondary">评估向导与系统详情的基础设施环境列表</Typography.Text>}
     >
       <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
@@ -301,7 +301,7 @@ function SystemDictsCard() {
 
   return (
     <Card
-      size="small" title="系统字典(标签 / 系统类型枚举)" style={{ width: 880 }}
+      size="small" title="系统字典(标签 / 系统类型枚举)"
       extra={<Typography.Text type="secondary">系统清单的标签与业务类型下拉来源; 类型 code 录入后不可改</Typography.Text>}
     >
       <Typography.Paragraph type="secondary" style={{ marginBottom: 4 }}>系统标签:</Typography.Paragraph>
