@@ -117,6 +117,13 @@ export interface SystemRow {
   user_scale?: string | null
   types?: string[]
   is_public?: boolean
+  /** ── 清单画像(#283 item1/2, DESIGN 系统清单字段) ── */
+  department?: string | null
+  importance?: string | null
+  owner_dev_name?: string | null
+  owner_ops_name?: string | null
+  owner_biz_name?: string | null
+  tags?: string[]
   created_at?: string | null
   filing_name?: string | null
   filing_level?: string | null

@@ -36,6 +36,8 @@ PROJECT_STATUS = {
 
 # 等保定级(存中文标签, 知识库条件直接匹配)
 GRADING_LEVELS = ["一级", "二级", "三级"]
+#: 系统重要程度(DESIGN 系统清单字段, #283)
+IMPORTANCE_LEVELS = ["高", "中", "低"]
 
 # ── Step3 功能清单 ────────────────────────────────────
 FEATURE_CATEGORIES = {

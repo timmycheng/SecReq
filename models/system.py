@@ -58,6 +58,14 @@ class System(Base):
     )
     types: Mapped[list] = mapped_column(JSON, default=list, comment="系统业务形态多选, 见 PROJECT_TYPES")
     is_public: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否涉及公网访问")
+    # ── 清单画像(#283 item1/2, DESIGN 系统清单字段) ──
+    department: Mapped[str | None] = mapped_column(String(100), comment="归属部门")
+    importance: Mapped[str | None] = mapped_column(
+        String(10), comment="重要程度(高/中/低), 见 IMPORTANCE_LEVELS")
+    owner_dev_name: Mapped[str | None] = mapped_column(String(50), comment="开发侧责任人")
+    owner_ops_name: Mapped[str | None] = mapped_column(String(50), comment="运维侧责任人")
+    owner_biz_name: Mapped[str | None] = mapped_column(String(50), comment="业务侧责任人")
+    tags: Mapped[list] = mapped_column(JSON, default=list, comment="系统标签(标签字典在系统管理维护)")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     filing: Mapped["Filing | None"] = relationship(back_populates="systems")

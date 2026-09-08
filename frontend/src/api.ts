@@ -386,6 +386,12 @@ export const api = {
       '/api/admin/netbox-config/test', { method: 'POST', body: JSON.stringify(data) }),
   /** 拉取 system 对象类型字段, 供 field_map 对照; 未配置返回 409 */
   /** 基础资源环境配置(#289, DESIGN 分环境可配置) */
+  /** 系统字典(#283): 系统标签 + 系统类型枚举(系统管理维护) */
+  getSystemDicts: () => request<{ tags: string[]; types: Record<string, string> }>('/api/admin/system-dicts'),
+  saveSystemDicts: (payload: { tags: string[]; types: { code: string; label: string }[] }) =>
+    request<{ tags: string[]; types: Record<string, string> }>('/api/admin/system-dicts', {
+      method: 'PUT', body: JSON.stringify(payload),
+    }),
   getInfraEnvs: () => request<{ envs: { code: string; name: string }[] }>('/api/admin/infra-envs'),
   saveInfraEnvs: (envs: { code: string; name: string }[]) =>
     request<{ envs: { code: string; name: string }[] }>('/api/admin/infra-envs', {
