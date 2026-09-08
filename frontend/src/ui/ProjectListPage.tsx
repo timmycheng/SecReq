@@ -52,6 +52,14 @@ export default function ProjectListPage() {
 
   const resetPage = (apply: () => void) => { apply(); setPage(1) }
 
+  /** 单入口「进入」(#308): 未提交→填写页; 已生成未评审→产物页; 已进评审→评审页。 */
+  const entryPath = (r: ProjectDetail): string => {
+    if (r.status === 'draft') return `/evaluations/${r.id}/wizard`
+    const gate = r.review_gate_status
+    if (gate && gate !== 'pending') return `/evaluations/${r.id}/review`
+    return `/evaluations/${r.id}/result`
+  }
+
   const copySystem = systems.find((s) => s.id === createSystemId)
   const latestRound: RoundSummary | undefined =
     copySystem?.latest_round ?? copySystem?.rounds?.[0]
@@ -95,9 +103,7 @@ export default function ProjectListPage() {
       title: '评估名称 / 编码', dataIndex: 'name', width: 250, fixed: 'left',
       render: (v: string, r) => (
         <div>
-          <Typography.Link onClick={() => navigate(
-            r.status === 'draft' ? `/evaluations/${r.id}/wizard` : `/evaluations/${r.id}/result`,
-          )}>{v}</Typography.Link>
+          <Typography.Link onClick={() => navigate(entryPath(r))}>{v}</Typography.Link>
           <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>{r.code}</Typography.Text>
         </div>
       ),
@@ -123,12 +129,12 @@ export default function ProjectListPage() {
     { title: '安全需求', dataIndex: ['counts', 'requirements'], width: 90 },
     { title: '耗时', dataIndex: 'duration_seconds', width: 100, render: formatDuration },
     {
-      title: '操作', key: 'ops', width: 250, fixed: 'right',
+      title: '操作', key: 'ops', width: 110, fixed: 'right',
       render: (_, record) => (
         <Space size={0} split={<Divider type="vertical" />}>
-          <Button type="link" size="small" onClick={() => navigate(`/evaluations/${record.id}/wizard`)}>填写向导</Button>
-          <Button type="link" size="small" onClick={() => navigate(`/evaluations/${record.id}/result`)}>查看产物</Button>
-          <Button type="link" size="small" onClick={() => navigate(`/evaluations/${record.id}/review`)}>评审中心</Button>
+          <Button type="link" size="small" onClick={() => navigate(entryPath(record))}>
+            {record.status === 'draft' ? '继续填写' : '进入'}
+          </Button>
           <Popconfirm
             title="删除该评估及其全部数据?"
             onConfirm={async () => {
