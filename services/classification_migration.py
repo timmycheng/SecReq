@@ -28,6 +28,13 @@ _NEW_COLUMNS: dict[str, list[tuple[str, str]]] = {
     # NetBox 系统互通(#154): 推送成功后回填的对象 id
     "systems": [
         ("netbox_object_id", "VARCHAR(32)"),
+        # 系统清单画像(#283 item1/2): 部门/重要程度/三方责任人/标签
+        ("department", "VARCHAR(100)"),
+        ("importance", "VARCHAR(10)"),
+        ("owner_dev_name", "VARCHAR(50)"),
+        ("owner_ops_name", "VARCHAR(50)"),
+        ("owner_biz_name", "VARCHAR(50)"),
+        ("tags", "JSON"),
     ],
     "projects": [
         ("owner_user_id", "INTEGER"),

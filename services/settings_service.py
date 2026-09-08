@@ -12,6 +12,7 @@ import os
 
 from sqlalchemy.orm import Session
 
+import shared.constants as C
 from models import SystemSetting
 
 LLM_KEY = "llm"
@@ -103,8 +104,7 @@ def get_project_code_rule(session: Session) -> dict:
     return {"prefix": prefix, "include_year": include_year, "digits": digits}
 
 
-INFRA_ENVS_KEY = "infra_envs"
-#: 基础资源环境默认值(DESIGN: 分环境可配置); 存量库无此配置时零影响
+INFRA_ENVS_KEY = "infra_envs"#: 基础资源环境默认值(DESIGN: 分环境可配置); 存量库无此配置时零影响
 DEFAULT_INFRA_ENVS = [
     {"code": "dev", "name": "开发环境"},
     {"code": "test", "name": "测试环境"},
@@ -131,3 +131,29 @@ def get_infra_envs(session: Session) -> list[dict]:
             continue
         envs.append({"code": code.strip(), "name": name.strip()})
     return envs or [dict(e) for e in DEFAULT_INFRA_ENVS]
+
+SYSTEM_DICTS_KEY = "system_dicts"
+#: 系统标签字典默认值(DESIGN: 标签如 重要信息系统/人行上报, 系统管理内自定义)
+DEFAULT_SYSTEM_TAGS = ["重要信息系统", "人行上报"]
+
+
+def get_system_dicts(session: Session) -> dict:
+    """系统字典(系统管理维护): {tags: [str], types: {code: label}}。
+
+    types 未配置时回退常量 PROJECT_TYPES; 形态不合法的配置逐项忽略。
+    """
+    raw = get_setting(session, SYSTEM_DICTS_KEY)
+    tags = raw.get("tags")
+    if not isinstance(tags, list):
+        tags = list(DEFAULT_SYSTEM_TAGS)
+    tags = [t for t in tags if isinstance(t, str) and t.strip()]
+
+    types = raw.get("types")
+    if not isinstance(types, dict) or not types:
+        types = dict(C.PROJECT_TYPES)
+    else:
+        types = {
+            code: label for code, label in types.items()
+            if isinstance(code, str) and code.strip() and isinstance(label, str) and label.strip()
+        } or dict(C.PROJECT_TYPES)
+    return {"tags": tags, "types": types}

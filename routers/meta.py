@@ -52,8 +52,12 @@ _ENUMS = {
 def get_constants(db: Session = Depends(get_db)) -> dict:
     """全部枚举(code→label 映射 + 数组型常量)。"""
     payload: dict = {key: dict(value) for key, value in _ENUMS.items()}
-    from services.settings_service import get_infra_envs
+    from services.settings_service import get_infra_envs, get_system_dicts
     payload["infra_envs"] = {e["code"]: e["name"] for e in get_infra_envs(db)}
+    # 系统字典(#283): 标签 + 系统类型枚举(系统管理可自定义, types 未配置回退常量)
+    dicts = get_system_dicts(db)
+    payload["system_tags"] = dicts["tags"]
+    payload["project_types"] = dicts["types"]
     payload.update(
         {
             "grading_levels": list(C.GRADING_LEVELS),

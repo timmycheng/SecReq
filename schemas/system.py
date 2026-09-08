@@ -67,6 +67,20 @@ class SystemCreate(BaseModel):
     user_scale: str | None = Field(default=None, max_length=32)
     types: list[str] = Field(default_factory=list)
     is_public: bool = False
+    # ── 清单画像(#283 item1/2) ──
+    department: str | None = Field(default=None, max_length=100)
+    importance: str | None = None
+    owner_dev_name: str | None = Field(default=None, max_length=50)
+    owner_ops_name: str | None = Field(default=None, max_length=50)
+    owner_biz_name: str | None = Field(default=None, max_length=50)
+    tags: list[str] = Field(default_factory=list)
+
+    @field_validator("importance")
+    @classmethod
+    def _importance(cls, v):
+        if v is not None and v not in C.IMPORTANCE_LEVELS:
+            raise ValueError(f"重要程度必须是 {'、'.join(C.IMPORTANCE_LEVELS)} 之一")
+        return v
 
 
 class SystemUpdate(BaseModel):
@@ -77,6 +91,20 @@ class SystemUpdate(BaseModel):
     user_scale: str | None = Field(default=None, max_length=32)
     types: list[str] | None = None
     is_public: bool | None = None
+    # ── 清单画像(#283 item1/2) ──
+    department: str | None = Field(default=None, max_length=100)
+    importance: str | None = None
+    owner_dev_name: str | None = Field(default=None, max_length=50)
+    owner_ops_name: str | None = Field(default=None, max_length=50)
+    owner_biz_name: str | None = Field(default=None, max_length=50)
+    tags: list[str] | None = None
+
+    @field_validator("importance")
+    @classmethod
+    def _importance(cls, v):
+        if v is not None and v not in C.IMPORTANCE_LEVELS:
+            raise ValueError(f"重要程度必须是 {'、'.join(C.IMPORTANCE_LEVELS)} 之一")
+        return v
 
 
 class SystemOut(BaseModel):
@@ -91,6 +119,13 @@ class SystemOut(BaseModel):
     user_scale: str | None = None
     types: list[str] = Field(default_factory=list)
     is_public: bool = False
+    # ── 清单画像(#283 item1/2) ──
+    department: str | None = None
+    importance: str | None = None
+    owner_dev_name: str | None = None
+    owner_ops_name: str | None = None
+    owner_biz_name: str | None = None
+    tags: list[str] = Field(default_factory=list)
     created_at: datetime | None = None
 
 

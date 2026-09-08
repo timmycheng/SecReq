@@ -45,6 +45,7 @@ ACTION_LABELS: dict[str, str] = {
     "llm_update": "更新大模型配置",
     "code_rule_update": "更新编号规则",
     "infra_envs_update": "更新基础资源环境配置",
+    "system_dicts_update": "更新系统字典",
     "user_create": "创建用户",
     "user_update": "更新用户",
     "user_reset_password": "重置用户密码",
@@ -130,6 +131,8 @@ def summarize_detail(action: str, detail: dict) -> str | None:
         return f"项目编号前缀更新为 {get('prefix')}"
     if action == "infra_envs_update":
         return f"基础资源环境更新为 {get('count')} 个: {get('codes')}"
+    if action == "system_dicts_update":
+        return f"系统字典更新: 标签 {get('tags')} 个, 系统类型 {get('types')} 个"
     if action == "user_create":
         return f"创建用户 {get('target')}({C.label(C.PLATFORM_ROLES, str(get('role')))})"
     if action == "user_reset_password":

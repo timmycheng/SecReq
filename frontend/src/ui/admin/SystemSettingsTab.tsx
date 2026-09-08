@@ -2,7 +2,7 @@
    三块以分组卡片纵向排布; 密码策略与题库原为独立 Tab, 业务逻辑原样迁入。
    编号规则未配置时后端回退历史格式 XM<年份>-<三位序号>, 老评估编号不受影响。 */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Button, Card, Checkbox, Form, Input, InputNumber, Space, Spin, Tag, Typography, message } from 'antd'
+import { Button, Card, Checkbox, Form, Input, InputNumber, Select, Space, Spin, Tag, Typography, message } from 'antd'
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 
 import { api, type PolicyBaselines, type QuestionBank } from '../../api'
@@ -16,6 +16,7 @@ export default function SystemSettingsTab() {
       <PolicyBaselineCard />
       <QuestionBankCard />
       <InfraEnvsCard />
+      <SystemDictsCard />
     </Space>
   )
 }
@@ -270,6 +271,84 @@ function InfraEnvsCard() {
           }, '基础资源环境已保存')}
         >
           保存环境
+        </Button>
+      </Space>
+    </Card>
+  )
+}
+
+
+/* ── 系统字典(#283, DESIGN 系统标签/系统类型枚举设置) ── */
+
+interface DictType {
+  code: string
+  label: string
+}
+
+function SystemDictsCard() {
+  const [tags, setTags] = useState<string[] | null>(null)
+  const [types, setTypes] = useState<DictType[] | null>(null)
+  const save = useAsyncAction()
+
+  useEffect(() => {
+    api.getSystemDicts().then((d) => {
+      setTags(d.tags)
+      setTypes(Object.entries(d.types).map(([code, label]) => ({ code, label })))
+    }).catch((e: Error) => message.error(e.message))
+  }, [])
+
+  if (!tags || !types) return <Spin style={{ display: 'block', margin: '24px auto' }} />
+
+  return (
+    <Card
+      size="small" title="系统字典(标签 / 系统类型枚举)" style={{ width: 880 }}
+      extra={<Typography.Text type="secondary">系统清单的标签与业务类型下拉来源; 类型 code 录入后不可改</Typography.Text>}
+    >
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 4 }}>系统标签:</Typography.Paragraph>
+      <Select
+        mode="tags" style={{ width: '100%', marginBottom: 16 }} placeholder="输入标签后回车, 可删除"
+        value={tags}
+        options={tags.map((t) => ({ value: t, label: t }))}
+        onChange={(v: string[]) => setTags(v)}
+      />
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 4 }}>
+        系统类型枚举(code 为小写字母/数字/下划线, 用于存储与规则触发; 未配置时回退内置枚举):
+      </Typography.Paragraph>
+      <Space direction="vertical" size={8} style={{ width: '100%', marginBottom: 12 }}>
+        {types.map((t, i) => (
+          <Space key={t.code} size={8} style={{ display: 'flex' }}>
+            <Input
+              style={{ width: 220 }} value={t.code} disabled
+              addonBefore="code"
+            />
+            <Input
+              style={{ width: 300 }} value={t.label} placeholder="显示名(如 业务平台)"
+              onChange={(e) => setTypes(types.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)))}
+            />
+            <Button
+              size="small" danger icon={<DeleteOutlined />} disabled={types.length <= 1}
+              onClick={() => setTypes(types.filter((_, idx) => idx !== i))}
+            />
+          </Space>
+        ))}
+      </Space>
+      <Space>
+        <Button
+          size="small" icon={<PlusOutlined />}
+          onClick={() => setTypes([...types, { code: `custom_${Date.now().toString(36)}`, label: '' }])}
+        >
+          添加类型
+        </Button>
+        <Button
+          type="primary" size="small" loading={save.busy}
+          onClick={() => void save.run(async () => {
+            const bad = types.find((t) => !t.label.trim())
+            if (bad) throw new Error(`类型「${bad.code}」显示名为空`)
+            const res = await api.saveSystemDicts({ tags, types })
+            setTypes(Object.entries(res.types).map(([code, label]) => ({ code, label })))
+          }, '系统字典已保存')}
+        >
+          保存字典
         </Button>
       </Space>
     </Card>

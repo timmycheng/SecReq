@@ -386,6 +386,39 @@ def put_infra_envs(payload: InfraEnvsIn, request: Request,
     return {"envs": envs}
 
 
+@router.get("/system-dicts")
+def get_system_dicts_route(db: Session = Depends(get_db),
+                           _: PlatformUser = Depends(require_security)):
+    """系统字典(#283): 系统标签 + 系统类型枚举(DESIGN 系统管理内自定义)。"""
+    from services.settings_service import get_system_dicts
+    return get_system_dicts(db)
+
+
+class DictTypeIn(BaseModel):
+    code: str = Field(min_length=1, max_length=32, pattern=r"^[a-z0-9_]+$")
+    label: str = Field(min_length=1, max_length=50)
+
+
+class SystemDictsIn(BaseModel):
+    tags: list[str] = Field(default_factory=list, max_length=50)
+    types: list[DictTypeIn] = Field(default_factory=list, max_length=50)
+
+
+@router.put("/system-dicts")
+def put_system_dicts(payload: SystemDictsIn, request: Request,
+                     db: Session = Depends(get_db),
+                     user: PlatformUser = Depends(require_security)):
+    from services.settings_service import set_setting
+    tags = list(dict.fromkeys(t.strip() for t in payload.tags if t.strip()))
+    types = {t.code: t.label for t in payload.types}
+    if not types:
+        raise HTTPException(status_code=400, detail="系统类型枚举至少保留一项")
+    set_setting(db, "system_dicts", {"tags": tags, "types": types})
+    audit(db, user.username, "system_dicts_update",
+          {"tags": len(tags), "types": len(types)}, client_ip(request))
+    return {"tags": tags, "types": types}
+
+
 @router.get("/netbox-config/system-fields")
 def get_netbox_system_fields(_: PlatformUser = Depends(require_security),
                              db: Session = Depends(get_db)):

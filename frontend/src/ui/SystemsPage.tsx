@@ -4,13 +4,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Button, Card, Divider, Empty, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table,
-  Typography, message,
+  Tag, Typography, message,
 } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
+
+/** 重要程度标签色(DESIGN 系统清单字段, #283)。 */
+const IMPORTANCE_COLOR: Record<string, string> = { 高: 'volcano', 中: 'gold', 低: 'default' }
+const IMPORTANCE_LEVELS = ['高', '中', '低']
 import type { ColumnsType } from 'antd/es/table'
 
 import { api } from '../api'
-import { optionsOf, useEnums } from '../enums'
+import { labelMapOf, optionsOf, useEnums } from '../enums'
 import { navigate } from '../router'
 import PageHeader from './PageHeader'
 import { LevelTag, RoundCell } from './tags'
@@ -22,9 +26,11 @@ export default function SystemsPage() {
   const [filings, setFilings] = useState<FilingRow[]>([])
   const [loading, setLoading] = useState(false)
   const [editing, setEditing] = useState<Partial<SystemRow> | null>(null)
-  // 筛选: 关键词(名称/编号) + 备案
+  // 筛选: 关键词(名称/编号) + 备案 + 重要程度 + 标签(#283)
   const [kw, setKw] = useState('')
   const [filingId, setFilingId] = useState<number | null>(null)
+  const [importance, setImportance] = useState<string | undefined>()
+  const [tagFilter, setTagFilter] = useState<string | undefined>()
 
   const reload = useCallback(() => {
     setLoading(true)
@@ -38,8 +44,12 @@ export default function SystemsPage() {
 
   const list = useMemo(() => rows.filter((r) =>
     (!kw || r.name.includes(kw) || (r.code ?? '').includes(kw))
-    && (!filingId || r.filing_id === filingId)),
-  [rows, kw, filingId])
+    && (!filingId || r.filing_id === filingId)
+    && (!importance || r.importance === importance)
+    && (!tagFilter || (r.tags ?? []).includes(tagFilter))),
+  [rows, kw, filingId, importance, tagFilter])
+
+  const typeLabels = labelMapOf(enums, 'project_types')
 
   const columns: ColumnsType<SystemRow> = [
     {
@@ -61,6 +71,25 @@ export default function SystemsPage() {
       ),
     },
     { title: '负责人', dataIndex: 'owner_name', width: 100, render: (v: string | null) => v || '—' },
+    { title: '归属部门', dataIndex: 'department', width: 120, render: (v: string | null) => v || '—' },
+    { title: '重要程度', dataIndex: 'importance', width: 90,
+      render: (v: string | null) => (v ? <Tag color={IMPORTANCE_COLOR[v] ?? 'default'}>{v}</Tag> : '—') },
+    {
+      title: '责任人(开发/运维/业务)', dataIndex: 'owner_dev_name', width: 160,
+      render: (_: unknown, r) => (
+        <div style={{ fontSize: 12, lineHeight: 1.7 }}>
+          <div>开发: {r.owner_dev_name || '—'}</div>
+          <div>运维: {r.owner_ops_name || '—'}</div>
+          <div>业务: {r.owner_biz_name || '—'}</div>
+        </div>
+      ),
+    },
+    { title: '系统类型', dataIndex: 'types', width: 150,
+      render: (v: string[] | undefined) => (v ?? []).map((t) => typeLabels[t] ?? t).join('、') || '—' },
+    { title: '标签', dataIndex: 'tags', width: 170,
+      render: (v: string[] | undefined, r) => (v ?? []).length
+        ? <Space size={4} wrap>{(r.tags ?? []).map((t) => <Tag key={t} color="blue" style={{ marginRight: 0 }}>{t}</Tag>)}</Space>
+        : '—' },
     { title: '最新评估', dataIndex: 'latest_round', width: 330, render: (_: unknown, r) => <RoundCell round={r.latest_round} /> },
     {
       title: '操作', key: 'ops', width: 200, fixed: 'right',
@@ -94,7 +123,7 @@ export default function SystemsPage() {
         title="系统清单"
         description="登记在册的系统资产, 作为安全评估的对象; 一个系统对应多轮评估"
         extra={(
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ user_scale: '1k_to_100k', types: [], is_public: false })}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ user_scale: '1k_to_100k', types: [], tags: [], is_public: false })}>
             新建系统
           </Button>
         )}
@@ -111,6 +140,18 @@ export default function SystemsPage() {
             options={filings.map((f) => ({ value: f.id, label: f.name }))}
             onChange={(v) => setFilingId(v ?? null)}
           />
+          <Select
+            allowClear placeholder="重要程度" style={{ width: 120 }}
+            value={importance}
+            options={IMPORTANCE_LEVELS.map((v) => ({ value: v, label: v }))}
+            onChange={(v) => setImportance(v)}
+          />
+          <Select
+            allowClear placeholder="标签" style={{ width: 160 }}
+            value={tagFilter}
+            options={(enums['system_tags'] as string[] | undefined ?? []).map((v) => ({ value: v, label: v }))}
+            onChange={(v) => setTagFilter(v)}
+          />
           <Typography.Text type="secondary">共 {list.length} 个系统</Typography.Text>
         </Space>
       </Card>
@@ -120,10 +161,10 @@ export default function SystemsPage() {
           loading={loading}
           dataSource={list}
           pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50], showTotal: (t) => `共 ${t} 条` }}
-          scroll={{ x: 1100 }}
+          scroll={{ x: 1700 }}
           locale={{ emptyText: (
             <Empty description="还没有系统登记">
-              <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ user_scale: '1k_to_100k', types: [], is_public: false })}>新建系统</Button>
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ user_scale: '1k_to_100k', types: [], tags: [], is_public: false })}>新建系统</Button>
             </Empty>
           ) }}
           columns={columns}
@@ -190,6 +231,32 @@ export function SystemFormModal({ value, filings, enums, onSaved, onClose }: {
         </Form.Item>
         <Form.Item name="owner_name" label="系统负责人">
           <Input placeholder="选填" />
+        </Form.Item>
+        <Form.Item name="department" label="归属部门">
+          <Input placeholder="选填, 如: 个人金融部" />
+        </Form.Item>
+        <Form.Item name="importance" label="重要程度">
+          <Select allowClear placeholder="选择重要程度" options={IMPORTANCE_LEVELS.map((v) => ({ value: v, label: v }))} />
+        </Form.Item>
+        <Space size={12} style={{ display: 'flex' }}>
+          <Form.Item name="owner_dev_name" label="开发侧责任人" style={{ width: '33%' }}>
+            <Input placeholder="选填" />
+          </Form.Item>
+          <Form.Item name="owner_ops_name" label="运维侧责任人" style={{ width: '33%' }}>
+            <Input placeholder="选填" />
+          </Form.Item>
+          <Form.Item name="owner_biz_name" label="业务侧责任人" style={{ width: '33%' }}>
+            <Input placeholder="选填" />
+          </Form.Item>
+        </Space>
+        <Form.Item
+          name="tags" label="标签(可多选/自定义)"
+          extra="标签字典在 平台设置 → 系统设置 维护; 直接输入可临时自定义"
+        >
+          <Select
+            mode="tags" placeholder="如 重要信息系统 / 人行上报"
+            options={(enums['system_tags'] as string[] | undefined ?? []).map((v) => ({ value: v, label: v }))}
+          />
         </Form.Item>
         <Form.Item name="user_scale" label="用户规模" rules={[{ required: true, message: '请选择' }]}>
           <Select options={optionsOf(enums, 'user_scales')} placeholder="选择规模" />

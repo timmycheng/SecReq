@@ -105,11 +105,32 @@ function BasicSection({ system, enums, onEdit }: {
               : <Typography.Text type="secondary">未挂备案(定级走评估问卷)</Typography.Text>,
           },
           { key: 'owner', label: '负责人', children: system.owner_name || '—' },
+          { key: 'department', label: '归属部门', children: system.department || '—' },
           { key: 'scale', label: '用户规模', children: scaleLabels[system.user_scale ?? ''] ?? (system.user_scale || '—') },
           { key: 'types', label: '业务类型', children: (system.types ?? []).map((t) => typeLabels[t] ?? t).join('、') || '—' },
           {
             key: 'public', label: '公网访问',
             children: system.is_public ? <Tag color="orange">涉及公网</Tag> : <Tag>无公网</Tag>,
+          },
+          {
+            key: 'importance', label: '重要程度',
+            children: system.importance
+              ? <Tag color={system.importance === '高' ? 'volcano' : system.importance === '中' ? 'gold' : 'default'}>{system.importance}</Tag>
+              : '—',
+          },
+          {
+            key: 'responsibles', label: '责任人(开发/运维/业务)',
+            children: (
+              <span style={{ fontSize: 12 }}>
+                开发: {system.owner_dev_name || '—'} · 运维: {system.owner_ops_name || '—'} · 业务: {system.owner_biz_name || '—'}
+              </span>
+            ),
+          },
+          {
+            key: 'tags', label: '标签',
+            children: (system.tags ?? []).length
+              ? <Space size={4} wrap>{(system.tags ?? []).map((t) => <Tag key={t} color="blue" style={{ marginRight: 0 }}>{t}</Tag>)}</Space>
+              : '—',
           },
         ]}
       />
