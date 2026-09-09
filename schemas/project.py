@@ -21,18 +21,17 @@ class ExternalSystemOut(ExternalSystemIn):
 
 
 class ProjectCreate(BaseModel):
-    """创建项目: 新建流程只传 name(直通向导第一步), 其余字段后续 PATCH 补充。
-    code 缺省时由后端自动生成。"""
+    """创建项目: 只传 name + system_id(可带 from_project_id 继承上一轮), 其余字段后续 PATCH 补充。
+    code 缺省时由后端自动生成。
+
+    #319 起 负责人与合规目标属系统字段(停用/上收), 不再走本接口。
+    """
 
     name: str = Field(min_length=1, max_length=200)
     code: str | None = Field(default=None, max_length=64, description="项目编码, 全局唯一; 不传自动生成")
     system_id: int = Field(description="所属系统(必填, #195: 评估强制绑定已有系统)")
     from_project_id: int | None = Field(
         default=None, description="评估继承: 复制该项目的全部向导数据作为新一轮(实体 uid 保持不变)")
-    pm_name: str | None = Field(default=None, max_length=50)
-    dev_lead_name: str | None = Field(default=None, max_length=50)
-    sec_contact_name: str | None = Field(default=None, max_length=50)
-    compliance_targets: list[str] = Field(default_factory=list)
 
     @field_validator("code")
     @classmethod
@@ -46,16 +45,12 @@ class ProjectCreate(BaseModel):
 class ProjectUpdate(BaseModel):
     """更新 Step1(全部可选, 未传字段不覆盖)。code 仅用于拦截修改, 不会落库。
 
-    #194 起 用户规模/类型/公网 属系统字段, 在系统台账维护, 不再走本接口。
+    #194 起 用户规模/类型/公网 属系统字段, #319 起 负责人与合规目标停用/上收系统, 均不走本接口。
     """
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
     code: str | None = Field(default=None, max_length=64, description="仅用于返回400: 编码不允许修改")
     system_id: int | None = Field(default=None, description="所属系统; 传 null 解除归属")
-    pm_name: str | None = Field(default=None, max_length=50)
-    dev_lead_name: str | None = Field(default=None, max_length=50)
-    sec_contact_name: str | None = Field(default=None, max_length=50)
-    compliance_targets: list[str] | None = None
 
 
 class ProjectOut(BaseModel):
@@ -74,10 +69,10 @@ class ProjectOut(BaseModel):
         return v if isinstance(v, list) else []
     user_scale: str
     is_public: bool
-    pm_name: str | None
-    dev_lead_name: str | None
-    sec_contact_name: str | None
-    compliance_targets: list[str]
+    pm_name: str | None = Field(default=None, description="#319 起停用, 兼容保留存量值")
+    dev_lead_name: str | None = Field(default=None, description="#319 起停用, 兼容保留存量值")
+    sec_contact_name: str | None = Field(default=None, description="#319 起停用, 兼容保留存量值")
+    compliance_targets: list[str] = Field(default_factory=list)
     owner_user_id: int | None = None
     system_id: int | None = None
     status: str
@@ -105,6 +100,8 @@ def serialize_project(project) -> ProjectOut:
     out.user_scale = project.effective_user_scale()
     out.types = list(project.effective_types())
     out.is_public = project.effective_is_public()
+    # #319: 合规目标真相在系统, 展示值同样按 系统→项目遗留列 解析
+    out.compliance_targets = list(project.effective_compliance_targets())
     # 类型多选: 兼容存量单值数据(types 为空时回退 [type])
     if not out.types and out.type:
         out.types = [out.type]

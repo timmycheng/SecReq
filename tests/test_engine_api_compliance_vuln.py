@@ -60,6 +60,16 @@ def test_compliance_targets_fire_corresponding_rules(session, engine):
     assert "SEC-CMP-703" not in tpl_ids  # 未勾选 PCI-DSS
 
 
+def test_compliance_targets_resolved_from_system_side(session, engine):
+    """#319: 合规目标真相在系统, 项目自身列为空也按系统侧命中规则。"""
+    project = add_base_project(session)
+    project.system.compliance_targets = ["djcp_l3", "pipl"]
+
+    tpl_ids = {r.template_id for r in gen_for(session, project, engine)}
+    assert "SEC-CMP-701" in tpl_ids  # 等保三级
+    assert "SEC-CMP-702" in tpl_ids  # 个保法
+
+
 def test_no_compliance_targets_no_rules(session, engine):
     project = add_base_project(session)  # compliance_targets 默认空
     tpl_ids = {r.template_id for r in gen_for(session, project, engine)}

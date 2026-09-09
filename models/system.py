@@ -59,6 +59,9 @@ class System(Base):
     )
     types: Mapped[list] = mapped_column(JSON, default=list, comment="系统业务形态多选, 见 PROJECT_TYPES")
     is_public: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否涉及公网访问")
+    compliance_targets: Mapped[list] = mapped_column(
+        JSON, default=list, comment="合规目标多选(#319 自项目上收), 见 COMPLIANCE_TARGETS(引擎知识库触发条件)"
+    )
     # ── 清单画像(#283 item1/2, DESIGN 系统清单字段) ──
     department: Mapped[str | None] = mapped_column(String(100), comment="归属部门")
     importance: Mapped[str | None] = mapped_column(

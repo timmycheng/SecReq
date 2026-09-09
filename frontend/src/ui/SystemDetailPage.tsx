@@ -76,6 +76,7 @@ function BasicSection({ system, enums, onEdit }: {
 }) {
   const typeLabels = labelMapOf(enums, 'project_types')
   const scaleLabels = labelMapOf(enums, 'user_scales')
+  const targetLabels = labelMapOf(enums, 'compliance_targets')
   const directionLabels = labelMapOf(enums, 'external_system_directions')
   // 外部连接系统清单(#289, DESIGN TAB1): 与功能清单同口径读基线来源轮次
   const { meta, rows, loading, error, reload } = useSection<ExternalSystemRow[]>(useCallback(
@@ -98,6 +99,12 @@ function BasicSection({ system, enums, onEdit }: {
           { key: 'department', label: '归属部门', children: system.department || '—' },
           { key: 'scale', label: '用户规模', children: scaleLabels[system.user_scale ?? ''] ?? (system.user_scale || '—') },
           { key: 'types', label: '业务类型', children: (system.types ?? []).map((t) => typeLabels[t] ?? t).join('、') || '—' },
+          {
+            key: 'targets', label: '合规目标',
+            children: (system.compliance_targets ?? []).length
+              ? <Space size={4} wrap>{(system.compliance_targets ?? []).map((t) => <Tag key={t} color="blue" style={{ marginRight: 0 }}>{targetLabels[t] ?? t}</Tag>)}</Space>
+              : '—',
+          },
           {
             key: 'public', label: '公网访问',
             children: system.is_public ? <Tag color="orange">涉及公网</Tag> : <Tag>无公网</Tag>,

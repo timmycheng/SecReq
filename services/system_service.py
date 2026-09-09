@@ -234,6 +234,8 @@ def _ledger_row(db: Session, system: System) -> dict:
         "user_scale": system.user_scale,
         "types": system.types or [],
         "is_public": bool(system.is_public),
+        # 合规目标(#319): 「编辑」整行回填需包含, 否则弹窗保存会清空系统侧目标
+        "compliance_targets": system.compliance_targets or [],
         # 清单画像(#283 item1/2): 台账页列展示与「编辑」整行回填
         "department": system.department,
         "importance": system.importance,
@@ -306,6 +308,7 @@ def system_detail(db: Session, user, system: System) -> dict:
         "user_scale": system.user_scale,
         "types": system.types or [],
         "is_public": bool(system.is_public),
+        "compliance_targets": system.compliance_targets or [],
         # 清单画像(#283 item1/2)
         "department": system.department,
         "importance": system.importance,

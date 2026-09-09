@@ -27,6 +27,11 @@ test('建系统 → 建项目 → 7步向导 → 生成 → 批量确认 → 导
   await sysModal.locator('.ant-form-item', { hasText: '用户规模' }).locator('.ant-select').click()
   await page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item')
     .first().click()
+  // 合规目标(#319 上收系统侧): 勾「等级保护」, 向导按系统侧目标触发等保合规规则
+  await sysModal.locator('.ant-form-item', { hasText: '合规目标' }).locator('.ant-select').click()
+  await page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item')
+    .filter({ hasText: '等级保护' }).first().click()
+  await page.keyboard.press('Escape')
   await sysModal.getByRole('button', { name: /确\s*定/ }).click()
   // 弹窗关闭 + 清单表格出现该系统行, 才算创建成功
   await expect(sysModal).toBeHidden({ timeout: 20_000 })
@@ -44,12 +49,13 @@ test('建系统 → 建项目 → 7步向导 → 生成 → 批量确认 → 导
   await createModal.getByRole('button', { name: '创建并进向导' }).click()
   await expect(page.getByText('评估编码(自动生成)')).toBeVisible({ timeout: 20_000 })
 
-  // ── 第 1 步: 评估定级(创建时已绑定系统; 合规目标 + 直接指定三级) ──
+  // ── 第 1 步: 评估定级(创建时已绑定系统; 仅填名称, 直接指定三级) ──
   await page.getByPlaceholder('如: 个人网银系统').fill('E2E 主链路项目')
   await expect(page.locator('.ant-form-item', { hasText: '所属系统' })
     .getByText('E2E 主链路系统')).toBeVisible({ timeout: 20_000 })
-  // 合规目标: 等级保护
-  await page.getByText('等级保护', { exact: true }).click()
+  // 系统信息摘要(#319): 合规目标随系统带出, 只读展示
+  await expect(page.getByText('系统信息(属系统台账, 单次评估不修改)')).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByText('等级保护', { exact: true })).toBeVisible()
   // 直接指定等级: 三级(触发政策基线与等保合规规则)
   const levelSelect = page.locator('.ant-select').filter({ hasText: '不走问卷时直接选择' })
   await levelSelect.click()

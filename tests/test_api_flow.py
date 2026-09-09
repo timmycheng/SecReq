@@ -43,17 +43,19 @@ def test_full_wizard_flow_and_generate_offline(api):
     code = "PRJ-E2E-T1"
     cleanup_output(code)
     try:
-        # ── Step1 创建(#194: 规模/公网属系统字段, 项目挂靠系统) ──
+        # ── Step1 创建(#194: 规模/公网属系统字段, 项目挂靠系统; #319: 合规目标在系统侧) ──
         system = create_system_api(api, "API端到端系统")
+        api.patch(f"/api/systems/{system['id']}",
+                  json={"compliance_targets": ["djcp_l3", "pipl"]})
         resp = api.post("/api/projects", json={
             "name": "API端到端测试项目", "code": code,
             "system_id": system["id"],
-            "compliance_targets": ["djcp_l3", "pipl"],
-            "pm_name": "测试经理",
         })
         assert resp.status_code == 201, resp.text
         pid = resp.json()["id"]
         detail = api.get(f"/api/projects/{pid}").json()
+        # 合规目标按 系统→项目遗留列 解析(#319), 项目自身列不再接收创建入参
+        assert detail["compliance_targets"] == ["djcp_l3", "pipl"]
         assert detail["counts"] == {
             "features": 0, "data_assets": 0, "roles": 0, "resources": 0,
             "permission_entries": 0, "components": 0, "api_endpoints": 0,
@@ -313,9 +315,9 @@ def test_full_wizard_flow_and_generate_offline(api):
         assert state["data_assets"][0]["classification"] == "4级_C3鉴别信息"  # 老"机密"入参自动折算 JR/T 五级
         assert state["data_assets"][0]["legacy_classification"] is None  # 新录入无迁移留痕
 
-        # 项目编辑(PATCH)与删除
-        resp = api.patch(f"/api/projects/{pid}", json={"pm_name": "新经理"})
-        assert resp.json()["pm_name"] == "新经理"
+        # 项目编辑(PATCH)与删除(#319: 负责人字段已停用, 改名验证 PATCH 通路)
+        resp = api.patch(f"/api/projects/{pid}", json={"name": "API端到端测试项目(改)"})
+        assert resp.json()["name"] == "API端到端测试项目(改)"
         assert api.delete(f"/api/projects/{pid}").status_code == 204
         assert api.get(f"/api/projects/{pid}").status_code == 404
     finally:

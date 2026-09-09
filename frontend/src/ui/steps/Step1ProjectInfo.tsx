@@ -1,16 +1,18 @@
 /* Step1 评估信息与定级(合并原 1/2/6 三步):
-   基本信息与合规目标 → 外部系统连接清单 → 等保定级(问卷内联, 可直接指定)
+   基本信息(#319 起仅填评估名称, 类型/责任人/合规目标为系统侧只读摘要)
+   → 外部系统连接清单 → 等保定级(问卷内联, 可直接指定)
    → 定级后即时展示密码策略基线与合规要求(可展开覆盖认证策略)。 */
 import { useEffect, useRef, useState } from 'react'
 import {
-  Alert, Button, Card, Checkbox, Col, Collapse, Form, Input, InputNumber, Modal,
-  Popconfirm, Radio, Row, Select, Space, Table, Tag, Typography, message,
+  Alert, Button, Card, Checkbox, Col, Collapse, Descriptions, Form, Input, InputNumber,
+  Modal, Popconfirm, Radio, Row, Select, Space, Table, Tag, Typography, message,
 } from 'antd'
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 
 import { api } from '../../api'
 import type { GradingBaseline } from '../../api'
 import { labelMapOf, optionsOf, useEnums } from '../../enums'
+import { navigate } from '../../router'
 import type {
   AuthConfigRow, ExternalSystemRow, FilingRow, GradingQuestion, ProjectInfo,
   SurveyAnswer, SystemRow,
@@ -34,6 +36,8 @@ const EMPTY_EXT: ExternalSystemRow = {
 
 export default function Step1ProjectInfo({ ws, patch }: StepProps) {
   const enums = useEnums()
+  const typeLabels = labelMapOf(enums, 'project_types')
+  const targetLabels = labelMapOf(enums, 'compliance_targets')
   const [form] = Form.useForm<ProjectInfo>()
 
   // ── 外部系统 ──
@@ -86,10 +90,6 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
       project: {
         name: state.project.name,
         system_id: state.project.system_id ?? null,
-        pm_name: state.project.pm_name ?? '',
-        dev_lead_name: state.project.dev_lead_name ?? '',
-        sec_contact_name: state.project.sec_contact_name ?? '',
-        compliance_targets: state.project.compliance_targets ?? [],
       },
       ext: state.external_systems,
       survey: state.survey,
@@ -200,11 +200,6 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
           name: ws.project.name,
           code: ws.project.code,
           system_id: ws.project.system_id ?? undefined,
-          types: ws.project.types ?? [],
-          pm_name: ws.project.pm_name ?? '',
-          dev_lead_name: ws.project.dev_lead_name ?? '',
-          sec_contact_name: ws.project.sec_contact_name ?? '',
-          compliance_targets: ws.project.compliance_targets ?? [],
         }}
       >
         <Row gutter={16}>
@@ -267,40 +262,60 @@ export default function Step1ProjectInfo({ ws, patch }: StepProps) {
             onChange={onSystemChange}
           />
         </Form.Item>
-        <Form.Item
-          name="types" label="评估类型(可多选)"
-          extra="系统业务形态在系统清单维护; 此处展示当前系统的类型(评估不再单独填写)"
-        >
-          <Select mode="multiple" options={optionsOf(enums, 'project_types')} disabled placeholder="在系统清单中维护" />
-        </Form.Item>
-        <Row gutter={16}>
-          <Col span={8}>
-            <Form.Item name="pm_name" label="项目经理">
-              <Input placeholder="选填" />
-            </Form.Item>
-          </Col>
-          <Col span={8}>
-            <Form.Item name="dev_lead_name" label="开发负责人">
-              <Input placeholder="选填" />
-            </Form.Item>
-          </Col>
-          <Col span={8}>
-            <Form.Item name="sec_contact_name" label="安全对接人">
-              <Input placeholder="选填" />
-            </Form.Item>
-          </Col>
-        </Row>
-        <Form.Item
-          name="compliance_targets" label="合规目标(多选)"
-          extra="勾选后按目标生成对应合规要求; 等级保护按最终定级出具测评与备案要求"
-        >
-          <Checkbox.Group
-            options={Object.entries(labelMapOf(enums, 'compliance_targets')).map(([value, label]) => ({
-              value, label,
-            }))}
-          />
-        </Form.Item>
       </Form>
+
+      {/* ── 系统信息(#319): 类型/责任人/合规目标是系统侧事实, 此处只读展示, 在系统清单维护 ── */}
+      {selectedSystem && (
+        <div style={{ margin: '0 0 16px', padding: '10px 16px', background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 6 }}>
+          <Space size={8} style={{ marginBottom: 4 }}>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              系统信息(属系统台账, 单次评估不修改)
+            </Typography.Text>
+            <Button type="link" size="small" style={{ padding: 0, fontSize: 12 }}
+              onClick={() => navigate(`/systems/${selectedSystem.id}`)}>
+              去系统清单维护
+            </Button>
+          </Space>
+          <Descriptions
+            size="small" column={1}
+            items={[
+              {
+                key: 'types', label: '业务类型',
+                children: (selectedSystem.types ?? []).length
+                  ? (selectedSystem.types ?? []).map((t) => typeLabels[t] ?? t).join('、')
+                  : '—',
+              },
+              {
+                key: 'responsibles', label: '责任人(开发/运维/业务)',
+                children: (
+                  <span style={{ fontSize: 12 }}>
+                    开发: {selectedSystem.owner_dev_name || '—'} · 运维: {selectedSystem.owner_ops_name || '—'} · 业务: {selectedSystem.owner_biz_name || '—'}
+                  </span>
+                ),
+              },
+              {
+                key: 'targets', label: '合规目标',
+                children: (
+                  <>
+                    {(selectedSystem.compliance_targets ?? []).length ? (
+                      <Space size={4} wrap>
+                        {(selectedSystem.compliance_targets ?? []).map((t) => (
+                          <Tag key={t} color="blue" style={{ marginRight: 0 }}>
+                            {targetLabels[t] ?? t}
+                          </Tag>
+                        ))}
+                      </Space>
+                    ) : '—'}
+                    <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
+                      按目标生成对应合规要求; 等级保护按最终定级出具测评与备案要求
+                    </Typography.Text>
+                  </>
+                ),
+              },
+            ]}
+          />
+        </div>
+      )}
 
       {/* ── 外部系统连接 ── */}
       <Typography.Title level={5} style={{ marginTop: 8 }}>外部系统连接</Typography.Title>
