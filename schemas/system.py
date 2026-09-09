@@ -67,6 +67,7 @@ class SystemCreate(BaseModel):
     user_scale: str | None = Field(default=None, max_length=32)
     types: list[str] = Field(default_factory=list)
     is_public: bool = False
+    compliance_targets: list[str] = Field(default_factory=list)
     # ── 清单画像(#283 item1/2) ──
     department: str | None = Field(default=None, max_length=100)
     importance: str | None = None
@@ -91,6 +92,7 @@ class SystemUpdate(BaseModel):
     user_scale: str | None = Field(default=None, max_length=32)
     types: list[str] | None = None
     is_public: bool | None = None
+    compliance_targets: list[str] | None = None
     # ── 清单画像(#283 item1/2) ──
     department: str | None = Field(default=None, max_length=100)
     importance: str | None = None
@@ -119,6 +121,7 @@ class SystemOut(BaseModel):
     user_scale: str | None = None
     types: list[str] = Field(default_factory=list)
     is_public: bool = False
+    compliance_targets: list[str] = Field(default_factory=list)
     # ── 清单画像(#283 item1/2) ──
     department: str | None = None
     importance: str | None = None

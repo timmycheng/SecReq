@@ -547,9 +547,9 @@ class RuleEngine:
         return matches
 
     def _match_compliance(self, tpl: RequirementTemplate, ctx: RequirementContext) -> list[Match]:
-        """合规目标包含判断: target 在项目合规目标列表中即命中。"""
+        """合规目标包含判断: target 在合规目标列表(系统侧真相, #319)中即命中。"""
         target = tpl.trigger.get("target")
-        targets = ctx.project.compliance_targets or []
+        targets = ctx.project.effective_compliance_targets()
         if target not in targets:
             return []
         return [
@@ -632,7 +632,7 @@ class RuleEngine:
             ]
 
         if key == "djcp_l3_filing":
-            if ctx.grading_level != "三级" and "djcp_l3" not in (ctx.project.compliance_targets or []):
+            if ctx.grading_level != "三级" and "djcp_l3" not in ctx.project.effective_compliance_targets():
                 return []
             return [Match({}, "project", pid)]
 

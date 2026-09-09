@@ -296,6 +296,13 @@ export function SystemFormModal({ value, filings, enums, onSaved, onClose }: {
           </Col>
           <Col span={12}>
             <Form.Item
+              name="compliance_targets" label={tip('合规目标(可多选)', '评估向导按此生成对应合规要求(知识库触发条件); 单次评估不改, 在系统侧统一维护(#319)')}
+            >
+              <Select mode="multiple" options={optionsOf(enums, 'compliance_targets')} placeholder="如 等级保护 / 个人信息保护法" />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item
               name="tags" label={tip('标签(可多选/自定义)', '标签字典在 平台设置 → 系统设置 维护; 直接输入可临时自定义')}
             >
               <Select

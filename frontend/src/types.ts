@@ -132,6 +132,8 @@ export interface SystemRow {
   user_scale?: string | null
   types?: string[]
   is_public?: boolean
+  /** 合规目标(#319 自评估上收): 引擎按目标触发知识库要求组, 在系统清单维护 */
+  compliance_targets?: string[]
   /** ── 清单画像(#283 item1/2, DESIGN 系统清单字段) ── */
   department?: string | null
   importance?: string | null

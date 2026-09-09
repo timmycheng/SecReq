@@ -193,9 +193,10 @@ def _executive_summary(doc: Document, project, requirements: list,
             _cell_text(row[2], r.title)
             _cell_text(row[3], getattr(r, "source_label", None) or "—")
 
-    if project.compliance_targets:
+    targets = project.effective_compliance_targets()
+    if targets:
         lines = []
-        for code in project.compliance_targets:
+        for code in targets:
             keyword = C.COMPLIANCE_FILE_KEYWORDS.get(code)
             label = C.label(C.COMPLIANCE_TARGETS, code)
             count = sum(1 for r in requirements if keyword
@@ -310,7 +311,7 @@ def build_full_docx(
         ("项目类型", "、".join(
             C.label(C.PROJECT_TYPES, t) for t in (project.effective_types() or [])) or "—"),
         ("合规目标", "、".join(
-            C.label(C.COMPLIANCE_TARGETS, t) for t in (project.compliance_targets or [])) or "—"),
+            C.label(C.COMPLIANCE_TARGETS, t) for t in (project.effective_compliance_targets() or [])) or "—"),
         ("定级结论", survey or "—"),
         ("安全需求数", f"{len(requirements)} 条"),
     ]

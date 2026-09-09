@@ -28,11 +28,14 @@ class Project(Base):
     is_public: Mapped[bool] = mapped_column(
         Boolean, default=False, comment="是否涉及公网访问(已停用, #194 起真相在 systems.is_public)"
     )
-    pm_name: Mapped[str | None] = mapped_column(String(50), comment="项目经理")
-    dev_lead_name: Mapped[str | None] = mapped_column(String(50), comment="开发负责人")
-    sec_contact_name: Mapped[str | None] = mapped_column(String(50), comment="安全对接人")
+    pm_name: Mapped[str | None] = mapped_column(
+        String(50), comment="项目经理(#319 起停用, 界面不再采集; 兼容保留)")
+    dev_lead_name: Mapped[str | None] = mapped_column(
+        String(50), comment="开发负责人(#319 起停用, 责任人以系统的三方责任人为准; 兼容保留)")
+    sec_contact_name: Mapped[str | None] = mapped_column(
+        String(50), comment="安全对接人(#319 起停用, 界面不再采集; 兼容保留)")
     compliance_targets: Mapped[list] = mapped_column(
-        JSON, default=list, comment="合规目标, 见 COMPLIANCE_TARGETS"
+        JSON, default=list, comment="合规目标(#319 起真相在 systems.compliance_targets, 兼容回退用)"
     )
     owner_user_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("platform_users.id"), index=True,
@@ -74,6 +77,12 @@ class Project(Base):
         if self.system is not None:
             return bool(self.system.is_public)
         return bool(self.is_public)
+
+    def effective_compliance_targets(self) -> list:
+        """规则引擎/导出使用: 合规目标真相在挂靠系统(#319), 未归属/未填时回退本项目遗留列。"""
+        if self.system is not None and self.system.compliance_targets:
+            return self.system.compliance_targets
+        return self.compliance_targets or []
 
 
 class GradingSurvey(Base):

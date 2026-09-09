@@ -35,6 +35,8 @@ _NEW_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("owner_ops_name", "VARCHAR(50)"),
         ("owner_biz_name", "VARCHAR(50)"),
         ("tags", "JSON"),
+        # 合规目标自项目上收系统(#319): 引擎/导出按 系统→项目遗留列 解析
+        ("compliance_targets", "JSON"),
     ],
     "projects": [
         ("owner_user_id", "INTEGER"),

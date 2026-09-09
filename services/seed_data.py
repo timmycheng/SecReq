@@ -36,6 +36,8 @@ def seed_demo_project(session: Session, overwrite: bool = True) -> Project:
         session.flush()
     else:
         _clear_system_inventory(session, system.id)
+    # 合规目标真相在系统(#319): 幂等重灌, 兼容旧库演示系统缺列值的情形
+    system.compliance_targets = ["djcp_l3", "pipl", "pci_dss"]
 
     project = Project(
         name="示例项目",
@@ -46,10 +48,6 @@ def seed_demo_project(session: Session, overwrite: bool = True) -> Project:
         user_scale="over_1m",
         deploy_env=["private_cloud"],
         is_public=True,
-        pm_name="张明",
-        dev_lead_name="李强",
-        sec_contact_name="王安全",
-        compliance_targets=["djcp_l3", "pipl", "pci_dss"],
         status="draft",
     )
     session.add(project)
