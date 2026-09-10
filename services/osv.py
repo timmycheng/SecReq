@@ -376,10 +376,12 @@ def _query_fingerprint(source_name: str, source_version: str, comp: SbomComponen
 
     含组件版本是刻意的 —— 旧实现只按时间判定, 用户在 24h 内改了版本号
     仍会沿用旧结果, 属于"看起来查过、实际是错的"。
+    purl 同理(#331): 用户修正/补全 purl 后应在下一轮生效, 不吃 24h 旧缓存。
     """
     return "|".join([
         source_name, source_version, (comp.name or "").lower(),
         comp.version or "", comp.ecosystem or "", comp.distro or "",
+        (comp.purl or "").strip(),
     ])
 
 
@@ -450,6 +452,12 @@ def sync_vulnerabilities(
         source_version = "unknown"
 
     for comp in components:
+        if not (comp.version or "").strip():
+            # 无版本组件不发起查询(#331): 版本未知无法判定影响窗口, 标注后交人工补录
+            comp.vuln_status = "undetermined"
+            comp.vuln_status_note = "版本未知(导入源未提供), 补录版本后重新生成即自动查询"
+            result.status[comp.name] = "undetermined"
+            continue
         fingerprint = _query_fingerprint(source.name, source_version, comp)
         fresh_until = (
             comp.last_osv_query_at.replace(tzinfo=timezone.utc)
@@ -569,6 +577,12 @@ async def sync_vulnerabilities_async(
     try:
         pending: list = []
         for comp in components:
+            if not (comp.version or "").strip():
+                # 无版本组件不发起查询(#331), 与同步路径同口径
+                comp.vuln_status = "undetermined"
+                comp.vuln_status_note = "版本未知(导入源未提供), 补录版本后重新生成即自动查询"
+                result.status[comp.name] = "undetermined"
+                continue
             fingerprint = _query_fingerprint(source.name, source_version, comp)
             fresh_until = (
                 comp.last_osv_query_at.replace(tzinfo=timezone.utc)
@@ -715,8 +729,11 @@ def _replace_component_vulns(
     for raw in raw_vulns:
         vuln = dict(raw)  # 不改动调用方持有的原始字典
         windows = vuln.pop(MATCHED_WINDOWS_KEY, None)
+        from services.sbom import build_purl  # 局部导入避免循环依赖
+        # 经 build_purl 校验(#331): 降级坐标(name@version)不进窗口筛选,
+        # 否则本地源 _parse_purl 失效会把同公告下其他包的窗口算进来
         nv = OsvClient.normalize(
-            vuln, target_purl=comp.purl, target_version=comp.version, windows=windows
+            vuln, target_purl=build_purl(comp), target_version=comp.version, windows=windows
         )
         key = nv.cve_id or id(nv)
         existing = deduped.get(key)

@@ -28,7 +28,9 @@ def test_parse_cyclonedx_json():
     fmt, rows = detect_format("bom.json", json.dumps(doc).encode())
     assert fmt == "cyclonedx"
     by_name = {r["name"]: r for r in rows}
-    assert set(by_name) == {"lodash", "Spring Boot"}
+    # #331: 无版本组件保留入库(version 置空)交人工补录
+    assert set(by_name) == {"lodash", "Spring Boot", "无版本组件"}
+    assert by_name["无版本组件"]["version"] == ""
     assert by_name["lodash"]["layer"] == "library"
     assert by_name["lodash"]["license"] == "MIT"
     assert by_name["Spring Boot"]["layer"] == "backend"
@@ -61,11 +63,13 @@ def test_parse_spdx_json():
     }
     fmt, rows = detect_format("sbom.spdx.json", json.dumps(doc).encode())
     assert fmt == "spdx_json"
-    assert len(rows) == 1
-    row = rows[0]
-    assert row["name"] == "log4j-core"
+    # #331: NOASSERTION 组件保留入库(version 置空)交人工补录
+    assert len(rows) == 2
+    by_name = {r["name"]: r for r in rows}
+    row = by_name["log4j-core"]
     assert row["version"] == "2.14.1"
     assert row["purl"].endswith("log4j-core@2.14.1")
+    assert by_name["no-version-pkg"]["version"] == ""
 
 
 def test_parse_spdx_tagvalue():

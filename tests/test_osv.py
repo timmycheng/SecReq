@@ -416,3 +416,70 @@ def test_sync_source_override_local_uses_local_db(session, monkeypatch, tmp_path
     assert result.source == "osv_local"
     assert result.status.get("log4j-core") == "hit"  # 本地库命中(2.14.1 < 2.15.0)
     assert set(result.status.values()) <= {"hit", "not_found", "not_covered", "undetermined"}
+
+
+def test_build_purl_ignores_degraded_coordinate():
+    """#331: 降级坐标(name@version)不进漏洞查询; 仅 pkg: 形态被认可。"""
+    from types import SimpleNamespace
+
+    from services.sbom import build_purl
+
+    def comp(purl, ecosystem=None):
+        return SimpleNamespace(purl=purl, name="log4j-core", version="2.14.1",
+                               ecosystem=ecosystem)
+
+    assert build_purl(comp("log4j-core@2.14.1")) is None
+    assert build_purl(comp("pkg:maven/org.apache/log4j-core@2.14.1")) ==         "pkg:maven/org.apache/log4j-core@2.14.1"
+    # 无生态且无合法 purl → None(不构造 generic)
+    assert build_purl(comp(None)) is None
+
+
+def test_query_fingerprint_changes_with_purl():
+    """#331: 修正/补全 purl 后缓存指纹变化, 不再命中 24h 旧结果。"""
+    from types import SimpleNamespace
+
+    from services.osv import _query_fingerprint
+
+    def comp(purl):
+        return SimpleNamespace(name="lodash", version="4.17.20", ecosystem="npm",
+                               distro=None, purl=purl)
+
+    assert _query_fingerprint("osv_local", "1", comp(None)) !=         _query_fingerprint("osv_local", "1", comp("pkg:npm/lodash@4.17.20"))
+
+
+def test_ensure_purl_versionless_fallback_has_no_trailing_at():
+    """#331: 无版本组件的降级坐标不带悬空 @。"""
+    from types import SimpleNamespace
+
+    from services.sbom import ensure_purl
+
+    comp = SimpleNamespace(purl=None, name="mystery lib", version="", ecosystem=None)
+    assert ensure_purl(comp) == "mystery-lib"
+    assert comp.purl == "mystery-lib"
+
+
+def test_versionless_component_skips_query_and_marks_undetermined(session):
+    """#331: 无版本组件保留入库, 漏洞同步不发起查询并标注 undetermined 交人工补录。"""
+    from conftest import add_base_project
+    from models import SbomComponent
+    from services.osv import sync_vulnerabilities
+
+    project = add_base_project(session)
+    comp = SbomComponent(system_id=project.system_id, layer="library",
+                         name="mystery-lib", version="", source_type="manual_input")
+    session.add(comp)
+    session.commit()
+
+    class _Probe:
+        """只要被调用就失败 —— 断言无版本组件不发起任何查询。"""
+
+        name = "probe"
+
+        def query(self, q):
+            raise AssertionError("无版本组件不应发起漏洞查询")
+
+    records, result = sync_vulnerabilities(session, [comp], source=_Probe(), force=True)
+    assert comp.vuln_status == "undetermined"
+    assert "补录" in (comp.vuln_status_note or "")
+    assert result.status.get("mystery-lib") == "undetermined"
+    assert records == []

@@ -10,7 +10,8 @@ OSV **不支持 generic 生态**, 这类 purl 永远查不到任何漏洞。
 都落进 generic, 漏洞联动形同虚设。现改为:
   1. 有生态 → 按生态构造规范 purl(pkg:npm/lodash@4.17.20);
   2. 无生态 → 返回 None, 由漏洞查询走跨生态模糊匹配并标注「待确认」;
-  3. SBOM 落盘的 purl 字段缺失时降级为 name@version, 但漏洞匹配不依赖它。
+  3. SBOM 落盘的 purl 字段缺失时降级为 name@version(仅供展示/导出);
+     漏洞匹配经 build_purl 只认 pkg: 形态, 降级坐标不进入查询(#331)。
 """
 import json
 import re
@@ -47,10 +48,13 @@ def sanitize_name(name: str) -> str:
 def build_purl(component: SbomComponent) -> str | None:
     """按生态构造规范 purl; 无生态时返回 None(不生成 OSV 不支持的 generic)。
 
-    用户手填的 purl 优先保留(可能是带命名空间/group 的完整坐标)。
+    用户手填的 purl 优先保留(可能是带命名空间/group 的完整坐标), 但仅认
+    `pkg:` 形态(#331): ensure_purl 落库的降级坐标 `name@version` 仅供展示/导出,
+    不能当作真实 purl 进入漏洞查询(在线源 4xx / 本地源坐标筛选失效)。
     """
-    if component.purl:
-        return component.purl
+    stored = (component.purl or "").strip()
+    if stored:
+        return stored if stored.startswith("pkg:") else None
     ecosystem = (component.ecosystem or "").strip().lower()
     if ecosystem not in C.ECOSYSTEM_PURL_TYPE:
         return None
@@ -100,12 +104,15 @@ def ensure_purl(component: SbomComponent) -> str:
 
     注意: 无生态时回写的是 `name@version` 而非 `pkg:generic/...` ——
     generic 类型 OSV 不认, 写了等于给自己一个"查过了"的假象。
+    降级坐标仅供展示/导出(#331): build_purl 只认 pkg: 形态, 漏洞查询不受其污染。
     """
     purl = build_purl(component)
     if purl:
         component.purl = purl
         return purl
-    fallback = f"{sanitize_name(component.name)}@{component.version}"
+    name = sanitize_name(component.name)
+    version = (component.version or "").strip()
+    fallback = f"{name}@{version}" if version else name
     component.purl = fallback
     return fallback
 

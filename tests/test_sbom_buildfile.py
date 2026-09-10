@@ -2,7 +2,7 @@
 """SBOM 构建文件解析(#226): pom.xml / package.json / requirements.txt。
 
 三类样例解析行数/版本/层级正确; 异常/损坏文件可读报错不崩溃;
-离线解析不触网(pom 变量占位与范围约束置空不入库)。
+离线解析不触网; pom 变量占位/无版本与范围约束行保留入库版本置空交人工补录(#331)。
 """
 import pytest
 
@@ -45,8 +45,12 @@ SQLAlchemy>=2.0
 def test_pom_xml_parse():
     fmt, rows = detect_format("pom.xml", POM)
     assert fmt == "maven_pom"
-    assert len(rows) == 1  # 无版本与变量占位条目不入库
-    row = rows[0]
+    # #331: 无版本与变量占位条目保留入库(version 置空)交人工补录
+    assert len(rows) == 3
+    by_name = {r["name"]: r for r in rows}
+    assert by_name["com.example:parent-managed"]["version"] == ""
+    assert by_name["org.example:var-version"]["version"] == ""
+    row = by_name["org.apache.logging.log4j:log4j-core"]
     assert row["name"] == "org.apache.logging.log4j:log4j-core"
     assert row["version"] == "2.14.1"
     assert row["layer"] == "backend"
@@ -57,10 +61,12 @@ def test_package_json_parse():
     fmt, rows = detect_format("package.json", PACKAGE_JSON)
     assert fmt == "npm_package"
     by_name = {r["name"]: r for r in rows}
-    assert set(by_name) == {"react", "antd", "vite"}  # * 版本条目不入库
+    # #331: * 版本条目保留入库(version 置空)交人工补录
+    assert set(by_name) == {"react", "antd", "vite", "typescript"}
     assert by_name["react"]["version"] == "19.0.0"      # ^ 前缀归一
     assert by_name["vite"]["version"] == "6.1.0"        # ~ 前缀归一
     assert by_name["antd"]["version"] == "6.0.0"
+    assert by_name["typescript"]["version"] == ""
     assert all(r["layer"] == "frontend" for r in rows)
 
 
@@ -68,9 +74,11 @@ def test_requirements_txt_parse():
     fmt, rows = detect_format("requirements.txt", REQUIREMENTS)
     assert fmt == "requirements"
     by_name = {r["name"]: r for r in rows}
-    assert set(by_name) == {"fastapi", "uvicorn"}
+    # #331: 范围约束行保留入库, 包名取约束前一段且版本置空
+    assert set(by_name) == {"fastapi", "uvicorn", "SQLAlchemy"}
     assert by_name["fastapi"]["version"] == "0.115.0"
     assert by_name["uvicorn"]["version"] == "0.30.1"
+    assert by_name["SQLAlchemy"]["version"] == ""
     assert all(r["layer"] == "backend" for r in rows)
 
 
@@ -100,6 +108,6 @@ def test_import_endpoint_roundtrip(api, sec):
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["format"] == "requirements"
-    assert body["added"] == 2
+    assert body["added"] == 3  # #331: SQLAlchemy>=2.0 范围约束行也保留入库
     rows = sec.get(f"/api/systems/{system['id']}/components").json()
-    assert {c["name"] for c in rows} == {"fastapi", "uvicorn"}
+    assert {c["name"] for c in rows} == {"fastapi", "uvicorn", "SQLAlchemy"}
