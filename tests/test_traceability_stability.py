@@ -9,6 +9,7 @@ from conftest import add_base_project, demo_features
 from models import ApiEndpoint, DataAsset, Feature, SecurityRequirement
 from rules import RuleEngine, load_knowledge_base
 from rules.context import RequirementContext
+from rules.engine import _next_free_req_id
 from schemas.data_dictionary import DataAssetIn, DataFieldIn, DataTableIn
 from schemas.feature import FeatureIn
 from services.step_store import replace_data_assets, replace_features
@@ -178,6 +179,47 @@ def test_requirement_still_points_to_same_feature_after_deletion(session):
     # 仍然存活的功能(转账/账单查询)对应的需求, 溯源结果不应改变
     survivors = {k: v for k, v in before.items() if v != "登录"}
     assert {k: after.get(k) for k in survivors} == survivors
+
+
+def test_next_free_req_id_matches_preview_naming():
+    """撞号取号与 generate() 预览口径一致(#322): 不剥离模板自身序号。"""
+    assert _next_free_req_id("SEC-V2-007", set()) == "SEC-V2-007"
+    assert _next_free_req_id("SEC-V12-001", {"SEC-V12-001"}) == "SEC-V12-001-02"
+    assert _next_free_req_id("SEC-V12-001-02", {"SEC-V12-001-02"}) == "SEC-V12-001-03"
+    # 模板 id 以三位序号结尾: 剥离会产生跨模板撞号(SEC-V5-102 是另一模板)
+    assert _next_free_req_id("SEC-V5-101", {"SEC-V5-101"}) == "SEC-V5-101-02"
+
+
+def test_regenerate_new_instance_with_earlier_uid_does_not_collide(session):
+    """新增同类实例 uid 排序更靠前时, 重新生成不得抢占保留行编号(#322, P0)。"""
+    project = add_base_project(session)
+    features = [
+        FeatureIn(uid="m-login", name="登录", module="用户中心", categories=["auth_login"]),
+        FeatureIn(uid="m-pay", name="转账", module="支付模块", categories=["payment"],
+                  sensitivity="confidential", involves_payment=True),
+        FeatureIn(uid="m-query", name="账单查询", module="支付模块", categories=["search"]),
+    ]
+    replace_features(session, project.id, features)
+    engine = RuleEngine(load_knowledge_base())
+    engine.generate_and_save(RequirementContext.from_db(session, project.id), session)
+    assert session.query(SecurityRequirement).filter_by(
+        project_id=project.id, req_id="SEC-V2-007").one(), "前置条件: 登录应命中 SEC-V2-007"
+
+    # 新增同模板实例(uid 字典序更小, generate() 排序在保留行之前)后重新生成:
+    # 修复前新行先取到 SEC-V2-007, 保留行原样保留同名编号 → 唯一约束冲突 500
+    replace_features(session, project.id, features + [
+        FeatureIn(uid="a-stepup", name="管理端登录", module="用户中心",
+                  categories=["auth_login"]),
+    ])
+    engine.generate_and_save(RequirementContext.from_db(session, project.id), session)
+
+    rows = session.query(SecurityRequirement).filter_by(project_id=project.id).all()
+    ids = [r.req_id for r in rows]
+    assert len(ids) == len(set(ids)), f"req_id 撞号: {sorted(ids)}"
+    # 保留行编号不漂移, 新实例按预览口径取号
+    by_uid = {r.source_entity_uid: r for r in rows if r.source_entity_type == "feature"}
+    assert by_uid["m-login"].req_id == "SEC-V2-007"
+    assert by_uid["a-stepup"].req_id == "SEC-V2-007-02"
 
 
 def test_sensitive_asset_link_survives_asset_resave(session):

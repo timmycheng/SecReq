@@ -44,15 +44,24 @@ class Match:
     source_entity_uid: str | None = None
 
 
-_REQ_SEQ_RE = re.compile(r"^(?P<base>.*?)(?:-(?P<seq>\d{2,}))?$")
+# 实例尾序号恰好两位(-02 起, generate() 的 {seq:02d} 口径); 模板 id 自身以 -NNN
+# 三位结尾, 二者位数不同才不会把 SEC-V12-001 误剥成 base=SEC-V12(#322)
+_REQ_SEQ_RE = re.compile(r"^(?P<base>.+)-(?P<seq>\d{2})$")
 
 
 def _next_free_req_id(want: str, taken: set[str]) -> str:
-    """want 可用则原样返回; 否则 base 序号递增到首个空闲值(确定性, 不依赖遍历顺序)。"""
+    """want 可用则原样返回; 否则序号递增到首个空闲值(确定性, 不依赖遍历顺序)。
+
+    与 generate() 预览口径一致: 首实例 SEC-V12-001 撞号 → SEC-V12-001-02,
+    多实例 SEC-V12-001-02 撞号 → SEC-V12-001-03; 不剥离模板自身序号。
+    """
     if want not in taken:
         return want
     m = _REQ_SEQ_RE.match(want)
-    base, seq = m.group("base"), int(m.group("seq") or 1)
+    if m:
+        base, seq = m.group("base"), int(m.group("seq"))
+    else:
+        base, seq = want, 1
     while True:
         seq += 1
         candidate = f"{base}-{seq:02d}"
@@ -229,13 +238,16 @@ class RuleEngine:
         - 本轮未命中的旧行 → 不硬删, 标 status="obsolete"(输入已变更/风险已消除),
           保留 source_label, 不伪造映射。
 
-        req_id 唯一性: 保留行的 req_id 原样占位(确认记录与外部引用不漂移),
-        新增行撞号时递增序号, obsolete 行撞号时加 -OBS 后缀。
+        req_id 唯一性: taken 预置项目现有全部 req_id(#322), 保留行编号原样占位
+        (确认记录与外部引用不漂移), 新增行撞号时按预览口径递增, 旧行(含 obsolete)
+        编号一律不漂移。
         """
         existing = session.query(SecurityRequirement).filter_by(project_id=ctx.project.id).all()
         index = {(r.template_id, r.source_entity_uid): r for r in existing}
         requirements: list[SecurityRequirement] = []
-        taken: set[str] = set()
+        # 预置全部存量编号: generate() 按 uid 排序, 新实例可能排在保留行之前,
+        # 若取号时看不到尚未遍历到的保留行会抢占其编号, 提交时撞唯一约束(#322)
+        taken: set[str] = {r.req_id for r in existing}
         for req in self.generate(ctx):
             old = index.pop((req.template_id, req.source_entity_uid), None)
             if old is not None:
@@ -247,7 +259,6 @@ class RuleEngine:
                 if old.status == "obsolete":
                     old.status = "open"
                 requirements.append(old)
-                taken.add(old.req_id)
             else:
                 req.req_id = _next_free_req_id(req.req_id, taken)
                 taken.add(req.req_id)
@@ -255,8 +266,6 @@ class RuleEngine:
                 session.add(req)
         for old in index.values():
             old.status = "obsolete"
-            if old.req_id in taken:
-                old.req_id = _next_free_req_id(f"{old.req_id}-OBS", taken)
             taken.add(old.req_id)
         session.commit()
         return requirements
