@@ -138,6 +138,10 @@ def delete_system(db: Session, system_id: int) -> None:
     db.query(SbomComponent).filter_by(system_id=system_id).delete(synchronize_session=False)
     db.query(InfraAsset).filter_by(system_id=system_id).delete(synchronize_session=False)
     db.query(InfraArchImage).filter_by(system_id=system_id).delete(synchronize_session=False)
+    # 基线与履历随系统清理(#323), 避免 id 复用后新系统「继承」旧基线
+    db.query(SystemBaselineHistory).filter_by(system_id=system_id).delete(
+        synchronize_session=False)
+    db.query(SystemBaseline).filter_by(system_id=system_id).delete(synchronize_session=False)
     db.query(System).filter_by(id=system_id).delete()
     db.commit()
 

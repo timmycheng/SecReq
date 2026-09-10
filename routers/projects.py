@@ -101,6 +101,8 @@ def create(payload: ProjectCreate, request: Request, db: Session = Depends(get_d
         if baseline is not None:
             from services.baseline_inheritance import prefill_project_from_baseline
             prefill_project_from_baseline(db, project, baseline)
+    # 建号/复制/预填同一事务(#323): 任一步失败整体回滚, 不留半成品评估
+    db.commit()
     audit(db, user.username, "project_create",
           {"project_id": project.id, "code": project.code, "name": project.name,
            **({"copied_from": source.id} if source else {})},
@@ -134,8 +136,10 @@ def copy_from(project_id: int, payload: CopyFromIn, request: Request,
     ensure_project_access(user, source)
     if source.id == project.id:
         raise HTTPException(status_code=400, detail="不能从该评估自身复制")
+    # 先清后拷同一事务(#323): 复制中途异常整体回滚, 原有输入不受损
     reset_wizard_data(db, project.id)
     copy_wizard_data(db, source, project)
+    db.commit()
     audit(db, user.username, "project_copy_from",
           {"project_id": project.id, "copied_from": source.id}, client_ip(request))
     return _detail(db, project)
@@ -154,6 +158,7 @@ def reset_wizard(project_id: int, request: Request,
     ensure_project_access(user, project)
     ensure_project_editable(db, project)
     reset_wizard_data(db, project.id)
+    db.commit()
     audit(db, user.username, "project_reset_wizard",
           {"project_id": project.id}, client_ip(request))
     return _detail(db, project)

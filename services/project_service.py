@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 from models import (
     ApiEndpoint, AuthConfig, DataAsset, DataField, DataTable, ExternalSystem,
     Feature, GradingSurvey, InfraAsset, PermissionEntry, Project,
-    SbomComponent, SecurityRequirement, VulnerabilityRecord, Resource, Role,
+    RequirementTransition, SbomComponent, SecurityRequirement, StepDuration,
+    SystemBaseline, VulnerabilityRecord, Resource, Role,
     ReviewEvidence, ReviewGate,
 )
 
@@ -48,7 +49,9 @@ def create_project(session: Session, data: dict, owner_user_id: int | None = Non
     data = {k: v for k, v in data.items() if k not in ("code", "from_project_id")} | {"code": code}
     project = Project(**data, owner_user_id=owner_user_id)
     session.add(project)
-    session.commit()
+    # 只 flush 不 commit(#323): 复制/预填在 router 层完成后统一提交,
+    # 中途异常时新建的空项目随事务回滚, 不留半成品
+    session.flush()
     return project
 
 
@@ -129,7 +132,17 @@ def delete_project_cascade(session: Session, project_id: int) -> None:
     session.query(AuthConfig).filter_by(project_id=pid).delete(synchronize_session=False)
     session.query(GradingSurvey).filter_by(project_id=pid).delete(synchronize_session=False)
     session.query(Feature).filter_by(project_id=pid).delete(synchronize_session=False)
+    # 流转记录先于需求行删除(#323): 需求主键复用会让孤儿历史挂到新需求上
+    session.query(RequirementTransition).filter(
+        RequirementTransition.requirement_id.in_(
+            session.query(SecurityRequirement.id).filter_by(project_id=pid))
+    ).delete(synchronize_session=False)
     session.query(SecurityRequirement).filter_by(project_id=pid).delete(synchronize_session=False)
+    session.query(StepDuration).filter_by(project_id=pid).delete(synchronize_session=False)
+    # 来源轮次删除即同步失效其系统基线快照(#323), 避免悬空 source_project_id
+    # 造出「has_baseline=True 但明细恒空」的假象; SystemBaselineHistory 留作审计
+    session.query(SystemBaseline).filter_by(source_project_id=pid).delete(
+        synchronize_session=False)
 
     session.query(ReviewEvidence).filter(
         ReviewEvidence.gate_id.in_(session.query(ReviewGate.id).filter_by(project_id=pid))
