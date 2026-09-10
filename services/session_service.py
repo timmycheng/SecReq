@@ -18,8 +18,22 @@ SESSION_TTL_HOURS = 12
 LOCKOUT_THRESHOLD = 5
 LOCKOUT_SECONDS = 300
 
+# 平台会话策略运行值(分钟/次): 管理端「策略基线」保存后经 apply_session_policy
+# 注入(#325), 未注入时与上述默认一致
+_session_policy = {"timeout_min": SESSION_TTL_HOURS * 60,
+                   "lockout_threshold": LOCKOUT_THRESHOLD}
+
 _failed: dict[str, list[float]] = {}
 _failed_lock = Lock()
+
+
+def apply_session_policy(*, lockout_threshold: int | None = None,
+                         session_timeout_min: int | None = None) -> None:
+    """注入平台会话策略(#325): 会话超时(分钟)与登录失败锁定阈值(次)。"""
+    if session_timeout_min is not None:
+        _session_policy["timeout_min"] = session_timeout_min
+    if lockout_threshold is not None:
+        _session_policy["lockout_threshold"] = lockout_threshold
 
 
 def _token_hash(token: str) -> str:
@@ -31,7 +45,7 @@ def create_session(db: Session, user: PlatformUser, ip: str | None = None) -> st
     db.add(UserSession(
         token_hash=_token_hash(token),
         username=user.username,
-        expires_at=datetime.now() + timedelta(hours=SESSION_TTL_HOURS),
+        expires_at=datetime.now() + timedelta(minutes=_session_policy["timeout_min"]),
         ip=ip,
     ))
     db.commit()
@@ -78,7 +92,8 @@ def login_locked(username: str) -> bool:
     with _failed_lock:
         _prune_failed(now)
         stamps = _failed.get(username, [])
-        return len(stamps) >= LOCKOUT_THRESHOLD and now - stamps[-1] < LOCKOUT_SECONDS
+        return (len(stamps) >= _session_policy["lockout_threshold"]
+                and now - stamps[-1] < LOCKOUT_SECONDS)
 
 
 def record_login_failure(username: str) -> None:
