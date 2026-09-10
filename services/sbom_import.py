@@ -57,8 +57,8 @@ def _component_row(name: str, version: str | None, purl=None,
     version = (version or "").strip()
     if version.upper() in {"NOASSERTION", "NO ASSERTION", "N/A"}:
         version = ""
-    if not version:
-        return None
+    # 无版本不再丢弃(#331): 保留入库(版本置空)交人工补录,
+    # 漏洞查询按「版本未知」标 undetermined, 不再静默丢行让用户误以为导全了
     row = {
         "layer": layer or "library",
         "name": name[:200],
@@ -198,12 +198,13 @@ def parse_package_json(text: str) -> list[dict]:
         if not isinstance(deps, dict):
             continue
         for name, spec in deps.items():
-            # ^/~/>= 等范围前缀保留语义版本主干, * 与空按无版本处理
+            # 语义化清洗(#331): `=/>` 前缀一并剥除(>=x 取下界为代表版本);
+            # `<` 开区间上界无法代表实际安装版本, 置空交人工补录
             version = str(spec or "").strip()
-            if version in {"*", "latest", ""}:
+            if version in {"*", "latest", ""} or version.startswith("<"):
                 version = ""
             else:
-                version = version.lstrip("^~> ")
+                version = version.lstrip("^~>= ")
             purl = f"pkg:npm/{name}@{version}" if version else f"pkg:npm/{name}"
             rows.append(_component_row(
                 name=name, version=version or None, purl=purl, layer="frontend"))
@@ -221,13 +222,16 @@ def parse_requirements_txt(text: str) -> list[dict]:
         line = line.split(";", 1)[0].split("#", 1)[0].strip()
         if not line:
             continue
-        name, _, version = line.partition("==")
+        name, eq, version = line.partition("==")
+        if not eq:
+            # 非 == 约束(>=/<~!= 等): 包名取约束前一段, 版本无法离线定版置空
+            name = re.split(r"[<>=!~]", name, maxsplit=1)[0].strip()
         name = name.split("[", 1)[0].strip()  # 去掉 extras 方括号, 如 uvicorn[standard]
         if not name:
             continue
         version = version.strip() or None
         if version and any(op in version for op in (">", "<", "!", "~")):
-            version = None  # 范围约束无法离线定版, 置空交人工补录
+            version = None  # 范围约束无法离线定版, 置空交人工补录(行保留入库, #331)
         purl = f"pkg:pypi/{name}@{version}" if version else f"pkg:pypi/{name}"
         rows.append(_component_row(
             name=name, version=version, purl=purl, layer="backend"))
