@@ -34,6 +34,14 @@ def test_mask_suggestion_on_pii_fields():
     masked = {f["field_name"] for f in customer["tables"][0]["fields"] if f["need_mask"]}
     assert {"客户姓名", "mobile_phone", "id_card_no"} <= masked
 
+    # 脱敏建议是规则文本而非字段名匹配正则(#329)
+    import shared.constants as C
+    by_field = {f["field_name"]: f for f in customer["tables"][0]["fields"]}
+    assert by_field["mobile_phone"]["mask_rule"] == C.MASK_RULES["phone_number"]
+    assert by_field["id_card_no"]["mask_rule"] == C.MASK_RULES["id_card"]
+    assert by_field["客户姓名"]["mask_rule"] == C.MASK_RULES["name"]
+    assert by_field["login_password"]["mask_rule"] == "密码明文禁止留存, 传输须加密"
+
 
 def test_markdown_and_comma_formats():
     md = "| table | field | type |\n|---|---|---|\n| t1 | phone_no | VARCHAR |\n| t1 | remark | VARCHAR |"

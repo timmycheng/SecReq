@@ -103,10 +103,11 @@ def classify_field(field_name: str) -> dict:
         if re.search(pattern, name, re.IGNORECASE):
             sensitive = level.startswith("4级")
             mask_rule = None
-            if kind in _MASK_FIELD_PATTERNS:
-                mask_rule = _MASK_FIELD_PATTERNS[kind]
-            elif kind in _MASK_FIELD_PATTERNS:
+            if kind in C.MASK_RULES:
+                # 脱敏建议须返回规则文本而非字段名匹配正则(#329, 原第二分支不可达)
                 mask_rule = C.MASK_RULES.get(kind)
+            elif kind in _MASK_FIELD_PATTERNS:
+                mask_rule = _MASK_FIELD_PATTERNS[kind]
             return {
                 "classification": level,
                 "is_pii": True,
