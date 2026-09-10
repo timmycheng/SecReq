@@ -8,6 +8,7 @@ import type {
   InfraArchImageRow, InfraAssetRow, LabelMap, LdapConfigRow, LdapSyncResult, LdapTestResult,
   LoginInfo, MatrixEntryIn,
   RequirementTransitionRow, ReviewOverviewRow, ReviewState, SystemDetailFeature,
+  SystemImportResult,
   PreviewResult, ProjectDetail, ProjectInfo, RequirementDiff, RequirementRow, RoleRow,
   ResourceRow, SurveyAnswer, SystemRow, VulnerabilityRow, VulnDbStatus, VulnDbVerifyResult,
   WizardState,
@@ -47,6 +48,11 @@ export function isFullVisibilityRole(role: string | undefined | null): boolean {
 /** 评估写操作(新建/填写/提交/撤回/删除)仅开发侧可用; 安全管理员/系统管理员/审计只读。 */
 export function isDevSideRole(role: string | undefined | null): boolean {
   return role === 'pm' || role === 'dev_admin'
+}
+
+/** 系统批量导入(#346): 仅系统/开发/安全管理员; pm 与审计员(只读)不可导入。 */
+export function isSystemImportRole(role: string | undefined | null): boolean {
+  return role === 'sys_admin' || role === 'dev_admin' || role === 'security_admin'
 }
 
 export function getStoredUser(): StoredUser | null {
@@ -255,6 +261,9 @@ export const api = {
       `/api/systems/${id}/detail-section?section=external_systems`),
   createSystem: (data: Partial<SystemRow>) =>
     request<SystemRow>('/api/systems', { method: 'POST', body: JSON.stringify(data) }),
+  /** CSV 批量导入系统(#346): 仅系统/开发/安全管理员; 逐行校验, 返回新增数与跳过明细 */
+  importSystems: (file: File) =>
+    uploadRequest<SystemImportResult>('/api/systems/import', file),
   updateSystem: (id: number, data: Partial<SystemRow>) =>
     request<SystemRow>(`/api/systems/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteSystem: (id: number) => request<void>(`/api/systems/${id}`, { method: 'DELETE' }),

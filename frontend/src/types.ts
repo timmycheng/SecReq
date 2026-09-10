@@ -120,6 +120,17 @@ export interface FilingRow {
   latest_round?: RoundSummary | null
 }
 
+/** 系统批量导入结果(#346): skipped 为逐行跳过原因 */
+export interface SystemImportSkip {
+  row: number
+  name: string
+  reason: string
+}
+export interface SystemImportResult {
+  created: number
+  skipped: SystemImportSkip[]
+}
+
 export interface SystemRow {
   id: number
   name: string

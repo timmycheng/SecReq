@@ -5,16 +5,20 @@
 越权访问按 404 处理, 不泄露存在性。#194 起基础设施/组件/架构图挂系统维护,
 与向导内的项目路由(/api/projects/{id}/...)同源同权限, 只是入口不同。
 """
+import csv
+import io
+import re
+
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from sqlalchemy.orm import Session
 
 import shared.constants as C
 from pydantic import BaseModel
 
-from models import Filing, ExternalSystem, Feature, InfraAsset, PlatformUser, SbomComponent, System, SystemBaseline
+from models import ExternalSystem, Feature, Filing, InfraAsset, PlatformUser, SbomComponent, System, SystemBaseline
 from routers.common import (
-    client_ip, component_to_out, get_db, read_upload_limited, require_login,
-    require_write_roles,
+    client_ip, component_to_out, decode_upload_csv, get_db, read_upload_limited,
+    require_login, require_write_roles,
 )
 from schemas.component import ComponentsSaveIn, ComponentOut, SbomImportResult
 from schemas.inventory import (
@@ -120,6 +124,174 @@ def remove(system_id: int, request: Request,
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     audit(db, user.username, "system_delete",
           {"system_id": system_id, "name": system.name}, client_ip(request))
+
+
+# ── 系统批量导入(#346): 仅系统/开发/安全管理员 ──
+
+#: CSV 表头别名 → 字段(兼容中英文表头)
+_IMPORT_HEADER_ALIASES = {
+    "name": "name", "系统名称": "name", "名称": "name",
+    "code": "code", "系统编号": "code", "编号": "code",
+    "filing": "filing", "挂靠备案": "filing", "备案名称": "filing", "备案": "filing",
+    "user_scale": "user_scale", "用户规模": "user_scale", "规模": "user_scale",
+    "is_public": "is_public", "是否公网": "is_public", "是否涉及公网访问": "is_public",
+    "types": "types", "业务类型": "types", "系统类型": "types", "业务形态": "types",
+    "compliance_targets": "compliance_targets", "合规目标": "compliance_targets",
+    "department": "department", "归属部门": "department",
+    "importance": "importance", "重要程度": "importance",
+    "tags": "tags", "标签": "tags",
+    "owner_dev_name": "owner_dev_name", "开发侧责任人": "owner_dev_name",
+    "owner_ops_name": "owner_ops_name", "运维侧责任人": "owner_ops_name",
+    "owner_biz_name": "owner_biz_name", "业务侧责任人": "owner_biz_name",
+}
+_IMPORT_MAX_ROWS = 1000
+#: 多值列分隔符: 顿号/中英文逗号/中英文分号
+_MULTI_SPLIT_RE = re.compile(r"[、,，;；]+")
+
+
+def _split_multi(value: str) -> list[str]:
+    """多值列按分隔符拆分并去空去重, 保序。"""
+    seen: list[str] = []
+    for token in _MULTI_SPLIT_RE.split(value or ""):
+        token = token.strip()
+        if token and token not in seen:
+            seen.append(token)
+    return seen
+
+
+def _lookup_by_label_or_code(value: str, mapping: dict) -> str | None:
+    """枚举列取值: 接受 code 或中文标签, 命中返回 code。"""
+    value = value.strip()
+    if value in mapping:
+        return value
+    for code, label in mapping.items():
+        if label == value:
+            return code
+    return None
+
+
+def _parse_public_flag(value: str) -> bool | None:
+    value = value.strip().lower()
+    if value in ("是", "y", "yes", "true", "1"):
+        return True
+    if value in ("否", "n", "no", "false", "0"):
+        return False
+    return None
+
+
+@router.post("/import", status_code=201)
+async def import_systems(request: Request, file: UploadFile = File(...),
+                         db: Session = Depends(get_db),
+                         user: PlatformUser = Depends(
+                             require_write_roles(*C.SYSTEM_IMPORT_ROLES))):
+    """CSV 批量导入系统(#346): 仅系统管理员/开发管理员/安全管理员, 其余角色 403。
+
+    表头中英文均可: 名称(必填)/编号/挂靠备案/用户规模/是否公网/业务类型/合规目标/
+    归属部门/重要程度/标签/开发侧责任人/运维侧责任人/业务侧责任人。
+    逐行校验, 冲突或非法行整行跳过并给可读原因, 有效行即使夹杂坏行也照常入库;
+    导入人成为系统归属人(数据权限与单条新建一致)。
+    """
+    if not (file.filename or "").lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="请上传 .csv 文件")
+    raw = await read_upload_limited(file)
+    reader = csv.DictReader(io.StringIO(decode_upload_csv(raw)))
+    if not reader.fieldnames:
+        raise HTTPException(status_code=400, detail="CSV 文件为空")
+    fields = {_IMPORT_HEADER_ALIASES.get(str(h).strip().lower()): str(h).strip()
+              for h in reader.fieldnames}
+    if "name" not in fields:
+        raise HTTPException(
+            status_code=400,
+            detail="CSV 缺少必需列: name(表头需含 系统名称 或 name)")
+
+    from services.settings_service import get_system_dicts
+    type_map = get_system_dicts(db)["types"]                 # code → label
+    scale_labels = {label: code for code, label in C.USER_SCALES.items()}
+    filing_ids = {f.name: f.id for f in db.query(Filing).all()}
+
+    created, skipped = 0, []
+    seen_names: set[str] = set()
+    seen_codes: set[str] = set()
+    for line, row in enumerate(reader, start=2):  # 第 1 行是表头
+        if line > _IMPORT_MAX_ROWS + 1:
+            skipped.append({"row": line, "name": "", "reason": f"超过单次 {_IMPORT_MAX_ROWS} 行上限"})
+            continue
+        data = {key: (row.get(header) or "").strip() for key, header in fields.items() if key}
+        name = data.get("name", "")
+        code = data.get("code") or None
+
+        def _skip(reason: str, *, row_no: int = line, row_name: str = name) -> None:
+            skipped.append({"row": row_no, "name": row_name, "reason": reason})
+
+        if not name:
+            _skip("名称为空")
+            continue
+        if name in seen_names or (code and code in seen_codes):
+            _skip("与本文件内前面的行重名或编号重复")
+            continue
+        filing_id = None
+        if data.get("filing"):
+            filing_id = filing_ids.get(data["filing"])
+            if filing_id is None:
+                _skip(f"备案不存在: {data['filing']}")
+                continue
+        scale = None
+        if data.get("user_scale"):
+            scale = C.USER_SCALES.get(data["user_scale"]) or scale_labels.get(data["user_scale"])
+            if scale is None:
+                _skip(f"用户规模须为 {'、'.join(C.USER_SCALES.values())} 之一")
+                continue
+        is_public = False
+        if data.get("is_public"):
+            is_public = _parse_public_flag(data["is_public"])
+            if is_public is None:
+                _skip("是否公网请填 是/否")
+                continue
+        types: list[str] = []
+        if data.get("types"):
+            types = _split_multi(data["types"])
+            unknown = [t for t in types if _lookup_by_label_or_code(t, type_map) is None]
+            if unknown:
+                _skip(f"业务类型无法识别: {'、'.join(unknown)}")
+                continue
+            types = [_lookup_by_label_or_code(t, type_map) or t for t in types]
+        targets: list[str] = []
+        if data.get("compliance_targets"):
+            targets = _split_multi(data["compliance_targets"])
+            unknown = [t for t in targets
+                       if _lookup_by_label_or_code(t, C.COMPLIANCE_TARGETS) is None]
+            if unknown:
+                _skip(f"合规目标无法识别: {'、'.join(unknown)}")
+                continue
+            targets = [_lookup_by_label_or_code(t, C.COMPLIANCE_TARGETS) or t
+                       for t in targets]
+        importance = data.get("importance") or None
+        if importance and importance not in C.IMPORTANCE_LEVELS:
+            _skip(f"重要程度须为 {'、'.join(C.IMPORTANCE_LEVELS)} 之一")
+            continue
+
+        try:
+            create_system(db, {
+                "name": name, "code": code, "filing_id": filing_id,
+                "user_scale": scale or "", "types": types, "is_public": is_public,
+                "compliance_targets": targets,
+                "department": data.get("department") or None,
+                "importance": importance,
+                "tags": _split_multi(data.get("tags", "")),
+                "owner_dev_name": data.get("owner_dev_name") or None,
+                "owner_ops_name": data.get("owner_ops_name") or None,
+                "owner_biz_name": data.get("owner_biz_name") or None,
+            }, owner_user_id=user.id)
+        except NameConflictError as exc:
+            _skip(str(exc))
+            continue
+        seen_names.add(name)
+        if code:
+            seen_codes.add(code)
+        created += 1
+    audit(db, user.username, "system_import",
+          {"created": created, "skipped": len(skipped)}, client_ip(request))
+    return {"created": created, "skipped": skipped}
 
 
 # ── 系统清单(#194): 基础设施 / 组件 / 架构图, 挂系统维护 ──

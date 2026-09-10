@@ -25,6 +25,19 @@ MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 _CHUNK_SIZE = 64 * 1024
 
 
+def decode_upload_csv(raw: bytes) -> str:
+    """国内 Excel 另存的 CSV 常是 GBK/带 BOM 的 UTF-8, 依次尝试解码。
+
+    批量导入类端点(备案/系统)共用, 保证编码容错口径一致。
+    """
+    for encoding in ("utf-8-sig", "gbk"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    raise HTTPException(status_code=400, detail="CSV 文件编码无法识别, 请另存为 UTF-8 或 GBK")
+
+
 async def read_upload_limited(file: UploadFile, limit: int = MAX_UPLOAD_BYTES) -> bytes:
     """按块读取上传文件; 累计超过 limit 立即抛 413。"""
     chunks: list[bytes] = []
