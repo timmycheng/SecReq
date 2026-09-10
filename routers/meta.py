@@ -145,7 +145,8 @@ def get_dashboard(user=Depends(require_login), db: Session = Depends(get_db)) ->
             if idx is not None:
                 trend[idx][_DASHBOARD_TREND_BUCKETS.get(priority, "low")] += 1
 
-    report = step_metrics_report(db)
+    # 步骤耗时按可见项目过滤(#330), pm 不再看到全平台/他人轮次的耗时
+    report = step_metrics_report(db, project_ids=project_ids)
     recent = [
         {
             "id": p.id,
@@ -158,8 +159,10 @@ def get_dashboard(user=Depends(require_login), db: Session = Depends(get_db)) ->
         }
         for p in projects[:8]
     ]
+    from services.system_service import visible_systems_query
+
     return {
-        "system_count": db.query(System).count(),
+        "system_count": visible_systems_query(db, user).count(),
         "eval_total": len(projects),
         "eval_active": eval_active,
         "eval_done": eval_done,

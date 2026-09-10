@@ -112,12 +112,20 @@ def _log_vuln_source_status() -> None:
             logger.error("  数据源 %s: 可用=%s, %s", row["code"], row["available"], row["reason"] or "")
 
 
+# 文档路由默认关闭(#330): /docs /redoc /openapi.json 是 Starlette 普通路由,
+# 不经过 app 级 auth_guard, 匿名即可读取完整 API 结构; 本地开发按需
+# 设 SECREQ_ENABLE_DOCS=1 打开。
+_docs_enabled = os.getenv("SECREQ_ENABLE_DOCS") == "1"
+
 app = FastAPI(
     title="安全需求管理平台",
     description="面向开发与安全两角色的安全需求管理平台: JR/T 0197 五级数据分级、"
                 "监管合规基线映射、安全需求清单生成与确认",
     version="3.3.0",
     lifespan=lifespan,
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
     dependencies=[Depends(auth_guard)],  # 全局认证: 开放路径外一律要求登录
 )
 

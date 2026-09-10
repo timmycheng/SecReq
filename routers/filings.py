@@ -36,8 +36,8 @@ def _detail(filing: Filing, system_count: int = 0, latest_round: dict | None = N
 
 @router.get("", response_model=list[FilingDetail])
 def list_all(db: Session = Depends(get_db), user: PlatformUser = Depends(require_login)):
-    """备案台账(含下挂系统数与最新评估概况)。"""
-    return filings_ledger(db)
+    """备案台账(含下挂系统数与最新评估概况; 评估概况按数据权限裁剪 #330)。"""
+    return filings_ledger(db, user)
 
 
 @router.post("", response_model=FilingDetail, status_code=201, dependencies=[_writable])
@@ -66,7 +66,7 @@ def patch(payload: FilingUpdate, filing_id: int, request: Request,
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     audit(db, user.username, "filing_update",
           {"filing_id": filing.id, "name": filing.name}, client_ip(request))
-    row = next((r for r in filings_ledger(db) if r["id"] == filing.id), None)
+    row = next((r for r in filings_ledger(db, user) if r["id"] == filing.id), None)
     return _detail(filing, row["system_count"], row["latest_round"]) if row else _detail(filing)
 
 
