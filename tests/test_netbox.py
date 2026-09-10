@@ -214,6 +214,51 @@ def test_netbox_put_config_audited(api, sec):
     assert NB_TOKEN not in str(entry)
 
 
+def test_netbox_put_empty_or_masked_token_keeps_stored(api, sec, monkeypatch):
+    """#324: 保存时空串/掩码 token 沿用库内原值, 不覆盖真实凭据。"""
+    _isolate_env(monkeypatch)
+    assert sec.put("/api/admin/netbox-config", json={
+        "base_url": NB_BASE, "token": NB_TOKEN, "system_slug": "system",
+        "field_map": {"name": "name", "code": "code", "owner": "owner"},
+    }).status_code == 200
+    masked = sec.get("/api/admin/netbox-config").json()["token"]
+
+    from services.settings_service import get_setting
+
+    def stored_token():
+        db = api.session_factory()
+        try:
+            return get_setting(db, "netbox")["token"]
+        finally:
+            db.close()
+
+    # 前端固定发送 token: v.token || '' → 空串不得清掉已存 token
+    assert sec.put("/api/admin/netbox-config", json={
+        "base_url": NB_BASE + "/", "token": "", "system_slug": "system",
+        "field_map": {"name": "name", "code": "code", "owner": "owner"},
+    }).status_code == 200
+    assert stored_token() == NB_TOKEN
+
+    assert sec.put("/api/admin/netbox-config", json={
+        "base_url": NB_BASE, "token": masked, "system_slug": "system",
+        "field_map": {"name": "name", "code": "code", "owner": "owner"},
+    }).status_code == 200
+    assert stored_token() == NB_TOKEN
+
+
+def test_netbox_test_rejects_new_url_with_stored_token(api, sec, monkeypatch):
+    """#324 外带防护: 沿用已存 token 只能测当前保存的 NetBox 地址。"""
+    _isolate_env(monkeypatch)
+    sec.put("/api/admin/netbox-config", json={
+        "base_url": NB_BASE, "token": NB_TOKEN, "system_slug": "system",
+        "field_map": {"name": "name", "code": "code", "owner": "owner"},
+    })
+    resp = sec.post("/api/admin/netbox-config/test",
+                    json={"base_url": "https://evil.example.com"})
+    assert resp.status_code == 400
+    assert "重新输入" in resp.json()["detail"]
+
+
 def test_netbox_test_endpoint_attribution(api, sec, monkeypatch):
     """测试连接: 未存 token 且未提交 → 400; 成功/认证失败/超时/不可达 可读归因。
 

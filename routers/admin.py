@@ -202,6 +202,38 @@ def put_code_rule(payload: ProjectCodeRuleIn, request: Request,
 
 
 # ── LLM 接入配置 ──────────────────────────────────────
+def _merge_secret(incoming: str, stored: str | None) -> str:
+    """凭据合并(#324): 空值或掩码回显值沿用库内原值(与 LDAP bind_password 同口径)。
+
+    掩码形态与 GET 掩码构造一致(前 4 位 + ****), 全等才视为「未修改回显」。
+    """
+    incoming = (incoming or "").strip()
+    if not incoming:
+        return stored or ""
+    if stored and incoming == stored[:4] + "****":
+        return stored
+    return incoming
+
+
+def _secret_reused_stored(incoming: str, stored: str | None) -> bool:
+    """测试接口判定(#324 外带防护): 本次提交是否实际沿用了库内凭据。"""
+    incoming = (incoming or "").strip()
+    if not stored:
+        return False
+    return (not incoming) or incoming == stored[:4] + "****"
+
+
+def _reject_foreign_target_when_reusing_secret(
+        *, reuse: bool, submitted: str, stored: str, label: str) -> None:
+    """沿用库内密钥时禁止改测其他目标(#324): 防止把掩码保护的明文密钥外带。"""
+    if not reuse:
+        return
+    if submitted.rstrip("/") != (stored or "").rstrip("/"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"沿用已保存密钥仅限测试当前保存的{label}; 测试新地址请重新输入密钥")
+
+
 @router.get("/llm-config")
 def get_llm(_: PlatformUser = Depends(require_security), db: Session = Depends(get_db)):
     cfg = get_llm_config(db)
@@ -236,9 +268,13 @@ def test_llm(payload: LlmTestIn, _: PlatformUser = Depends(require_security),
 
     import httpx
 
-    api_key = payload.api_key or get_llm_config(db).get("api_key") or ""
+    stored = get_llm_config(db)
+    api_key = _merge_secret(payload.api_key, stored.get("api_key"))
     if not api_key:
         raise HTTPException(status_code=400, detail="API Key 为空且无已保存配置, 无法测试")
+    _reject_foreign_target_when_reusing_secret(
+        reuse=_secret_reused_stored(payload.api_key, stored.get("api_key")),
+        submitted=payload.base_url, stored=stored.get("base_url") or "", label="网关地址")
     url = payload.base_url.rstrip("/") + "/chat/completions"
     started = time.monotonic()
     try:
@@ -278,7 +314,9 @@ def test_llm(payload: LlmTestIn, _: PlatformUser = Depends(require_security),
 def put_llm(payload: LlmConfigIn, request: Request,
             db: Session = Depends(get_db),
             user: PlatformUser = Depends(require_security)):
-    set_setting(db, "llm", payload.model_dump())
+    data = payload.model_dump()
+    data["api_key"] = _merge_secret(payload.api_key, get_llm_config(db).get("api_key"))
+    set_setting(db, "llm", data)
     audit(db, user.username, "llm_update", {"base_url": payload.base_url, "model": payload.model},
           client_ip(request))
     return {"status": "ok"}
@@ -321,9 +359,13 @@ def test_netbox(payload: NetboxTestIn, _: PlatformUser = Depends(require_securit
     """
     import time
 
-    token = payload.token or get_netbox_config(db).get("token") or ""
+    stored = get_netbox_config(db)
+    token = _merge_secret(payload.token, stored.get("token"))
     if not token:
         raise HTTPException(status_code=400, detail="Token 为空且无已保存配置, 无法测试")
+    _reject_foreign_target_when_reusing_secret(
+        reuse=_secret_reused_stored(payload.token, stored.get("token")),
+        submitted=payload.base_url, stored=stored.get("base_url") or "", label="NetBox 地址")
     client = NetboxClient(payload.base_url, token, timeout=8.0)
     started = time.monotonic()
     try:
@@ -345,7 +387,9 @@ def test_netbox(payload: NetboxTestIn, _: PlatformUser = Depends(require_securit
 def put_netbox(payload: NetboxConfigIn, request: Request,
                db: Session = Depends(get_db),
                user: PlatformUser = Depends(require_security)):
-    set_setting(db, "netbox", payload.model_dump())
+    data = payload.model_dump()
+    data["token"] = _merge_secret(payload.token, get_netbox_config(db).get("token"))
+    set_setting(db, "netbox", data)
     audit(db, user.username, "netbox_update",
           {"base_url": payload.base_url, "system_slug": payload.system_slug},
           client_ip(request))
@@ -787,7 +831,13 @@ class LdapTestIn(BaseModel):
 @router.post("/ldap-config/test")
 def test_ldap(payload: LdapTestIn, db: Session = Depends(get_db),
               _: PlatformUser = Depends(require_security)):
-    from services.ldap_service import test_connection
+    from services.ldap_service import LDAP_KEY, get_ldap_config, test_connection
+    stored_pwd = (get_setting(db, LDAP_KEY) or {}).get("bind_password") or ""
+    if stored_pwd:
+        _reject_foreign_target_when_reusing_secret(
+            reuse=not payload.bind_password.strip(),
+            submitted=payload.host, stored=(get_ldap_config(db) or {}).get("host") or "",
+            label="目录地址")
     return test_connection(db, payload.model_dump())
 
 
