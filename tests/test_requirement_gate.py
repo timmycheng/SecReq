@@ -180,3 +180,35 @@ def test_submit_passes_after_confirm(api, generated):
     state = api.get(f"/api/projects/{pid}/review/state").json()
     assert state["gate"]["status"] == "in_review"
     assert state["gate"]["version_hash"]
+
+
+def test_sod_gate_requires_sod_template_product(session):
+    """SoD 门禁只认 SoD 整改模板产物(#328): 任意角色来源需求不再可蒙混过关。"""
+    from conftest import add_base_project
+    from models import Role, SecurityRequirement
+    from services.review_gates import _sod_requirement_generated
+
+    project = add_base_project(session)
+    role = Role(project_id=project.id, name="运维管理员", uid="role-ops",
+                role_type="super_admin")
+    session.add(role)
+    session.flush()
+    conflicts = [("运维管理员", "核心账务资源")]
+
+    def _role_requirement(req_id: str, template_id: str) -> SecurityRequirement:
+        return SecurityRequirement(
+            project_id=project.id, req_id=req_id, template_id=template_id,
+            title="t", description="d", category="权限安全", priority="high",
+            acceptance_criteria="a", suggested_phase="design", trigger_reason="r",
+            source_entity_type="role", source_entity_id=role.id,
+            source_entity_uid=role.uid, status="open")
+
+    # 角色 uid 命中, 但模板是超管治理(SEC-V4-004)而非 SoD 整改(SEC-V4-003)
+    session.add(_role_requirement("SEC-V4-004", "SEC-V4-004"))
+    session.commit()
+    assert _sod_requirement_generated(session, project, conflicts) is False
+
+    # SoD 整改模板产物命中 → 满足
+    session.add(_role_requirement("SEC-V4-003", "SEC-V4-003"))
+    session.commit()
+    assert _sod_requirement_generated(session, project, conflicts) is True

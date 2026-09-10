@@ -170,6 +170,7 @@ def submit_review(db: Session, project: Project, actor: PlatformUser,
     gate.reviewer_id = None
     gate.reviewer_conclusion = None
     gate.reviewer_opinion = None
+    gate.reviewed_at = None  # 重提清上一轮评审时间(#328), 避免旧值透出误导
     gate.version_hash = compute_version_hash(db, project)
     append_evidence(db, gate, "submit", actor,
                     payload={"version_hash": gate.version_hash,
@@ -252,10 +253,13 @@ def decide_review(db: Session, project: Project, gate: ReviewGate,
 
 def withdraw_review(db: Session, project: Project, gate: ReviewGate,
                     actor: PlatformUser) -> None:
-    """撤回评审(评估状态机「审批」态的出口): 门禁回到 pending, 项目回到草稿, 数据全保留。
+    """撤回评审(评估状态机「审批」态的出口): 门禁回到 pending, 数据全保留。
 
     仅审批中(in_review)可撤回, 且仅提交人本人可撤回; 已产生的批注留痕不动
     (重新提交后 submit 会清空 reviewer 字段并续写哈希链)。
+    内容锁由门禁状态表达(requirement_gate_lock), 项目状态保持 generated(#328):
+    撤回不该让本轮评估从系统台账/当前基线/差异对比的上一轮定位中消失,
+    reviewed_at 一并清空, 不再展示上一轮评审时间。
     """
     if gate.status != "in_review":
         raise ReviewFlowError("评审不在进行中, 无可撤回的提交")
@@ -265,7 +269,7 @@ def withdraw_review(db: Session, project: Project, gate: ReviewGate,
     gate.reviewer_id = None
     gate.reviewer_conclusion = None
     gate.reviewer_opinion = None
-    project.status = "draft"
+    gate.reviewed_at = None
     append_evidence(db, gate, "withdraw", actor, payload={"gate_status": "pending"})
 
 
