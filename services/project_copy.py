@@ -88,7 +88,7 @@ def copy_wizard_data(db: Session, source: Project, target: Project) -> None:
     for ext in db.query(ExternalSystem).filter_by(project_id=src).all():
         db.add(_clone(ext, project_id=dst))
 
-    db.commit()
+    db.flush()
 
 
 def repair_stale_component_cache(db: Session) -> int:
@@ -127,6 +127,9 @@ def reset_wizard_data(db: Session, project_id: int) -> None:
     外键约束在 SQLite 下默认不启用, 但仍按依赖顺序删除避免孤儿行:
     字段→表→资产、漏洞记录→组件、授权→角色/资源。便于复制前重置(copy_from
     的先清后拷语义)与「一键清空」。
+
+    只 flush 不 commit(#323): 与 copy_wizard_data 共处同一事务, 由调用方
+    成功后统一提交, 失败整体回滚, 不会留下已清空且不可回滚的项目。
     """
     db.query(GradingSurvey).filter_by(project_id=project_id).delete(synchronize_session=False)
     db.query(Feature).filter_by(project_id=project_id).delete(synchronize_session=False)
@@ -146,4 +149,4 @@ def reset_wizard_data(db: Session, project_id: int) -> None:
     db.query(DataField).filter(DataField.table_id.in_(table_ids)).delete(synchronize_session=False)
     db.query(DataTable).filter(DataTable.asset_id.in_(asset_ids)).delete(synchronize_session=False)
     db.query(DataAsset).filter_by(project_id=project_id).delete(synchronize_session=False)
-    db.commit()
+    db.flush()
