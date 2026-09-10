@@ -35,8 +35,13 @@ def record_step_duration(db: Session, project: Project, step: str,
     db.commit()  # 保存端点的主体已完成自己的事务, 埋点行独立提交
 
 
-def step_metrics_report(db: Session, project_id: int | None = None) -> dict:
-    """各步骤 平均/中位/P90/样本数; project_id 给定时按轮次过滤。"""
+def step_metrics_report(db: Session, project_id: int | None = None,
+                        project_ids: list[int] | None = None) -> dict:
+    """各步骤 平均/中位/P90/样本数。
+
+    project_id 给定时按单轮次过滤; project_ids 给定时按数据权限的项目集合过滤(#330);
+    两者都为 None 才是全平台口径。
+    """
     query = db.query(
         StepDuration.step,
         func.count().label("samples"),
@@ -44,6 +49,8 @@ def step_metrics_report(db: Session, project_id: int | None = None) -> dict:
     ).group_by(StepDuration.step)
     if project_id is not None:
         query = query.filter(StepDuration.project_id == project_id)
+    elif project_ids is not None:
+        query = query.filter(StepDuration.project_id.in_(project_ids))
     avg_by_step = {step: (samples, avg) for step, samples, avg in query.all()}
 
     durations_by_step: dict[str, list[float]] = {}
@@ -51,6 +58,8 @@ def step_metrics_report(db: Session, project_id: int | None = None) -> dict:
         StepDuration.step, StepDuration.duration_seconds)
     if project_id is not None:
         detail_query = detail_query.filter(StepDuration.project_id == project_id)
+    elif project_ids is not None:
+        detail_query = detail_query.filter(StepDuration.project_id.in_(project_ids))
     for step, duration in detail_query.all():
         durations_by_step.setdefault(step, []).append(duration)
 
@@ -69,9 +78,13 @@ def step_metrics_report(db: Session, project_id: int | None = None) -> dict:
             "median_seconds": round(median(ordered), 1),
             "p90_seconds": round(p90, 1),
         })
-    rounds = (
-        db.query(func.count(func.distinct(StepDuration.project_id))).scalar() or 0
-    ) if project_id is None else 1
+    if project_id is not None:
+        rounds = 1
+    else:
+        rounds_query = db.query(func.count(func.distinct(StepDuration.project_id)))
+        if project_ids is not None:
+            rounds_query = rounds_query.filter(StepDuration.project_id.in_(project_ids))
+        rounds = rounds_query.scalar() or 0
     return {
         "steps": steps_out,
         "total_avg_seconds": round(total_seconds, 1),

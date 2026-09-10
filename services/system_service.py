@@ -83,11 +83,18 @@ def list_filings(db: Session) -> list[Filing]:
     return db.query(Filing).order_by(Filing.id).all()
 
 
-def filings_ledger(db: Session) -> list[dict]:
-    """备案视角台账: 备案 × 下挂系统数 × 最新一轮评估概况。"""
+def filings_ledger(db: Session, user=None) -> list[dict]:
+    """备案视角台账: 备案 × 下挂系统数 × 最新一轮评估概况。
+
+    user 给定时按数据权限裁剪(#330): pm 只统计本人系统, latest_round 不泄露
+    他人评估概况; 备案清单本身仍对全体登录用户开放(挂靠选择需要)。
+    """
     items = []
     for filing in list_filings(db):
-        systems = db.query(System).filter_by(filing_id=filing.id).all()
+        query = db.query(System).filter_by(filing_id=filing.id)
+        if user is not None and user.role not in C.FULL_VISIBILITY_ROLES:
+            query = query.filter(System.owner_user_id == user.id)
+        systems = query.all()
         latest = None
         for system in systems:
             round_ = latest_round_of(db, system.id)
