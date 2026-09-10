@@ -44,9 +44,10 @@ def _arch_envs(db: Session) -> list[str]:
 
 
 def _get_accessible_system(system_id: int, db: Session, user: PlatformUser) -> System:
+    """归属口径与列表一致(#327): 无主系统不对普通角色放行, 仅 FULL_VISIBILITY 可见。"""
     system = db.get(System, system_id)
     if system is None or (
-        user.role not in C.FULL_VISIBILITY_ROLES and system.owner_user_id not in (None, user.id)
+        user.role not in C.FULL_VISIBILITY_ROLES and system.owner_user_id != user.id
     ):
         raise HTTPException(status_code=404, detail=f"系统不存在: id={system_id}")
     return system

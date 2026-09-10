@@ -217,6 +217,64 @@ def test_pm_sees_only_own_systems(api, sec):
     assert [s["name"] for s in api.get("/api/systems/ledger").json()] == ["甲的系统"]
 
 
+def test_ownerless_system_locked_for_pm(api, sec):
+    """#327: 无主系统不再对普通角色放行 —— 列表不可见, 按 id 直达也 404/400。"""
+    db = api.session_factory()
+    try:
+        from models import System
+        system = System(name="无主存量系统", user_scale="1k_to_100k", is_public=False)
+        db.add(system)
+        db.commit()
+        sid = system.id
+    finally:
+        db.close()
+
+    assert api.get("/api/systems").json() == []
+    assert api.get(f"/api/systems/{sid}").status_code == 404
+    assert api.patch(f"/api/systems/{sid}", json={"name": "改名"}).status_code == 404
+    assert api.delete(f"/api/systems/{sid}").status_code == 404
+    assert api.post("/api/projects", json={"name": "P", "system_id": sid}).status_code == 400
+    assert api.get(f"/api/systems/{sid}/detail-section?section=data_assets").status_code == 404
+    # 全量可见角色(安全管理员)不受影响
+    assert sec.get(f"/api/systems/{sid}").status_code == 200
+
+
+def test_ownerless_project_404_for_pm(api, sec):
+    """#327: 无主项目同样不放行(存量库启动时已回填归属, 正常数据不落此状态)。"""
+    db = api.session_factory()
+    try:
+        from models import Project
+        project = Project(name="无主评估", code="PRJ-ORPHAN", type="web", status="draft")
+        db.add(project)
+        db.commit()
+        pid = project.id
+    finally:
+        db.close()
+    assert api.get(f"/api/projects/{pid}").status_code == 404
+    assert sec.get(f"/api/projects/{pid}").status_code == 200
+
+
+def test_assign_legacy_systems_backfills_owner(session):
+    """#327: 启动迁移把存量无主系统归入第一个有效开发账号(pm), 幂等。"""
+    from models import PlatformUser, System
+    from services.system_service import assign_legacy_systems
+
+    pm = PlatformUser(username="pm_backfill", display_name="项目经理",
+                      role="pm", active=True)
+    session.add(pm)
+    session.flush()
+    orphan = System(name="存量系统", user_scale="1k_to_100k", is_public=False)
+    owned = System(name="有主系统", user_scale="1k_to_100k", is_public=False,
+                   owner_user_id=pm.id + 1)
+    session.add_all([orphan, owned])
+    session.commit()
+
+    assert assign_legacy_systems(session) == 1
+    assert session.get(System, orphan.id).owner_user_id == pm.id
+    assert session.get(System, owned.id).owner_user_id == pm.id + 1
+    assert assign_legacy_systems(session) == 0
+
+
 def test_project_cannot_attach_foreign_system(api, sec):
     """开发不能把项目挂到他人系统上(与台账数据权限口径一致)。"""
     filing = _create_filing(sec, name="安全侧备案")

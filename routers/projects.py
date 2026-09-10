@@ -35,7 +35,7 @@ def _resolve_system(db: Session, user: PlatformUser, system_id: int | None) -> N
     """归属校验(#195 必填): 系统须存在且在数据权限内(开发仅可关联本人系统)。"""
     system = db.get(System, system_id) if system_id is not None else None
     if system is None or (
-        user.role not in C.FULL_VISIBILITY_ROLES and system.owner_user_id not in (None, user.id)
+        user.role not in C.FULL_VISIBILITY_ROLES and system.owner_user_id != user.id
     ):
         raise HTTPException(status_code=400, detail=f"所属系统不存在或无权关联: id={system_id}")
 

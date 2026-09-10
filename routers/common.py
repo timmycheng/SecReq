@@ -124,8 +124,9 @@ def visible_projects_query(db: Session, user: PlatformUser):
 
 
 def ensure_project_access(user: PlatformUser, project: Project) -> None:
-    """单项目访问口径: 安全侧/审计全量可见, pm 仅限本人创建; 越权返回 404(不泄露存在性)。"""
-    if user.role not in C.FULL_VISIBILITY_ROLES and project.owner_user_id not in (None, user.id):
+    """单项目访问口径: 安全侧/审计全量可见, pm 仅限本人创建; 越权与无主均按 404
+    处理(不泄露存在性; 无主存量项目启动时已回填归属, #327)。"""
+    if user.role not in C.FULL_VISIBILITY_ROLES and project.owner_user_id != user.id:
         raise HTTPException(status_code=404, detail=f"评估不存在: id={project.id}")
 
 
