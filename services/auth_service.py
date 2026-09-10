@@ -124,12 +124,13 @@ def ensure_seed_users(session: Session) -> None:
 
 
 def _reassign_owned_projects(session: Session, owner_user_id: int) -> None:
-    """停用账号名下项目转归第一个有效开发账号(幂等; 无有效开发账号则保持原状)。
+    """停用账号名下项目/系统转归第一个有效开发账号(幂等; 无有效开发账号则保持原状)。
 
     启动链路上 ensure_seed_users 先于 assign_legacy_projects 执行, dev_admin
     此时已补齐, 正常总有归属目标; 保留无目标时不动数据的保守兜底。
+    系统一并转投, 避免出现列表不可见但按 id 直达的无主系统(#327)。
     """
-    from models import Project
+    from models import Project, System
 
     target = (
         session.query(PlatformUser)
@@ -144,6 +145,9 @@ def _reassign_owned_projects(session: Session, owner_user_id: int) -> None:
     if target is None:
         return
     session.query(Project).filter(Project.owner_user_id == owner_user_id).update(
+        {"owner_user_id": target.id}
+    )
+    session.query(System).filter(System.owner_user_id == owner_user_id).update(
         {"owner_user_id": target.id}
     )
 

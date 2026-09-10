@@ -46,6 +46,7 @@ async def lifespan(_: FastAPI):
         ensure_schema_upgrade, migrate_legacy_classification,
     )
     from services.project_service import assign_legacy_projects, populate_project_types
+    from services.system_service import assign_legacy_systems
 
     init_db(engine)
     ensure_schema_upgrade(engine)
@@ -68,6 +69,9 @@ async def lifespan(_: FastAPI):
         moved = assign_legacy_projects(db)
         if moved:
             logger.info("%d 个存量项目已归入默认开发账号", moved)
+        moved_systems = assign_legacy_systems(db)
+        if moved_systems:
+            logger.info("%d 个存量系统已归入默认开发账号(#327)", moved_systems)
         # 复制项目组件的漏洞缓存自愈(#169): 带缓存状态却无漏洞记录的组件清缓存,
         # 使其下次生成强制重查(修复已复制出来的受影响项目)
         from services.project_copy import repair_stale_component_cache

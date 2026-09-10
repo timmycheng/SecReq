@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 import shared.constants as C
 from models import (
     ApiEndpoint, AuthConfig, DataAsset, DataField, DataTable, ExternalSystem, Feature,
-    GradingSurvey, InfraAsset, PermissionEntry, Project, Resource, Role,
+    GradingSurvey, InfraAsset, PermissionEntry, PlatformUser, Project, Resource, Role,
     SbomComponent, System,
 )
 
@@ -28,14 +28,19 @@ def seed_demo_project(session: Session, overwrite: bool = True) -> Project:
         _delete_project(session, existing)
 
     # ── 演示系统(#194: 基本信息/基础设施/组件挂系统, 项目轮次挂系统之下) ──
+    # 归属(#327): 演示系统/项目归第一个有效开发账号, 避免无主资源对 pm 不可见
+    demo_owner = session.query(PlatformUser).filter_by(role="pm", active=True).first()
+    owner_id = demo_owner.id if demo_owner else None
+
     system = session.query(System).filter_by(name=DEMO_SYSTEM_NAME).first()
     if system is None:
         system = System(name=DEMO_SYSTEM_NAME, user_scale="over_1m",
-                        is_public=True, types=["web"])
+                        is_public=True, types=["web"], owner_user_id=owner_id)
         session.add(system)
         session.flush()
     else:
         _clear_system_inventory(session, system.id)
+        system.owner_user_id = owner_id
     # 合规目标真相在系统(#319): 幂等重灌, 兼容旧库演示系统缺列值的情形
     system.compliance_targets = ["djcp_l3", "pipl", "pci_dss"]
 
@@ -43,6 +48,7 @@ def seed_demo_project(session: Session, overwrite: bool = True) -> Project:
         name="示例项目",
         code=DEMO_PROJECT_CODE,
         type="web",
+        owner_user_id=owner_id,
         system_id=system.id,
         industry="零售金融-个人业务条线",
         user_scale="over_1m",

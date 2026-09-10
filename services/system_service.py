@@ -150,6 +150,21 @@ def visible_systems_query(db: Session, user):
     return query.order_by(System.created_at.desc(), System.id.desc())
 
 
+def assign_legacy_systems(session: Session) -> int:
+    """存量无主系统归入第一个有效开发账号(与项目同口径, #327), 幂等。返回处理数。"""
+    from models import PlatformUser
+
+    unowned = session.query(System).filter(System.owner_user_id.is_(None)).all()
+    if not unowned:
+        return 0
+    dev = session.query(PlatformUser).filter_by(role="pm", active=True).first()
+    target_id = dev.id if dev else None
+    for system in unowned:
+        system.owner_user_id = target_id
+    session.commit()
+    return len(unowned)
+
+
 def latest_round_of(db: Session, system_id: int) -> dict | None:
     """系统下最新一轮已生成评估的概况(未生成过返回 None)。"""
     project = (
