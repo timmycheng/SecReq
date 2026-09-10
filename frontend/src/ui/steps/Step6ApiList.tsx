@@ -278,7 +278,7 @@ function ApiImportModal({ projectId, existing, onClose, onImport }: {
             key: 'file', label: '上传 xlsx/csv',
             children: (
               <Upload
-                accept=".xlsx,.csv,.txt" maxCount={1}
+                accept=".xlsx,.csv,.txt,.json,.yaml,.yml" maxCount={1}
                 beforeUpload={(f) => { setFile(f); setPreview(null); return false }}
                 onRemove={() => setFile(null)}
                 fileList={file ? [file as never] : []}

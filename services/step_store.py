@@ -301,15 +301,24 @@ def replace_components(
         return item.uid
 
     def fields_of(item: ComponentIn):
+        # source_type 不随整卷保存覆盖(#332): 更新行保留原来源(sbom_file 不丢),
+        # 仅新建行在同步后落本次保存的 source_type
         return {
             "layer": item.layer, "name": item.name, "version": item.version,
             "purl": item.purl or None, "license": item.license or None,
             "ecosystem": item.ecosystem or None, "distro": item.distro or None,
-            "source_type": source_type,
         }
 
+    pre_existing_uids = {
+        uid for (uid,) in session.query(SbomComponent.uid).filter(
+            SbomComponent.system_id == system_id, SbomComponent.uid.isnot(None))
+        if uid
+    }
     kept, removed = _sync_rows(
         session, system_id, SbomComponent, items, fields_of, uid_of, scope_field="system_id")
+    for row in kept:
+        if row.uid not in pre_existing_uids:
+            row.source_type = source_type
     session.flush()
     _purge_components(session, [row.id for row in removed])
     session.commit()

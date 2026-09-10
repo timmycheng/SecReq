@@ -95,3 +95,45 @@ def test_parse_endpoint_roundtrip(api):
     body = resp.json()
     assert body["total"] == 3 and body["invalid"] == 0
     assert {r["path"] for r in body["rows"]} == {"/api/accounts", "/health"}
+
+
+def test_parse_csv_keeps_quoted_commas():
+    """CSV 引号字段不被 join/split 抵消(#332)。"""
+    from services.api_import import parse_csv
+
+    text = '名称,方法,路径\n"订单,退款接口",POST,/api/refund\n查询,GET,/api/orders'
+    rows = parse_csv(text.encode("utf-8"))
+    assert rows[0]["error"] is None
+    assert rows[0]["name"] == "订单,退款接口"
+    assert rows[0]["method"] == "POST"
+    assert rows[0]["path"] == "/api/refund"
+    assert rows[1]["name"] == "查询"
+
+
+def test_parse_xlsx_keeps_commas_inside_cells():
+    """xlsx 单元格内的逗号不再致错列(#332)。"""
+    import io
+
+    from openpyxl import Workbook
+
+    from services.api_import import parse_xlsx
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["名称", "方法", "路径"])
+    ws.append(["订单,退款", "POST", "/api/refund"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    rows = parse_xlsx(buf.getvalue())
+    assert rows[0]["error"] is None
+    assert rows[0]["name"] == "订单,退款"
+    assert rows[0]["method"] == "POST"
+
+
+def test_parse_upload_rejects_legacy_xls():
+    """.xls 给可读报错而非 500(#332)。"""
+    from services.api_import import parse_upload
+
+    rows = parse_upload("旧接口清单.xls", b"binary")
+    assert len(rows) == 1
+    assert ".xls" in rows[0]["error"]
