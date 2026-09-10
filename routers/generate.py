@@ -236,7 +236,13 @@ def list_requirement_transitions(req_id: str,
 
 
 def _sorted_requirements(db: Session, pid: int) -> list:
-    rows = db.query(SecurityRequirement).filter_by(project_id=pid).all()
+    # 导出/执行摘要口径排除 obsolete(#326): 失效需求不再抬高需求数/高危数/结论档位
+    rows = (
+        db.query(SecurityRequirement)
+        .filter_by(project_id=pid)
+        .filter(SecurityRequirement.status != "obsolete")
+        .all()
+    )
     order = ["critical", "high", "medium", "low"]
     rows.sort(key=lambda r: (order.index(r.priority) if r.priority in order else 9, r.req_id))
     return rows

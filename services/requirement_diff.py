@@ -53,6 +53,13 @@ def find_previous_round(db: Session, project: Project,
                 or candidate.system_id is None
                 or candidate.system_id != project.system_id):
             return None
+        # 显式指定同样只认「已生成且早于本轮」(#326): 与自动定位口径一致,
+        # 否则可比出方向反转的 diff(拿草稿轮/更晚轮次当基准)
+        if candidate.status != "generated":
+            return None
+        if ((candidate.created_at or _EPOCH, candidate.id)
+                >= (project.created_at or _EPOCH, project.id)):
+            return None
         return candidate
     if project.system_id is None:
         return None
@@ -90,7 +97,14 @@ def _key(req: SecurityRequirement) -> tuple[str, str]:
 
 
 def diff_requirements(db: Session, current: Project, previous: Project) -> dict:
-    cur_rows = db.query(SecurityRequirement).filter_by(project_id=current.id).all()
+    # 本轮排除 obsolete 行(#326): 失效需求的来源在上一轮还在,
+    # 排除后自然落入 removed(「本轮移除」), total 也不再被历史行抬高
+    cur_rows = (
+        db.query(SecurityRequirement)
+        .filter_by(project_id=current.id)
+        .filter(SecurityRequirement.status != "obsolete")
+        .all()
+    )
     prev_rows = db.query(SecurityRequirement).filter_by(project_id=previous.id).all()
     cur_map = {_key(r): r for r in cur_rows}
     prev_map = {_key(r): r for r in prev_rows}

@@ -73,7 +73,8 @@ def build_review_sheet_docx(project, gate: ReviewGate | None,
     _para(doc, f"待确认: {requirement_summary.get('open', 0)} 条    "
                f"已确认: {requirement_summary.get('confirmed', 0)} 条    "
                f"评审通过: {requirement_summary.get('reviewed', 0)} 条    "
-               f"整改中: {requirement_summary.get('rectifying', 0)} 条", size=10.5)
+               f"整改中: {requirement_summary.get('rectifying', 0)} 条    "
+               f"不属实: {requirement_summary.get('invalid', 0)} 条", size=10.5)
     total = sum(requirement_summary.values())
     _para(doc, f"需求总数: {total} 条, 其中评审通过率 "
                f"{(requirement_summary.get('reviewed', 0) / total * 100 if total else 0):.0f}%",

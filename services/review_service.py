@@ -228,9 +228,11 @@ def decide_review(db: Session, project: Project, gate: ReviewGate,
         append_evidence(db, gate, "approve", actor, comment=comment,
                         payload={"gate_status": "passed"})
         # 未被逐条批注通过的已确认需求, 随门禁通过整体推为 reviewed(仅确认的需求落盘)
+        # obsolete 行不参与通过口径(#326): 输入已变更的失效需求不得被推成已评审
         pending = (
             db.query(SecurityRequirement)
             .filter_by(project_id=project.id, review_status="confirmed")
+            .filter(SecurityRequirement.status != "obsolete")
             .all()
         )
         for req in pending:
