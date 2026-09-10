@@ -213,7 +213,10 @@ def _sync_device_and_ip(db: Session, client: NetboxClient, asset: InfraAsset,
         else:
             stats["ips"]["skipped"] += 1
         if asset.netbox_ref_id:
-            client.patch_device(asset.netbox_ref_id, {"primary_ip4": ip_row["address"]})
+            # NetBox 4.x 关联字段只接受数字 ID 或唯一属性字典(#333):
+            # 传裸地址串会 400, 主 IP 永远挂不上且每轮重复失败
+            client.patch_device(asset.netbox_ref_id,
+                                {"primary_ip4": {"address": ip_row["address"]}})
     except (NetboxUnavailable, NetboxApiError) as exc:
         stats["ips"]["failed"] += 1
         errors.append(f"资产「{asset.name}」的 IP {asset.ip}: {exc}")
@@ -276,6 +279,39 @@ def run_sync(db: Session, trigger: str,
     return log
 
 
+def _scheduler_tick(session_factory) -> bool:
+    """执行一次调度检查: 到期则主张互斥并同步, 返回是否实际执行(#333)。
+
+    与手动端点共用 sync_state.begin 的原子测试置位: 定时轮执行期间
+    /api/netbox/sync/state 如实返回 running=true, 手动触发与下一个 tick 均不再并发进入。
+    """
+    db = session_factory()
+    try:
+        schedule = get_netbox_schedule(db)
+        if not schedule["enabled"]:
+            return False
+        last = (
+            db.query(NetboxSyncLog)
+            .order_by(NetboxSyncLog.id.desc()).first()
+        )
+        if last is not None and last.started_at is not None:
+            elapsed = (datetime.now() - last.started_at).total_seconds()
+            if elapsed < schedule["interval_hours"] * 3600:
+                return False
+        if not sync_state.begin():
+            return False
+        try:
+            run_sync(db, "scheduled")
+        finally:
+            sync_state.end()
+        return True
+    except Exception:
+        logger.warning("NetBox 定时同步异常", exc_info=True)
+        return False
+    finally:
+        db.close()
+
+
 def start_scheduler(session_factory) -> threading.Thread | None:
     """启动定时同步守护线程; 单测/迁移场景用环境变量关停。"""
     if os.environ.get("SECREQ_DISABLE_NETBOX_SCHEDULER") == "1":
@@ -285,24 +321,7 @@ def start_scheduler(session_factory) -> threading.Thread | None:
     def loop() -> None:
         while True:
             time.sleep(SCHEDULER_TICK_SECONDS)
-            db = session_factory()
-            try:
-                schedule = get_netbox_schedule(db)
-                if not schedule["enabled"] or sync_state.running:
-                    continue
-                last = (
-                    db.query(NetboxSyncLog)
-                    .order_by(NetboxSyncLog.id.desc()).first()
-                )
-                if last is not None and last.started_at is not None:
-                    elapsed = (datetime.now() - last.started_at).total_seconds()
-                    if elapsed < schedule["interval_hours"] * 3600:
-                        continue
-                run_sync(db, "scheduled")
-            except Exception:
-                logger.warning("NetBox 定时同步异常", exc_info=True)
-            finally:
-                db.close()
+            _scheduler_tick(session_factory)
 
     thread = threading.Thread(target=loop, name="netbox-sync-scheduler", daemon=True)
     thread.start()
