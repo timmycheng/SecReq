@@ -163,11 +163,11 @@ def test_design_gate_passes_when_all_satisfied(session):
     _mk_feature(db, project.id, "转账", ["payment"])
     _mk_endpoint(db, project.id, "账户查询", "/api/accounts", public=True,
                  rate_limit="60/min", sensitive_uids=["uid-账户信息"])
-    # SoD 冲突角色已有整改需求
+    # SoD 冲突角色已有整改需求(必须是 SoD 整改模板产物, #328)
     _seed_matrix_with_conflict(db, project.id)
     role = db.query(Role).filter_by(project_id=project.id).first()
     db.add(SecurityRequirement(
-        project_id=project.id, req_id="SEC-SOD-001", template_id="T-SOD",
+        project_id=project.id, req_id="SEC-V4-003", template_id="SEC-V4-003",
         title="SoD 整改", description="d", category="权限安全", priority="critical",
         acceptance_criteria="ac", suggested_phase="design",
         source_entity_type="role", source_entity_id=role.id,

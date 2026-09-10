@@ -105,6 +105,11 @@ def _sod_conflicts(db: Session, project: Project) -> list[tuple[str, str]]:
     return conflicts
 
 
+# SoD 整改模板(知识库 rule_key=sod_conflict 的产物, #328 门禁只认该模板):
+# 角色来源的需求还有超管治理(SEC-V4-004)等多种, 任意命中即视为已整改会让门禁失效
+_SOD_TEMPLATE_IDS = {"SEC-V4-003"}
+
+
 def _sod_requirement_generated(db: Session, project: Project,
                                conflicts: list[tuple[str, str]]) -> bool:
     """命中冲突的角色是否已有对应的 SoD 整改需求(未过期的)。"""
@@ -124,6 +129,7 @@ def _sod_requirement_generated(db: Session, project: Project,
         db.query(SecurityRequirement)
         .filter(
             SecurityRequirement.project_id == project.id,
+            SecurityRequirement.template_id.in_(_SOD_TEMPLATE_IDS),
             SecurityRequirement.source_entity_type == "role",
             SecurityRequirement.source_entity_uid.in_(uids),
             SecurityRequirement.status != "obsolete",

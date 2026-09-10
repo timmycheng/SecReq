@@ -70,7 +70,8 @@ def test_in_review_locks_content_writes(api, generated):
     # 撤回后回到可编辑(重存已有行, uid 连续性要求保留稳定标识)
     assert api.post(f"/api/projects/{pid}/review/withdraw").json()["gate_status"] == "pending"
     rows = {r["id"]: r for r in api.get("/api/projects").json()}
-    assert rows[pid]["status"] == "draft"
+    # 项目状态保持 generated(#328): 撤回不让本轮从系统台账/基线中消失
+    assert rows[pid]["status"] == "generated"
     existing = api.get(f"/api/projects/{pid}/features").json()
     assert api.post(f"/api/projects/{pid}/features", json=existing).status_code == 200
 
@@ -158,3 +159,59 @@ def test_review_actions_carry_chinese_audit_labels(api, generated):
     withdraw_row = by_action["project_withdraw"]
     assert withdraw_row["action_label"] == "撤回评审"
     assert "数据保留" in (withdraw_row["summary"] or "")
+
+
+def test_withdraw_and_resubmit_clear_reviewed_at(api, generated, reviewers):
+    """#328: 撤回/重提清空 reviewed_at, 旧的评审时间不再透出误导。"""
+    pid, _, reqs = generated
+    _confirm_all(api, pid, reqs)
+    assert api.post(f"/api/projects/{pid}/review/submit").json()["status"] == "submitted"
+
+    seca = _client(api, "wd_reviewer")
+    resp = seca.post(f"/api/projects/{pid}/review/decide",
+                     json={"conclusion": "request_change", "comment": "需要整改"})
+    assert resp.status_code == 200, resp.text
+    state = api.get(f"/api/projects/{pid}/review/state").json()
+    assert state["gate"]["reviewed_at"], "前置条件: 裁定后应有评审时间"
+
+    # 整改后重提: reviewed_at 清空
+    assert api.post(f"/api/projects/{pid}/review/submit").json()["status"] == "submitted"
+    state = api.get(f"/api/projects/{pid}/review/state").json()
+    assert state["gate"]["reviewed_at"] is None
+
+    # 再次撤回: reviewed_at 同样不残留
+    assert api.post(f"/api/projects/{pid}/review/withdraw").status_code == 200
+    state = api.get(f"/api/projects/{pid}/review/state").json()
+    assert state["gate"]["reviewed_at"] is None
+
+
+def test_withdraw_keeps_round_in_ledger_and_diff_base(api, generated, reviewers):
+    """#328: 撤回不改项目状态(generated), 本轮仍在系统台账/可作为差异对比基准。"""
+    pid, sid, reqs = generated
+    _confirm_all(api, pid, reqs)
+    assert api.post(f"/api/projects/{pid}/review/submit").json()["status"] == "submitted"
+    assert api.post(f"/api/projects/{pid}/review/withdraw").status_code == 200
+
+    # 项目状态保持 generated
+    rows = {r["id"]: r for r in api.get("/api/projects").json()}
+    assert rows[pid]["status"] == "generated"
+
+    # 系统台账的最新一轮仍是本轮(此前置 draft 会从台账消失)
+    ledger = api.get("/api/systems/ledger").json()
+    entry = next(e for e in ledger if e["id"] == sid)
+    assert entry["latest_round"]["project_id"] == pid
+
+    # 仍是差异对比可用的已生成轮次
+    db = api.session_factory()
+    try:
+        from models import Project
+        from services.requirement_diff import find_previous_round
+        newer = Project(
+            name="下一轮", code="PRJ-NEXT", type="web", system_id=sid,
+            owner_user_id=rows[pid]["owner_user_id"], status="draft",
+        )
+        db.add(newer)
+        db.commit()
+        assert find_previous_round(db, newer) is not None
+    finally:
+        db.close()

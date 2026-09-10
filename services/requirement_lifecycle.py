@@ -77,6 +77,8 @@ def transition_requirement(
     if target == "invalid":
         req.invalid_reason = opinion
         req.reg_confirmed = False
+        req.confirmed_by = None  # #328: 标记不属实即撤回确认, 确认人/时间不再残留
+        req.confirmed_at = None
     return record
 
 
