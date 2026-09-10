@@ -3,22 +3,23 @@
    备案的维护入口在 平台设置 → 备案管理(安全侧权威维护 #192)。 */
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Button, Card, Col, Divider, Empty, Form, Input, Modal, Popconfirm, Row, Select, Space,
-  Switch, Table, Tag, Tooltip, Typography, message,
+  Alert, Button, Card, Col, Divider, Empty, Form, Input, Modal, Popconfirm, Row, Select, Space,
+  Switch, Table, Tag, Tooltip, Typography, Upload, message,
 } from 'antd'
-import { InfoCircleOutlined, PlusOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons'
 
 /** 重要程度标签色(DESIGN 系统清单字段, #283)。 */
 const IMPORTANCE_COLOR: Record<string, string> = { 高: 'volcano', 中: 'gold', 低: 'default' }
 const IMPORTANCE_LEVELS = ['高', '中', '低']
 import type { ColumnsType } from 'antd/es/table'
+import type { UploadFile } from 'antd'
 
-import { api } from '../api'
+import { api, getStoredUser, isSystemImportRole } from '../api'
 import { labelMapOf, optionsOf, useEnums } from '../enums'
 import { navigate } from '../router'
 import PageHeader from './PageHeader'
 import { LevelTag, RoundCell } from './tags'
-import type { FilingRow, SystemRow } from '../types'
+import type { FilingRow, SystemImportResult, SystemRow } from '../types'
 
 export default function SystemsPage() {
   const enums = useEnums()
@@ -35,6 +36,9 @@ export default function SystemsPage() {
   const [filingId, setFilingId] = useState<number | null>(null)
   const [importance, setImportance] = useState<string | undefined>()
   const [tagFilter, setTagFilter] = useState<string | undefined>()
+  // 批量导入(#346): 仅系统/开发/安全管理员可见入口
+  const canImport = isSystemImportRole(getStoredUser()?.role)
+  const [importOpen, setImportOpen] = useState(false)
 
   const reload = useCallback(() => {
     setLoading(true)
@@ -124,9 +128,16 @@ export default function SystemsPage() {
         title="系统清单"
         description="登记在册的系统资产, 作为安全评估的对象; 一个系统对应多轮评估"
         extra={(
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ user_scale: '1k_to_100k', types: [], tags: [], is_public: false })}>
-            新建系统
-          </Button>
+          <Space>
+            {canImport && (
+              <Button icon={<UploadOutlined />} onClick={() => setImportOpen(true)}>
+                批量导入
+              </Button>
+            )}
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ user_scale: '1k_to_100k', types: [], tags: [], is_public: false })}>
+              新建系统
+            </Button>
+          </Space>
         )}
       />
       <Card size="small" style={{ marginBottom: 16 }}>
@@ -190,7 +201,98 @@ export default function SystemsPage() {
           onSaved={() => { setEditing(null); reload() }}
         />
       )}
+      {importOpen && (
+        <SystemImportModal
+          onClose={() => setImportOpen(false)}
+          onImported={reload}
+        />
+      )}
     </div>
+  )
+}
+
+/** 系统批量导入弹窗(#346): CSV 上传 → 逐行校验入库, 展示新增数与跳过明细。 */
+export function SystemImportModal({ onClose, onImported }: {
+  onClose: () => void
+  onImported: () => void
+}) {
+  const [file, setFile] = useState<UploadFile | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<SystemImportResult | null>(null)
+
+  const run = async () => {
+    if (!file?.originFileObj) return
+    setBusy(true)
+    try {
+      const r = await api.importSystems(file.originFileObj)
+      setResult(r)
+      onImported()
+    } catch (e) {
+      message.error((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal
+      title="批量导入系统"
+      width={680}
+      centered
+      open
+      onCancel={onClose}
+      footer={[
+        <Button key="close" onClick={onClose}>关闭</Button>,
+        <Button key="run" type="primary" loading={busy} disabled={!file} onClick={() => void run()}>
+          立即导入
+        </Button>,
+      ]}
+    >
+      <Alert
+        type="info" showIcon style={{ marginBottom: 12 }}
+        message="CSV 首行为表头(中英文均可), 逐行校验: 冲突或非法行整行跳过, 不影响其他行"
+        description={(
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            列: 系统名称(必填) / 系统编号 / 挂靠备案(按名称) / 用户规模(&lt;1千、1千-10万、10万-100万、&gt;100万) /
+            是否公网(是/否) / 业务类型 / 合规目标 / 归属部门 / 重要程度(高、中、低) / 标签 / 三方责任人;
+            多值列用顿号或逗号分隔, 业务类型与合规目标需为系统内已有选项。
+          </Typography.Text>
+        )}
+      />
+      <Upload.Dragger
+        accept=".csv"
+        maxCount={1}
+        disabled={busy}
+        beforeUpload={(f) => { setFile(f); setResult(null); return false }}
+        onRemove={() => setFile(null)}
+        fileList={file ? [file] : []}
+      >
+        <p className="ant-upload-text">点击或拖拽 CSV 文件到此处</p>
+        <p className="ant-upload-hint">仅支持 .csv(UTF-8 / GBK 编码均可), 单次最多 1000 行</p>
+      </Upload.Dragger>
+      {result && (
+        <div style={{ marginTop: 12 }}>
+          <Alert
+            type={result.created > 0 ? 'success' : 'warning'}
+            showIcon
+            message={`导入完成: 新增 ${result.created} 个系统${result.skipped.length ? `,跳过 ${result.skipped.length} 行` : ''}`}
+          />
+          {result.skipped.length > 0 && (
+            <Table
+              size="small" style={{ marginTop: 8 }}
+              rowKey={(r) => `${r.row}-${r.name}`}
+              dataSource={result.skipped}
+              pagination={false}
+              columns={[
+                { title: '行号', dataIndex: 'row', width: 70 },
+                { title: '名称', dataIndex: 'name', width: 160, ellipsis: true },
+                { title: '跳过原因', dataIndex: 'reason' },
+              ]}
+            />
+          )}
+        </div>
+      )}
+    </Modal>
   )
 }
 

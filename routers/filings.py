@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session
 import shared.constants as C
 from models import Filing, PlatformUser
 from routers.common import (
-    client_ip, get_db, read_upload_limited, require_login, require_write_roles,
+    client_ip, decode_upload_csv, get_db, read_upload_limited, require_login,
+    require_write_roles,
 )
 from schemas.system import FilingCreate, FilingDetail, FilingOut, FilingUpdate
 from services.audit_service import audit
@@ -94,16 +95,6 @@ _CSV_HEADER_ALIASES = {
 _CSV_MAX_ROWS = 1000
 
 
-def _decode_csv(raw: bytes) -> str:
-    """国内 Excel 另存的 CSV 常是 GBK/带 BOM 的 UTF-8, 依次尝试解码。"""
-    for encoding in ("utf-8-sig", "gbk"):
-        try:
-            return raw.decode(encoding)
-        except UnicodeDecodeError:
-            continue
-    raise HTTPException(status_code=400, detail="CSV 文件编码无法识别, 请另存为 UTF-8 或 GBK")
-
-
 @router.post("/import", status_code=201, dependencies=[_writable])
 async def import_csv(request: Request, file: UploadFile = File(...),
                      db: Session = Depends(get_db),
@@ -117,7 +108,7 @@ async def import_csv(request: Request, file: UploadFile = File(...),
     if not (file.filename or "").lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="请上传 .csv 文件")
     raw = await read_upload_limited(file)
-    reader = csv.DictReader(io.StringIO(_decode_csv(raw)))
+    reader = csv.DictReader(io.StringIO(decode_upload_csv(raw)))
     if not reader.fieldnames:
         raise HTTPException(status_code=400, detail="CSV 文件为空")
     fields = {_CSV_HEADER_ALIASES.get(str(h).strip().lower()): str(h).strip()

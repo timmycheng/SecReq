@@ -552,6 +552,9 @@ PLATFORM_ADMIN_ROLES = ["security_admin", "sys_admin"]
 WRITE_WIZARD_ROLES = ["pm", "dev_admin"]
 # 系统写操作白名单(#309: 安全管理员同开发管理员全量管理系统; pm 仅限本人创建)。
 SYSTEM_WRITE_ROLES = ["pm", "dev_admin", "security_admin"]
+# 系统批量导入白名单(#346): 仅系统/开发/安全管理员; pm 与审计员(只读)不可导入。
+# 与 SYSTEM_WRITE_ROLES 是两套口径: pm 可逐条建系统, 但批量导入属平台级操作。
+SYSTEM_IMPORT_ROLES = ["sys_admin", "dev_admin", "security_admin"]
 # 评审提交/撤回角色(仅评估负责人侧; 提交人不得自审由服务层硬约束)。
 REVIEW_SUBMIT_ROLES = ["pm", "dev_admin"]
 
