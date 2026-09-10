@@ -66,6 +66,26 @@ def test_lockout_and_session_rules_render_threshold(session, engine):
     assert "20" in timeout.description
 
 
+def test_platform_policy_scalars_feed_default_rendering(session, engine):
+    """#325: 平台策略标量在项目未显式配置时作为占位符渲染默认值。"""
+    from shared.constants import DEFAULT_LOCKOUT_THRESHOLD, DEFAULT_SESSION_TIMEOUT_MIN
+
+    from rules.policy import set_policy_scalars
+
+    project = add_base_project(session)
+    session.add(AuthConfig(project_id=project.id, auth_methods=["password"]))
+    try:
+        set_policy_scalars(lockout_threshold=9, session_timeout_min=30)
+        reqs = gen_for(session, project, engine)
+        lock = next(r for r in reqs if r.template_id == "SEC-V2-006")
+        timeout = next(r for r in reqs if r.template_id == "SEC-V3-001")
+        assert "9" in lock.description
+        assert "30" in timeout.description
+    finally:
+        set_policy_scalars(lockout_threshold=DEFAULT_LOCKOUT_THRESHOLD,
+                           session_timeout_min=DEFAULT_SESSION_TIMEOUT_MIN)
+
+
 def test_force_2fa_small_scale_not_flagged_skips(session, engine):
     """小规模且未勾选强制双因素 → 不出强制2FA需求。"""
     project = add_base_project(session)

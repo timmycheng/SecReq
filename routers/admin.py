@@ -126,12 +126,15 @@ def put_question_bank(bank: dict, request: Request,
 
 # ── 密码策略基线 ──────────────────────────────────────
 @router.get("/policy-baselines")
-def get_policy_baselines(_: PlatformUser = Depends(require_security)):
-    from rules.policy import get_policy_baselines
+def get_policy_baselines_view(_: PlatformUser = Depends(require_security),
+                              db: Session = Depends(get_db)):
+    from rules.policy import get_policy_baselines as _current_baselines
+    stored = get_setting(db, "policy_baselines")
     return {
-        "baselines": get_policy_baselines(),
-        "lockout_threshold": C.DEFAULT_LOCKOUT_THRESHOLD,
-        "session_timeout_min": C.DEFAULT_SESSION_TIMEOUT_MIN,
+        "baselines": _current_baselines(),
+        "lockout_threshold": stored.get("lockout_threshold") or C.DEFAULT_LOCKOUT_THRESHOLD,
+        "session_timeout_min": (stored.get("session_timeout_min")
+                                or C.DEFAULT_SESSION_TIMEOUT_MIN),
     }
 
 
@@ -160,12 +163,24 @@ def put_policy_baselines(payload: PolicyBaselinesIn, request: Request,
 
 
 def _apply_policy_settings(db: Session) -> None:
-    """把库内策略覆盖注入运行时(lifespan 启动时与本保存接口共用)。"""
-    from rules.policy import set_policy_baselines
+    """把库内策略覆盖注入运行时(lifespan 启动时与本保存接口共用)。
+
+    两个标量(锁定阈值/会话超时)一并接线(#325): 会话服务 TTL/锁定与
+    规则引擎占位符渲染的默认值都消费注入值。
+    """
+    from rules.policy import set_policy_baselines, set_policy_scalars
+    from services import session_service
 
     stored = get_setting(db, "policy_baselines")
     if stored.get("baselines"):
         set_policy_baselines(stored["baselines"])
+    threshold = stored.get("lockout_threshold")
+    timeout = stored.get("session_timeout_min")
+    threshold = threshold if isinstance(threshold, int) and threshold > 0 else None
+    timeout = timeout if isinstance(timeout, int) and timeout > 0 else None
+    set_policy_scalars(lockout_threshold=threshold, session_timeout_min=timeout)
+    session_service.apply_session_policy(lockout_threshold=threshold,
+                                         session_timeout_min=timeout)
 
 
 # ── 更新日志(#55) ─────────────────────────────────────

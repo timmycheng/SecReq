@@ -108,6 +108,49 @@ def test_question_bank_roundtrip(sec, kb_files):
     assert fresh["questions"][0]["options"][0]["score"] == 9
 
 
+def test_policy_scalar_roundtrip_and_runtime_effect(api, sec):
+    """#325: 锁定阈值/会话超时保存后回显, 并注入平台会话服务生效。"""
+    from datetime import datetime
+
+    from models import PlatformUser, UserSession
+    from services import session_service
+
+    body = sec.get("/api/admin/policy-baselines").json()
+    try:
+        assert sec.put("/api/admin/policy-baselines", json={
+            "baselines": body["baselines"], "lockout_threshold": 9,
+            "session_timeout_min": 30}).status_code == 200
+        after = sec.get("/api/admin/policy-baselines").json()
+        assert after["lockout_threshold"] == 9
+        assert after["session_timeout_min"] == 30
+
+        # 会话 TTL 生效: 30 分钟后过期(原为写死 12 小时)
+        db = api.session_factory()
+        try:
+            user = db.query(PlatformUser).filter_by(username="dev_admin").first()
+            token = session_service.create_session(db, user)
+            row = db.query(UserSession).filter_by(
+                token_hash=session_service._token_hash(token)).first()
+            delta = row.expires_at - datetime.now()
+            assert 0 < delta.total_seconds() <= 31 * 60
+        finally:
+            db.close()
+
+        # 锁定阈值生效: 第 9 次失败才进入锁定(原为写死 5 次)
+        uname = "scalar-lockout-user"
+        for _ in range(8):
+            session_service.record_login_failure(uname)
+        assert not session_service.login_locked(uname)
+        session_service.record_login_failure(uname)
+        assert session_service.login_locked(uname)
+        session_service.clear_login_failures(uname)
+    finally:
+        # 恢复进程内策略运行值, 避免泄漏到其他用例
+        session_service.apply_session_policy(
+            lockout_threshold=session_service.LOCKOUT_THRESHOLD,
+            session_timeout_min=session_service.SESSION_TTL_HOURS * 60)
+
+
 def test_policy_baselines_effect_on_grading_baseline(sec, api):
     resp = sec.put("/api/admin/policy-baselines", json={
         "baselines": {

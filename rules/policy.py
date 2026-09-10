@@ -12,6 +12,17 @@ _FALLBACK_BASELINE = {"pwd_min_length": 8, "pwd_complexity": 3, "pwd_valid_days"
 
 # 管理端覆盖(系统管理→策略基线; None 时用 shared.constants 内置默认)
 _baseline_override: dict | None = None
+# 管理端标量覆盖(#325): 平台锁定阈值/会话超时, 参与占位符渲染默认值
+_scalar_override: dict = {}
+
+
+def set_policy_scalars(*, lockout_threshold: int | None = None,
+                       session_timeout_min: int | None = None) -> None:
+    """管理端保存后注入标量默认值(进程内生效); 传 None 表示保持现值。"""
+    if lockout_threshold is not None:
+        _scalar_override["lockout_threshold"] = lockout_threshold
+    if session_timeout_min is not None:
+        _scalar_override["session_timeout_min"] = session_timeout_min
 
 
 def get_policy_baselines() -> dict:
@@ -39,7 +50,11 @@ def effective_password_policy(ctx: RequirementContext) -> dict[str, str]:
         "pwd_complexity": pick("pwd_complexity", defaults["pwd_complexity"]),
         "pwd_valid_days": pick("pwd_valid_days", defaults["pwd_valid_days"]),
         "pwd_history_limit": pick("pwd_history_limit", 3),
-        "lockout_threshold": pick("lockout_threshold", C.DEFAULT_LOCKOUT_THRESHOLD),
-        "session_timeout_min": pick("session_timeout_min", C.DEFAULT_SESSION_TIMEOUT_MIN),
+        "lockout_threshold": pick("lockout_threshold",
+                                  _scalar_override.get("lockout_threshold",
+                                                       C.DEFAULT_LOCKOUT_THRESHOLD)),
+        "session_timeout_min": pick("session_timeout_min",
+                                    _scalar_override.get("session_timeout_min",
+                                                         C.DEFAULT_SESSION_TIMEOUT_MIN)),
         "concurrent_limit": pick("concurrent_limit", 1),
     }
