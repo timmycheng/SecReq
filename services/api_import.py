@@ -27,11 +27,14 @@ def _parse_bool(raw: str, default: bool) -> tuple[bool | None, str | None]:
     return None, f"布尔值无法识别: {raw!r}(可用 是/否/true/false/1/0)"
 
 
-def _parse_line(line: str, index: int) -> dict:
-    """单行 → 行对象; 错误写入 error 字段(不抛出, 非法行不阻塞合法行)。"""
+def _parse_cells(cells: list[str], index: int) -> dict:
+    """结构化单元格 → 行对象; 错误写入 error 字段(不抛出, 非法行不阻塞合法行)。
+
+    xlsx/CSV 走本入口(#332): 单元格/引号字段内的逗号不致错列。
+    """
     row = {"index": index, "name": "", "method": "GET", "path": "",
            "auth_required": True, "public_exposed": False, "error": None}
-    cells = [c.strip() for c in line.replace("\t", ",").split(",")]
+    cells = [c.strip() for c in cells]
     errors: list[str] = []
     if len(cells) < 3:
         row["error"] = f"列数不足({len(cells)}), 需要 名称,方法,路径[,需要认证,公网暴露]"
@@ -63,6 +66,12 @@ def _parse_line(line: str, index: int) -> dict:
     if errors:
         row["error"] = "; ".join(errors)
     return row
+
+
+def _parse_line(line: str, index: int) -> dict:
+    """粘贴文本单行 → 行对象(逗号/Tab 分列; 该格式本就不支持引号包裹字段)。"""
+    return _parse_cells(line.replace("\t", ",").split(","), index)
+
 
 
 def parse_text(text: str) -> list[dict]:
@@ -101,7 +110,7 @@ def parse_xlsx(content: bytes) -> list[dict]:
             if _looks_like_header(cells):
                 continue
         index += 1
-        rows.append(_parse_line(",".join(cells), index))
+        rows.append(_parse_cells(cells, index))
     wb.close()
     return rows
 
@@ -117,15 +126,16 @@ def parse_csv(content: bytes) -> list[dict]:
         header_skipped = False
         reader = csv.reader(io.StringIO(text))
         for cells in reader:
-            line = ",".join(cells)
-            if not line.strip() or line.strip().startswith("#"):
+            joined = ",".join(cells)
+            if not joined.strip() or joined.strip().startswith("#"):
                 continue
             if not header_skipped:
                 header_skipped = True
                 if _looks_like_header(cells):
                     continue
             index += 1
-            rows.append(_parse_line(line, index))
+            # 直接交结构化单元格(#332): 引号包裹的字段(如 "订单,退款接口")不再被打散
+            rows.append(_parse_cells(cells, index))
         return rows
     return parse_text(text)
 
@@ -183,7 +193,12 @@ def parse_openapi(text: str) -> list[dict]:
 def parse_upload(filename: str, content: bytes) -> list[dict]:
     """按扩展名分派: xlsx → parse_xlsx; json/yaml → OpenAPI/Swagger(#227); csv/txt → parse_csv。"""
     lowered = (filename or "").lower()
-    if lowered.endswith(".xlsx") or lowered.endswith(".xls"):
+    if lowered.endswith(".xls"):
+        # 旧版二进制 .xls openpyxl 读不了(#332): 给可读报错而非 500
+        return [{"index": 1, "name": "", "method": "GET", "path": "",
+                 "auth_required": True, "public_exposed": False,
+                 "error": "不支持旧版 .xls 格式, 请在 Excel 中另存为 .xlsx 后重新上传"}]
+    if lowered.endswith(".xlsx"):
         return parse_xlsx(content)
     if lowered.endswith((".json", ".yaml", ".yml")):
         text = content.decode("utf-8-sig", errors="replace")

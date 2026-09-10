@@ -94,3 +94,29 @@ def test_unknown_format_rejected():
 def test_broken_json_rejected():
     with pytest.raises(SbomParseError):
         detect_format("x.json", b'{"foo": ')
+
+
+def test_replace_components_preserves_sbom_source(session):
+    """整卷保存保留既有组件来源(#332): sbom_file 不被 manual_input 覆盖。"""
+    from conftest import add_base_project
+    from models import SbomComponent
+    from schemas.component import ComponentIn
+    from services.step_store import append_components, replace_components
+
+    project = add_base_project(session)
+    append_components(session, project.system_id, [
+        {"layer": "library", "name": "log4j-core", "version": "2.14.1"},
+    ])
+
+    rows = session.query(SbomComponent).filter_by(system_id=project.system_id).all()
+    assert rows and rows[0].source_type == "sbom_file"
+
+    items = [ComponentIn(uid=r.uid, layer=r.layer, name=r.name, version=r.version)
+             for r in rows]
+    items.append(ComponentIn(layer="library", name="new-lib", version="1.0.0"))
+    replace_components(session, project.system_id, items)
+
+    by_name = {c.name: c.source_type
+               for c in session.query(SbomComponent).filter_by(system_id=project.system_id)}
+    assert by_name["log4j-core"] == "sbom_file", "既有组件来源被整卷保存改写"
+    assert by_name["new-lib"] == "manual_input"

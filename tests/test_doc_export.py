@@ -122,3 +122,21 @@ def test_docx_diff_chapter_numbering(session):
     assert "五、与上一轮(XM-1)差异" in text
     # 字段级前后值(#176): 说明列为 中文标签: 旧值 → 新值
     assert "变更" in text and "优先级: 关键 → 高" in text
+
+
+def test_docx_empty_vulns_states_source_and_uncovered(session):
+    """#332: 空漏洞不再只说「未发现」—— 交代数据来源并列出未覆盖组件。"""
+    from types import SimpleNamespace
+
+    project = _make_project(session)
+    _add_req(session, project)
+    reqs = session.query(SecurityRequirement).filter_by(project_id=project.id).all()
+    components = [
+        SimpleNamespace(name="log4j-core", version="2.14.1",
+                        vuln_status="not_covered", vuln_status_note=None),
+    ]
+    content = build_full_docx(project, reqs, [], components=components)
+    text = _doc_text(content)
+    assert "本轮未产生已匹配的漏洞记录" in text
+    assert "漏洞数据来源" in text
+    assert "log4j-core@2.14.1" in text, "未覆盖组件应被列出供人工确认"

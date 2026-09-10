@@ -352,7 +352,17 @@ def build_full_docx(
         _vuln_source_note(doc, vulnerabilities)
         _uncovered_note(doc, components or [])
     else:
-        doc.add_paragraph("未发现漏洞记录。")
+        # #332: 无已匹配记录 ≠ 无风险 —— 交代数据来源并列出未覆盖/无法判定组件
+        doc.add_paragraph("本轮未产生已匹配的漏洞记录。")
+        try:
+            from services.vuln_source import describe_sources
+            active = next((r for r in describe_sources() if r.get("available")), None)
+            source_text = active["code"] if active else "无可用漏洞数据源"
+        except Exception:  # 数据源元信息不可读时只降级文案, 不阻断导出
+            source_text = "未知"
+        _note(doc, f"漏洞数据来源: {source_text}; "
+                   f"未覆盖/无法判定的组件不代表无风险, 需人工确认。")
+        _uncovered_note(doc, components or [])
 
     # 五、与上一轮差异(评估继承场景)
     if diff_data is not None:
