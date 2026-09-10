@@ -10,7 +10,7 @@ import pytest
 from conftest import api_as
 
 
-from models import InfraAsset, System
+from models import InfraAsset, NetboxSyncLog, System
 from services.netbox import NetboxApiError, NetboxClient, NetboxUnavailable
 from services.settings_service import get_netbox_config, get_setting, set_setting
 
@@ -419,6 +419,10 @@ class FakeSyncClient:
         return obj
 
     def patch_device(self, device_id, payload):
+        if "primary_ip4" in payload:
+            # NetBox 4.x 关联字段只接受数字 ID 或唯一属性字典(#333)
+            value = payload["primary_ip4"]
+            assert isinstance(value, (int, dict)), f"primary_ip4 非法形态: {value!r}"
         self.devices[int(device_id)].update(payload)
         self.patches.append(("device", int(device_id), payload))
         return self.devices[int(device_id)]
@@ -526,12 +530,70 @@ def test_sync_devices_and_ips_with_bootstrap(session):
     assert all(v == 1 for v in fake.created_counts.values())
     assert asset.netbox_ref_id is not None
     device = fake.devices[int(asset.netbox_ref_id)]
-    assert device["primary_ip4"] == "10.0.0.9/24"
+    assert device["primary_ip4"] == {"address": "10.0.0.9/24"}
 
     log2 = run_sync(session, "manual", client=fake)
     assert log2.stats["devices"]["skipped"] == 1
     assert log2.stats["ips"]["skipped"] == 1
     assert fake.created_counts["site"] == 1  # 引导对象不重复创建
+
+
+def test_scheduler_tick_mutex_and_state(session, monkeypatch):
+    """调度 tick 经 sync_state.begin 主张互斥(#333): 到期才跑, 跑完释放。"""
+    from datetime import datetime, timedelta
+
+    from sqlalchemy.orm import sessionmaker
+
+    from services import netbox_sync as ns
+
+    # 桩掉实际同步(避免真实网络), 只验证 tick 的调度与互斥编排
+    ran = []
+    monkeypatch.setattr(ns, "run_sync", lambda db, trigger, client=None: ran.append(trigger))
+
+    set_setting(session, "netbox", {
+        "base_url": NB_BASE, "token": NB_TOKEN, "system_slug": "system",
+        "field_map": {"name": "name", "code": "code", "owner": "owner"},
+        "sync_enabled": True, "sync_interval_hours": 1,
+    })
+    # tick 内部自建自管会话: 用同引擎的独立会话工厂, 与真实调度一致
+    factory = sessionmaker(bind=session.get_bind(), autoflush=False,
+                           expire_on_commit=False)
+
+    session.add(NetboxSyncLog(trigger="scheduled", status="success",
+                              started_at=datetime.now()))
+    session.commit()
+
+    # 刚同步过 → 未到期, 不执行
+    assert ns._scheduler_tick(factory) is False
+    assert ns.sync_state.running is False
+
+    # 日志拨老越过间隔 → 到期执行并释放互斥
+    db = factory()
+    row = db.query(NetboxSyncLog).order_by(NetboxSyncLog.id.desc()).first()
+    row.started_at = datetime.now() - timedelta(hours=2)
+    db.commit()
+    db.close()
+    assert ns._scheduler_tick(factory) is True
+    assert ns.sync_state.running is False, "tick 结束后互斥未释放"
+    assert ran == ["scheduled"]
+
+    # 互斥被占用 → 跳过本 tick
+    class OccupiedState:
+        def begin(self):
+            return False
+
+    real_state = ns.sync_state
+    ns.sync_state = OccupiedState()
+    try:
+        db = factory()
+        row = db.query(NetboxSyncLog).order_by(NetboxSyncLog.id.desc()).first()
+        row.started_at = datetime.now() - timedelta(hours=2)
+        db.commit()
+        db.close()
+        assert ns._scheduler_tick(factory) is False
+    finally:
+        ns.sync_state = real_state
+    assert ran == ["scheduled"]
 
 
 def test_sync_failure_recorded(session):
