@@ -29,6 +29,16 @@ def sec_admin_api(api):
     return client
 
 
+def test_ldap_test_rejects_new_host_with_stored_password(sec_admin_api):
+    """#324 外带防护: 留空密码沿用库内凭据时, 测其他目录地址被拒(400)。"""
+    api = sec_admin_api
+    assert api.put("/api/admin/ldap-config", json=LDAP_PUT).status_code == 200
+    resp = api.post("/api/admin/ldap-config/test", json={
+        **LDAP_PUT, "host": "ldap://10.9.9.9", "bind_password": ""})
+    assert resp.status_code == 400
+    assert "重新输入" in resp.json()["detail"]
+
+
 # ── 配置存取 ─────────────────────────────────────────
 
 def test_ldap_config_mask_and_password_reuse(sec_admin_api):

@@ -168,6 +168,62 @@ def test_llm_config_roundtrip_masks_key(sec):
     assert "sk-secret-1234" not in (cfg.get("api_key") or "")
 
 
+def test_llm_put_keeps_stored_key_on_mask_or_empty(api, sec):
+    """#324: 只改地址/模型时, 掩码回显值/空 Key 沿用库内原值, 不覆盖真实 Key。"""
+    sec.put("/api/admin/llm-config", json={
+        "base_url": "https://llm.example.com/v1", "api_key": "sk-secret-1234",
+        "model": "glm-4"})
+    masked = sec.get("/api/admin/llm-config").json()["api_key"]
+    assert masked == "sk-s****"
+
+    from services.settings_service import get_setting
+
+    def stored_llm():
+        db = api.session_factory()
+        try:
+            return get_setting(db, "llm")
+        finally:
+            db.close()
+
+    # 掩码回显提交(前端 setFieldsValue 整体回填的场景) → 库内 Key 不变
+    assert sec.put("/api/admin/llm-config", json={
+        "base_url": "https://llm2.example.com/v1", "api_key": masked,
+        "model": "glm-4.5"}).status_code == 200
+    stored = stored_llm()
+    assert stored["api_key"] == "sk-secret-1234"
+    assert stored["base_url"] == "https://llm2.example.com/v1"
+
+    # 空串同口径
+    assert sec.put("/api/admin/llm-config", json={
+        "base_url": "https://llm3.example.com/v1", "api_key": "",
+        "model": "glm-4.5"}).status_code == 200
+    stored = stored_llm()
+    assert stored["api_key"] == "sk-secret-1234"
+    assert stored["base_url"] == "https://llm3.example.com/v1"
+
+
+def test_llm_test_rejects_new_url_with_stored_key(api, sec, monkeypatch):
+    """#324 外带防护: 留空/掩码 Key 沿用库内密钥时, 测新地址被拒(400)。"""
+    sec.put("/api/admin/llm-config", json={
+        "base_url": "https://llm.example.com/v1", "api_key": "sk-secret-1234",
+        "model": "glm-4"})
+    resp = sec.post("/api/admin/llm-config/test", json={
+        "base_url": "https://evil.example.com/v1", "api_key": "", "model": "glm-4"})
+    assert resp.status_code == 400
+    assert "重新输入" in resp.json()["detail"]
+
+    # 同地址沿用(掩码提交视同沿用) → 正常放行
+    import httpx
+
+    monkeypatch.setattr(httpx, "post", lambda url, **kw: httpx.Response(
+        200, request=httpx.Request("POST", url),
+        json={"choices": [{"message": {"content": "pong"}}]}))
+    masked = sec.get("/api/admin/llm-config").json()["api_key"]
+    ok = sec.post("/api/admin/llm-config/test", json={
+        "base_url": "https://llm.example.com/v1", "api_key": masked, "model": "glm-4"})
+    assert ok.status_code == 200 and ok.json()["ok"] is True
+
+
 # ── 离线漏洞库(v2.2.0) ────────────────────────────────
 
 def test_user_update_and_guards(sec):
