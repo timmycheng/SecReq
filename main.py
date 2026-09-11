@@ -121,7 +121,7 @@ app = FastAPI(
     title="安全需求管理平台",
     description="面向开发与安全两角色的安全需求管理平台: JR/T 0197 五级数据分级、"
                 "监管合规基线映射、安全需求清单生成与确认",
-    version="3.3.0",
+    version="3.3.1",
     lifespan=lifespan,
     docs_url="/docs" if _docs_enabled else None,
     redoc_url="/redoc" if _docs_enabled else None,
