@@ -103,7 +103,7 @@ jobs:
 
       # 浏览器二进制按 playwright 版本缓存, 避免 CI 每次百 MB 下载
       - name: 缓存 Playwright 浏览器
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ hashFiles('frontend/package-lock.json') }}
